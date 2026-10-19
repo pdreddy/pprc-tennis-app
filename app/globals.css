@@ -1,0 +1,142 @@
+@import "tailwindcss";
+
+@theme {
+  --color-court: #2b5c8a;
+  --color-court-deep: #173a5c;
+  --color-apron: #4f7a5a;
+  --color-ball: #dcef4c;
+  --color-ink: #15222f;
+  --color-chalk: #f4f7fa;
+  --color-line: #d6dee6;
+  --color-muted: #5c6b7a;
+  --color-loss: #b4483e;
+  --font-display: "Barlow Condensed", "Arial Narrow", system-ui, sans-serif;
+  --font-sans: "Barlow", system-ui, sans-serif;
+}
+
+@layer base {
+:root {
+  color-scheme: light;
+}
+
+body {
+  background: var(--color-chalk);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 17px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+.display {
+  font-family: var(--font-display);
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: 0.005em;
+}
+
+.num {
+  font-family: var(--font-display);
+  font-variant-numeric: tabular-nums;
+}
+
+a {
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 3px solid var(--color-ball);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+}
+
+@layer components {
+/* Data tables: dense, ruled like a scoresheet. */
+.sheet {
+  width: 100%;
+  border-collapse: collapse;
+}
+.sheet th {
+  text-align: left;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--color-muted);
+  padding: 8px 10px;
+  border-bottom: 2px solid var(--color-ink);
+}
+.sheet td {
+  padding: 10px;
+  border-bottom: 1px solid var(--color-line);
+  vertical-align: middle;
+}
+.sheet tr:hover td {
+  background: #eaf0f5;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 6px;
+  padding: 10px 16px;
+  font-weight: 600;
+  background: var(--color-court);
+  color: white;
+  border: 0;
+  cursor: pointer;
+}
+.btn:hover {
+  background: var(--color-court-deep);
+}
+.btn:disabled {
+  opacity: 0.55;
+  cursor: progress;
+}
+.btn-quiet {
+  background: transparent;
+  color: var(--color-court);
+  border: 1.5px solid var(--color-court);
+}
+.btn-quiet:hover {
+  background: #e3ecf4;
+}
+
+.field {
+  display: block;
+  width: 100%;
+  border: 1.5px solid var(--color-line);
+  background: white;
+  border-radius: 6px;
+  padding: 9px 11px;
+  font: inherit;
+}
+.field:focus {
+  border-color: var(--color-court);
+  outline: none;
+}
+
+.label {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .plate-in {
+    animation: plate 600ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  }
+  @keyframes plate {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+  }
+}
