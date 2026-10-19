@@ -4,3 +4,17 @@ data/*.db*
 data/uploads
 public/generated
 .env.local
+
+# PPRC Events module
+.local/
+**/dist/
+functions/lib/
+functions/deploy/
+**/.env
+**/.env.*.local
+firebase-debug.log
+*-debug.log
+playwright-report/
+test-results/
+**/.env.*
+!**/.env.example

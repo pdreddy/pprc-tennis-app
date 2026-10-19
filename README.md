@@ -1,3 +1,123 @@
+# PPRC Events
+
+An original, mobile-first tournament and event module for Prosper Premier Racquet Club. React 18 + Vite + TypeScript, Tailwind, React Router, TanStack Query, Firebase Auth/Firestore/Gen 2 Functions/Storage, Stripe Checkout, and an installable PWA. Player and admin experiences share one app; permissions are enforced by Functions and security rules.
+
+**Current verification:** domain tests, type checks, lint, production builds, browser UI checks and Firebase emulator integration checks have passed. All three tournament-flow browser tests pass; see [validation details](docs/VALIDATION.md). Stripe test-mode reconciliation, real Google sign-in and FCM delivery still require staging configuration before live use.
+
+## Repository layout
+
+```text
+apps/web/          React 18 player and admin PWA
+functions/src/     Gen 2 callables, Stripe adapter, scheduled jobs and seed
+functions/test/    Firestore transaction and rules integration tests
+packages/shared/   Typed models, Zod schemas and tournament algorithms/tests
+tests/             Playwright browser and tournament-flow tests
+docs/              Architecture, decisions, API, validation and implementation plan
+```
+
+The original Next.js prototype below remains intact. Its `app/`, `lib/`, and SQLite `data/` paths are independent of the new Events module. Existing root `dev`, `test`, `seed`, `build` commands still refer to that prototype. Never run its seed command to initialize Events.
+
+## Run locally
+
+Prerequisites: Node 22 (production Functions target), pnpm 11.25+, Java 21+, and Chromium for Playwright. The cloud environment includes checksum-verified Node 22.23.3 and runs Functions with that runtime. Install a Playwright-managed Chromium on a normal workstation and set `PLAYWRIGHT_CHROMIUM_PATH` to that binary, or use `/usr/bin/chromium` on this cloud machine.
+
+```bash
+pnpm install --frozen-lockfile
+# Terminal 1: builds Functions and starts real Firebase emulators
+pnpm events:emulators
+# Terminal 2: seed once after emulator readiness; repeat preserves existing events
+pnpm events:seed
+pnpm events:dev
+```
+
+The web app uses port 5173. Emulator UI uses 4000, Auth 9099, Firestore 8080, Functions 5001 and Storage 9199. These are local development ports, not public preview links. Auth emulator accounts:
+
+| Role | Email | Password |
+| --- | --- | --- |
+| Player | player1@pprc.test through player16@pprc.test | PprcDemo2026! |
+| Club admin | admin@pprc.test | PprcDemo2026! |
+| Assigned event admin | event-admin@pprc.test | PprcDemo2026! |
+| Read-only support | support@pprc.test | PprcDemo2026! |
+| Unassigned event admin | other-admin@pprc.test | PprcDemo2026! |
+
+These accounts exist only in the emulator. The seed refuses a non-demo project and creates 16 sample players, three events (completed singles, open singles, group round robin/playoffs) and four courts. Emulator state is ephemeral unless you use Firebase `--import` / `--export-on-exit`; do not seed production. To reset local data, stop the emulators and restart without an import, then seed again.
+
+Local defaults require no `.env` and no payment secrets. `apps/web/.env.example` documents public Firebase config; copy it to `.env.local` only if overriding defaults. `functions/.env.example` documents production origin and Secret Manager bindings. Never put Stripe secret keys or service-account JSON in `VITE_*` variables.
+
+On this restricted cloud machine, dependency installation may need:
+
+```bash
+npm_config_devdir=/workspace/.cache/node-gyp pnpm install --frozen-lockfile --store-dir /workspace/.cache/pnpm
+```
+
+The Firebase wrapper puts emulator downloads and CLI configuration in the checkout's ignored `.local/` directory instead of an unwritable home. Firebase's normal artifact checksum and TLS verification remain enabled. Required download domains: `storage.googleapis.com`, `firebase-public.firebaseio.com`; package registries are also required. These domains are saved in the environment draft and emulator downloads were verified after network access became available.
+
+## Player flow
+
+1. Browse `/events`; filter by keyword, date, location, price, reference level, sport, type, category or availability.
+2. Sign in and complete `/profile`. UTR/external values are references only, with a separately audited admin verification workflow.
+3. Choose a division, answer questions, acknowledge the waiver and optionally upload a signed waiver PDF.
+4. Open `/my-events`; complete payment with the emulator-only simulator. Full divisions use a server-ordered waitlist; withdrawal opens a place and promotes the next player.
+5. Follow published draws, `/schedule`, confirmations, results, match history and notifications.
+
+## Admin flow
+
+1. `/admin/events/new`: configure basics/cover, registration, eligibility divisions, scoring, courts, daily hours and blackouts. Create a draft, preview and publish.
+2. Review paid/free entries; approve and seed with an audit reason. Resolve pending registrations before generating the division draw.
+3. Generate/publish the draw, generate the basic court schedule, and check players in.
+4. Enter legal scores; supervised admins can finalize directly. Players submit for opponent/admin confirmation. Winners advance transactionally.
+5. Review corrections, reporting reference status, payments/refund requests and CSV exports. Audit history is immutable from clients.
+
+Formats: single elimination, round robin, and group round robin with knockout playoffs. A division locks new registration after draw generation. Standings ties affecting playoff qualification require explicit resolution. No proprietary rating calculation, ladder, external result submission, scraped data or copied branding is included.
+
+## Test commands
+
+Stop any manually running emulator suite before integration/E2E commands; those commands own fresh emulator processes. Run E2E against fresh unseeded emulator state: its command seeds the project itself.
+
+```bash
+pnpm events:lint
+pnpm events:typecheck
+pnpm events:test            # shared domain tests
+pnpm events:build           # standalone Functions package + PWA
+pnpm events:ui              # browser shell/navigation/sign-in checks, no emulators needed
+pnpm events:integration     # real Firestore transactions + security rules
+pnpm events:e2e             # real callable-driven player/admin flows via Playwright
+```
+
+`PLAYWRIGHT_CHROMIUM_PATH` overrides `/usr/bin/chromium`. `pnpm exec playwright install chromium` installs Playwright's managed browser; update that variable/configuration when using the managed binary. Browser screenshots, traces and reports are generated under ignored `test-results/` and `playwright-report/`. Full-flow tests include registration/payment, approval/seeding, draw publication, scheduling, scores and waitlist promotion. Integration tests also cover contention, idempotency, roles, immutable audits and direct-write denial.
+
+## Firebase and Stripe deployment
+
+Deployment is intentionally not executed here. Use a **separate Firebase project from the existing ladder**, enable billing/required APIs for Gen 2 Functions, Firestore, Auth, Storage and Scheduler, and choose the desired Firestore region before creating data.
+
+1. Enable Google and/or email/password in Firebase Auth; add the Hosting domain as authorized.
+2. Bootstrap `memberships/{FIRST_ADMIN_UID}` through a trusted Admin SDK/IAM process with `{clubId:'pprc', role:'clubAdmin', member:true}`. Never grant this through signup or browser writes.
+3. Create `apps/web/.env.production.local` using your project's public Firebase configuration and `VITE_USE_EMULATORS=false`. Set messaging sender/VAPID config if using FCM. Build-time client config requires a rebuild after changes.
+4. Create ignored `functions/.env.YOUR_PROJECT_ID` containing `APP_ORIGIN=https://YOUR_PROJECT_ID.web.app`. The Functions build copies environment files into the generated deployment package. Keep secret values in Secret Manager:
+
+```bash
+pnpm exec firebase functions:secrets:set STRIPE_SECRET_KEY --project YOUR_PROJECT_ID
+pnpm exec firebase functions:secrets:set STRIPE_WEBHOOK_SECRET --project YOUR_PROJECT_ID
+pnpm events:build
+pnpm exec firebase deploy --project YOUR_PROJECT_ID --only firestore,storage,functions,hosting
+```
+
+5. Configure Stripe test-mode Checkout webhook delivery to the deployed `stripeWebhook` Gen 2 URL. Subscribe to `checkout.session.completed` and `checkout.session.async_payment_succeeded`. Use the corresponding signing secret. The handler verifies raw-body signatures, amount, currency, session and user binding; it does not trust redirect query parameters. Stripe test secrets are required for real payment/refund checks. The emulator payment adapter uses no Stripe key.
+6. Test signed webhook retries, duplicate delivery, late payments, withdrawals/refunds, unauthorized access and notification delivery against a staging project before enabling live payments. For Stripe CLI forwarding, use a dedicated staging test endpoint/key; do not point a live Stripe account at the local simulator.
+7. Configure Storage bucket CORS for the actual Hosting origin for authenticated profile photo reads. Covers are public marketing images; profile photos and waivers have separate access rules.
+
+`functions/deploy/` is generated and ignored. It includes bundled shared code and a standalone `package.json` with normal runtime dependencies, so Cloud Build does not need the pnpm workspace. Production targets Node 22. The cloud helper `bash scripts/events/cloud-install.sh` activates the verified Node 22 runtime and runs the installation/build checks. On a workstation, use your own Node 22 and pnpm installation. No production credentials, deployment, FCM delivery, fresh-task restoration or live Stripe transactions have been verified in this session.
+
+## Scope and operations
+
+Configured in source: all listed player/admin routes, trusted tournament operations, capacity/waitlist handling, audited versions/corrections, exports, in-app notifications, PWA shell, Storage rules, templates, role management and demo seeds. Environment-dependent: Firebase project setup, enabled Auth providers, signed Stripe checkout/webhooks/refunds, FCM/VAPID, scheduled jobs and deployment. Cloud instance verification is listed separately in `docs/VALIDATION.md`.
+
+The release uses a basic form-based scheduler and supervised administrative workflow. Account deletion is a club-reviewed request, not automatic erasure. Scheduled maintenance and push require deployed managed services. Large events should be load-tested; event-wide transactions intentionally cap scope. See [architecture](docs/ARCHITECTURE.md), [decisions](docs/DECISIONS.md) and [API](docs/API_AND_FUNCTIONS.md).
+
+---
+
+# Legacy prototype documentation
+
 # Baseline
 
 A level-based tennis rating app in the spirit of UTR, with its own name, rating engine and sample data.

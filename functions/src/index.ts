@@ -1,0 +1,390 @@
+import { initializeApp } from "firebase-admin/app";
+import { getFirestore, FieldValue } from "firebase-admin/firestore";
+import { getMessaging } from "firebase-admin/messaging";
+import { onCall, onRequest, HttpsError } from "firebase-functions/v2/https";
+import { onSchedule } from "firebase-functions/v2/scheduler";
+import { onDocumentCreated } from "firebase-functions/v2/firestore";
+import { defineSecret } from "firebase-functions/params";
+import { setGlobalOptions } from "firebase-functions/v2";
+import Stripe from "stripe";
+import { randomUUID, createHash } from "node:crypto";
+import { z, ZodError } from "zod";
+import { execute, assertEventAdmin, requiredReason } from "./engine.js";
+initializeApp();
+setGlobalOptions({ region: "us-central1", maxInstances: 10 });
+const inEmulator = process.env.FUNCTIONS_EMULATOR === "true";
+const stripeKey = defineSecret("STRIPE_SECRET_KEY");
+const webhookKey = defineSecret("STRIPE_WEBHOOK_SECRET");
+function callable(name: string) {
+  return onCall({ cors: true }, async (request) => {
+    if (!request.auth)
+      throw new HttpsError("unauthenticated", "Sign in required");
+    try {
+      return await execute(name, request.auth.uid, request.data);
+    } catch (error) {
+      if (error instanceof HttpsError) throw error;
+      if (error instanceof ZodError)
+        throw new HttpsError(
+          "invalid-argument",
+          error.issues
+            .map((i) => `${i.path.join(".")}: ${i.message}`)
+            .join("; "),
+        );
+      throw new HttpsError(
+        "failed-precondition",
+        error instanceof Error ? error.message : "Operation failed",
+      );
+    }
+  });
+}
+export const createEvent = callable("createEvent");
+export const updateEvent = callable("updateEvent");
+export const publishEvent = callable("publishEvent");
+export const registerForDivision = callable("registerForDivision");
+export const cancelRegistration = callable("cancelRegistration");
+export const promoteWaitlist = callable("promoteWaitlist");
+export const confirmDevelopmentPayment = callable("confirmDevelopmentPayment");
+export const approveRegistration = callable("approveRegistration");
+export const rejectRegistration = callable("rejectRegistration");
+export const generateDraw = callable("generateDraw");
+export const publishDraw = callable("publishDraw");
+export const generateSchedule = callable("generateSchedule");
+export const rescheduleMatch = callable("rescheduleMatch");
+export const checkInPlayer = callable("checkInPlayer");
+export const submitScore = callable("submitScore");
+export const requestScoreCorrection = callable("requestScoreCorrection");
+export const finalizeScore = callable("finalizeScore");
+export const updateRoundRobinStandings = callable("updateRoundRobinStandings");
+export const exportEventReport = callable("exportEventReport");
+export const createEventTemplate = callable("createEventTemplate");
+export const applyAdminOverride = callable("applyAdminOverride");
+export const saveProfile = callable("saveProfile");
+export const requestAccountDeletion = callable("requestAccountDeletion");
+export const manageClub = callable("manageClub");
+export const registerPushToken = callable("registerPushToken");
+interface PaymentProvider {
+  checkout(input: {
+    paymentId: string;
+    eventId: string;
+    registrationId: string;
+    amount: number;
+    uid: string;
+    requestId: string;
+  }): Promise<{ url?: string; development: boolean; paymentId: string }>;
+}
+class DevelopmentPayments implements PaymentProvider {
+  async checkout(input: { paymentId: string }) {
+    return { development: true, paymentId: input.paymentId };
+  }
+}
+class StripePayments implements PaymentProvider {
+  constructor(private stripe: Stripe) {}
+  async checkout(input: {
+    paymentId: string;
+    eventId: string;
+    registrationId: string;
+    amount: number;
+    uid: string;
+    requestId: string;
+  }) {
+    const origin = process.env.APP_ORIGIN;
+    if (!origin?.startsWith("https://"))
+      throw new HttpsError("failed-precondition", "Configure HTTPS APP_ORIGIN");
+    const session = await this.stripe.checkout.sessions.create(
+      {
+        mode: "payment",
+        client_reference_id: input.uid,
+        metadata: {
+          paymentId: input.paymentId,
+          eventId: input.eventId,
+          uid: input.uid,
+        },
+        line_items: [
+          {
+            quantity: 1,
+            price_data: {
+              currency: "usd",
+              unit_amount: input.amount,
+              product_data: { name: "PPRC event registration" },
+            },
+          },
+        ],
+        success_url: `${origin}/my-events?payment=success`,
+        cancel_url: `${origin}/my-events?payment=cancelled`,
+      },
+      { idempotencyKey: input.paymentId },
+    );
+    await getFirestore().doc(`payments/${input.paymentId}`).update({
+      stripeSessionId: session.id,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    return {
+      url: session.url!,
+      development: false,
+      paymentId: input.paymentId,
+    };
+  }
+}
+export const startCheckout = onCall(
+  { cors: true, secrets: inEmulator ? [] : [stripeKey] },
+  async (req) => {
+    if (!req.auth) throw new HttpsError("unauthenticated", "Sign in required");
+    const payment = await execute("reserveCheckout", req.auth.uid, req.data);
+    const provider: PaymentProvider =
+      process.env.FUNCTIONS_EMULATOR === "true"
+        ? new DevelopmentPayments()
+        : new StripePayments(new Stripe(stripeKey.value()));
+    return provider.checkout({
+      ...payment,
+      uid: req.auth.uid,
+      requestId: req.data.requestId,
+    });
+  },
+);
+export const stripeWebhook = onRequest(
+  { secrets: inEmulator ? [] : [stripeKey, webhookKey] },
+  async (req, res) => {
+    if (req.method !== "POST") {
+      res.status(405).send("POST required");
+      return;
+    }
+    const stripe = new Stripe(stripeKey.value());
+    let event: Stripe.Event;
+    try {
+      event = stripe.webhooks.constructEvent(
+        req.rawBody,
+        req.headers["stripe-signature"] as string,
+        webhookKey.value(),
+      );
+    } catch {
+      res.status(400).send("Invalid signature");
+      return;
+    }
+    try {
+      if (
+        event.type === "checkout.session.completed" ||
+        event.type === "checkout.session.async_payment_succeeded"
+      ) {
+        const session = event.data.object as Stripe.Checkout.Session;
+        if (session.payment_status === "paid" && session.currency === "usd") {
+          const m = session.metadata!;
+          const p = await getFirestore().doc(`payments/${m.paymentId}`).get();
+          if (
+            p.get("stripeSessionId") !== session.id ||
+            p.get("playerId") !== m.uid
+          )
+            throw Error("Session binding mismatch");
+          await execute(
+            "recordStripePayment",
+            m.uid,
+            {
+              eventId: m.eventId,
+              paymentId: m.paymentId,
+              amount: session.amount_total,
+              providerReference: session.payment_intent,
+              requestId: uuidFor(event.id),
+            },
+            true,
+          );
+        }
+      }
+      res.status(200).send("ok");
+    } catch (error) {
+      console.error("Stripe event needs retry", event.id, error);
+      res.status(500).send("Payment reconciliation required");
+    }
+  },
+);
+export const refundPayment = onCall(
+  { secrets: inEmulator ? [] : [stripeKey] },
+  async (req) => {
+    if (!req.auth) throw new HttpsError("unauthenticated", "Sign in required");
+    const data = z
+      .object({
+        requestId: z.string().uuid(),
+        eventId: z.string(),
+        paymentId: z.string().regex(/^[\w-]+$/),
+        reason: z.string().min(5).max(1000),
+      })
+      .parse(req.data);
+    requiredReason(data);
+    await assertEventAdmin(req.auth.uid, data.eventId);
+    const db = getFirestore(),
+      ref = db.doc(`payments/${data.paymentId}`);
+    const snap = await ref.get();
+    if (snap.get("eventId") !== data.eventId)
+      throw new HttpsError("permission-denied", "Wrong event");
+    if (snap.get("provider") === "development")
+      return execute("applyAdminOverride", req.auth.uid, {
+        ...data,
+        kind: "refund",
+      });
+    if (snap.get("state") === "Refunded") return { status: "Refunded" };
+    if (
+      !["Paid", "Refund Required"].includes(snap.get("state")) ||
+      !snap.get("refundRequested") ||
+      !snap.get("providerReference")
+    )
+      throw new HttpsError(
+        "failed-precondition",
+        "Paid Stripe payment required",
+      );
+    const refund = await new Stripe(stripeKey.value()).refunds.create(
+      {
+        payment_intent: snap.get("providerReference"),
+        metadata: { reason: data.reason },
+      },
+      { idempotencyKey: `refund-${data.paymentId}` },
+    );
+    if (refund.status !== "succeeded")
+      throw new HttpsError(
+        "failed-precondition",
+        "Refund pending; retry reconciliation",
+      );
+    await db.runTransaction(async (tx) => {
+      const current = await tx.get(ref);
+      if (current.get("state") === "Refunded") return;
+      tx.update(ref, {
+        state: "Refunded",
+        refundId: refund.id,
+        refundReason: data.reason,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      tx.update(db.doc(`registrations/${current.get("registrationId")}`), {
+        state: "Refunded",
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      tx.create(db.collection("auditEvents").doc(), {
+        actor: req.auth!.uid,
+        action: "refundPayment",
+        eventId: data.eventId,
+        clubId: "pprc",
+        entityType: "payment",
+        entityId: data.paymentId,
+        before: { state: "Paid" },
+        after: { state: "Refunded", refundId: refund.id },
+        reason: data.reason,
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+        createdBy: req.auth!.uid,
+      });
+    });
+    await execute("promoteWaitlist", req.auth.uid, {
+      eventId: data.eventId,
+      requestId: randomUUID(),
+    });
+    return { status: "Refunded" };
+  },
+);
+export const eventMaintenance = onSchedule("every 5 minutes", async () => {
+  const db = getFirestore();
+  const events = await db
+    .collection("events")
+    .where("status", "in", [
+      "Published",
+      "Registration Open",
+      "Registration Closed",
+      "Check-In",
+      "In Progress",
+    ])
+    .get();
+  for (const doc of events.docs) {
+    const event = doc.data(),
+      now = Date.now();
+    let status = event.status;
+    if (status === "Published" && now >= Date.parse(event.registrationOpen))
+      status = "Registration Open";
+    if (
+      status === "Registration Open" &&
+      now > Date.parse(event.registrationClose)
+    )
+      status = "Registration Closed";
+    if (status !== event.status)
+      await db.runTransaction(async (tx) => {
+        const fresh = await tx.get(doc.ref);
+        if (fresh.get("status") !== event.status) return;
+        tx.update(doc.ref, { status, updatedAt: FieldValue.serverTimestamp() });
+        tx.create(db.collection("auditEvents").doc(), {
+          actor: "system",
+          action: "eventDeadline",
+          clubId: "pprc",
+          eventId: doc.id,
+          entityType: "event",
+          entityId: doc.id,
+          before: { status: event.status },
+          after: { status },
+          createdAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+          createdBy: "system",
+        });
+      });
+    await execute(
+      "expireReservations",
+      "system",
+      { eventId: doc.id, requestId: randomUUID() },
+      true,
+    );
+    const matches = await db
+      .collection("matches")
+      .where("eventId", "==", doc.id)
+      .get();
+    for (const match of matches.docs) {
+      const m = match.data(),
+        t = Date.parse(m.scheduledAt ?? "");
+      if (t < now || t > now + 30 * 60000 || m.status === "Final") continue;
+      for (const playerId of [m.p1, m.p2].filter(Boolean)) {
+        const ref = db.doc(
+          `notifications/reminder-${match.id}-${playerId}-${t}`,
+        );
+        await db.runTransaction(async (tx) => {
+          if ((await tx.get(ref)).exists) return;
+          tx.create(ref, {
+            id: ref.id,
+            clubId: "pprc",
+            eventId: doc.id,
+            playerId,
+            title: "Your match starts soon",
+            body: `${event.name}: check your court assignment.`,
+            type: "match-reminder",
+            read: false,
+            createdAt: FieldValue.serverTimestamp(),
+            updatedAt: FieldValue.serverTimestamp(),
+            createdBy: "system",
+          });
+        });
+      }
+    }
+  }
+});
+export const deliverPush = onDocumentCreated(
+  "notifications/{notificationId}",
+  async (event) => {
+    if (process.env.FUNCTIONS_EMULATOR === "true") return;
+    const n = event.data?.data();
+    if (!n) return;
+    const db = getFirestore();
+    const user = await db.doc(`users/${n.playerId}`).get();
+    if (!user.get("notificationPreferences.push")) return;
+    const tokens = await db
+      .collection("pushTokens")
+      .where("playerId", "==", n.playerId)
+      .get();
+    for (const doc of tokens.docs) {
+      try {
+        await getMessaging().send({
+          token: doc.get("token"),
+          notification: { title: n.title, body: n.body },
+          webpush: {
+            fcmOptions: { link: `${process.env.APP_ORIGIN}/notifications` },
+          },
+        });
+      } catch (e) {
+        console.error("Push delivery failed", doc.id, e);
+      }
+    }
+  },
+);
+function uuidFor(input: string) {
+  const h = createHash("sha256").update(input).digest("hex");
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-4${h.slice(13, 16)}-a${h.slice(17, 20)}-${h.slice(20, 32)}`;
+}

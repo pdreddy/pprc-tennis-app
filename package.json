@@ -7,7 +7,17 @@
     "build": "next build",
     "start": "next start",
     "seed": "tsx scripts/seed.ts",
-    "test": "tsx --test lib/*.test.ts"
+    "test": "tsx --test lib/*.test.ts",
+    "events:dev": "pnpm --filter @pprc/web dev",
+    "events:build": "pnpm --filter @pprc/functions build && pnpm --filter @pprc/web build",
+    "events:typecheck": "pnpm --filter \"@pprc/*\" typecheck",
+    "events:test": "pnpm --filter @pprc/shared test",
+    "events:emulators": "pnpm --filter @pprc/functions build && node scripts/events/firebase.mjs emulators:start --project demo-pprc-events",
+    "events:seed": "pnpm --filter @pprc/functions seed",
+    "events:integration": "pnpm --filter @pprc/functions build && node scripts/events/firebase.mjs emulators:exec --project demo-pprc-events --only auth,firestore,functions,storage \"pnpm --filter @pprc/functions test\"",
+    "events:e2e": "pnpm --filter @pprc/functions build && node scripts/events/firebase.mjs emulators:exec --project demo-pprc-events --only auth,firestore,functions,storage \"pnpm events:seed && pnpm exec playwright test tests/core.spec.ts\"",
+    "events:lint": "eslint apps/web/src functions/src packages/shared/src",
+    "events:ui": "playwright test tests/ui.spec.ts"
   },
   "author": "",
   "license": "ISC",
@@ -18,14 +28,19 @@
     "react-dom": "^19.3.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.52.0",
     "@tailwindcss/postcss": "^4.3.3",
     "@types/better-sqlite3": "^9.6.0",
-    "@types/node": "^26.6.5",
+    "@types/node": "^22.15.30",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "eslint": "^9.28.0",
+    "firebase-tools": "^14.7.0",
+    "prettier": "^3.9.10",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.23.15",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.34.0"
   },
   "private": true
 }

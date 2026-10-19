@@ -1,0 +1,19 @@
+rules_version = '2';
+service firebase.storage {
+ match /b/{bucket}/o {
+  match /covers/{uid}/{file} {
+   allow read: if true;
+   allow create,update: if request.auth != null && request.auth.uid == uid && firestore.get(/databases/(default)/documents/memberships/$(uid)).data.role in ['clubAdmin','eventAdmin'] && request.resource.size < 5 * 1024 * 1024 && request.resource.contentType.matches('image/(jpeg|png|webp)');
+   allow delete: if request.auth != null && request.auth.uid == uid;
+  }
+  match /photos/{uid}/{file} {
+   allow read: if request.auth != null && (request.auth.uid == uid || firestore.get(/databases/(default)/documents/users/$(uid)).data.visibility == 'public');
+   allow create,update: if request.auth != null && request.auth.uid == uid && request.resource.size < 5 * 1024 * 1024 && request.resource.contentType.matches('image/(jpeg|png|webp)');
+   allow delete: if request.auth != null && request.auth.uid == uid;
+  }
+  match /waivers/{eventId}/{uid}/{file} {
+   allow read: if request.auth != null && (request.auth.uid == uid || (firestore.get(/databases/(default)/documents/memberships/$(request.auth.uid)).data.role == 'clubAdmin' || (firestore.get(/databases/(default)/documents/memberships/$(request.auth.uid)).data.role == 'eventAdmin' && request.auth.uid in firestore.get(/databases/(default)/documents/events/$(eventId)).data.assignedAdmins)));
+   allow create: if request.auth != null && request.auth.uid == uid && request.resource.size < 10 * 1024 * 1024 && request.resource.contentType == 'application/pdf';
+  }
+ }
+}

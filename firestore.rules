@@ -1,0 +1,36 @@
+rules_version = '2';
+service cloud.firestore {
+ match /databases/{database}/documents {
+  function signed() { return request.auth != null; }
+  function member() { return signed() && exists(/databases/$(database)/documents/memberships/$(request.auth.uid)); }
+  function role() { return member() ? get(/databases/$(database)/documents/memberships/$(request.auth.uid)).data.role : 'guest'; }
+  function club() { return member() && get(/databases/$(database)/documents/memberships/$(request.auth.uid)).data.clubId == 'pprc'; }
+  function clubAdmin() { return club() && role() == 'clubAdmin'; }
+  function support() { return club() && role() == 'platformAdmin'; }
+  function manager(e) { return clubAdmin() || (club() && role() == 'eventAdmin' && request.auth.uid in e.assignedAdmins); }
+  function event(eid) { return get(/databases/$(database)/documents/events/$(eid)).data; }
+  function publicEvent(e) { return e.visibility == 'public' && e.status != 'Draft'; }
+  function operator(eid) { return clubAdmin() || support() || manager(event(eid)); }
+  function memberEvent(e) { return club() && get(/databases/$(database)/documents/memberships/$(request.auth.uid)).data.member == true && e.status != 'Draft'; }
+  function readable(eid) { return publicEvent(event(eid)) || memberEvent(event(eid)) || manager(event(eid)) || support(); }
+  match /events/{id} { allow read: if publicEvent(resource.data) || memberEvent(resource.data) || manager(resource.data) || support(); allow write: if false; }
+  match /divisions/{id} { allow read: if readable(resource.data.eventId); allow write: if false; }
+  match /draws/{id} { allow read: if operator(resource.data.eventId) || (resource.data.published && readable(resource.data.eventId)); allow write: if false; }
+  match /drawNodes/{id} { allow read: if operator(resource.data.eventId) || (resource.data.published && readable(resource.data.eventId)); allow write: if false; }
+  match /matches/{id} { allow read: if operator(resource.data.eventId) || (resource.data.published && readable(resource.data.eventId)); allow write: if false; }
+  match /matchResults/{id} { allow read: if operator(resource.data.eventId) || (resource.data.state == 'Final' && resource.data.published && readable(resource.data.eventId)) || (signed() && request.auth.uid in resource.data.participants); allow write: if false; }
+  match /registrations/{id} { allow read: if (signed() && resource.data.playerId == request.auth.uid) || operator(resource.data.eventId); allow write: if false; }
+  match /payments/{id} { allow read: if (signed() && resource.data.playerId == request.auth.uid) || operator(resource.data.eventId); allow write: if false; }
+  match /users/{uid} {
+   allow read: if (signed() && request.auth.uid == uid) || clubAdmin() || support();
+   allow write: if false;
+  }
+  match /publicProfiles/{uid} { allow read: if true; allow write: if false; }
+  match /memberships/{uid} { allow read: if (signed() && request.auth.uid == uid) || clubAdmin() || support(); allow write: if false; }
+  match /notifications/{id} { allow read: if signed() && resource.data.playerId == request.auth.uid; allow update: if signed() && resource.data.playerId == request.auth.uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read','updatedAt']) && request.resource.data.read is bool; allow create,delete: if false; }
+  match /auditEvents/{id} { allow read: if clubAdmin() || support() || (resource.data.eventId != '' && manager(event(resource.data.eventId))); allow write: if false; }
+  match /eventTemplates/{id} { allow read: if clubAdmin() || support(); allow write: if false; }
+  match /{collection}/{id} { allow read: if collection in ['clubs','courts','venues']; allow write: if false; }
+  match /{document=**} { allow read,write: if false; }
+ }
+}
