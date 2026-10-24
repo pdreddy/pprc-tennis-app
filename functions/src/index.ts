@@ -66,6 +66,7 @@ export const requestAccountDeletion = callable("requestAccountDeletion");
 export const manageClub = callable("manageClub");
 export const registerPushToken = callable("registerPushToken");
 export const triace = callable("triace");
+export const teamCompetition = callable("teamCompetition");
 export const getMyPerformance = callable(
   "getMyPerformance",
   (_operation, uid, data) => ownPerformance(uid, data),

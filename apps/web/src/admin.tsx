@@ -26,6 +26,8 @@ import { storage } from "./firebase";
 import {
   canManage,
   defaultTriaceRules,
+  defaultKocRules,
+  defaultDoublesRules,
   formats,
   statuses,
   type Entity,
@@ -65,8 +67,11 @@ export function Admin() {
   const events = useList(
     "events",
     member?.role === "eventAdmin"
-      ? [["assignedAdmins", "array-contains", user!.uid]]
-      : [],
+      ? [
+          ["clubId", "==", "pprc"],
+          ["assignedAdmins", "array-contains", user!.uid],
+        ]
+      : [["clubId", "==", "pprc"]],
     allowed,
   );
   if (!allowed)
@@ -219,21 +224,21 @@ function Dashboard({ events }: { events: Entity[] }) {
         "registrations",
         member?.role === "eventAdmin"
           ? [["eventId", "in", ids.length ? ids : ["none"]]]
-          : [],
+          : [["clubId", "==", "pprc"]],
       ).data ?? [],
     matches =
       useList(
         "matches",
         member?.role === "eventAdmin"
           ? [["eventId", "in", ids.length ? ids : ["none"]]]
-          : [],
+          : [["clubId", "==", "pprc"]],
       ).data ?? [],
     payments =
       useList(
         "payments",
         member?.role === "eventAdmin"
           ? [["eventId", "in", ids.length ? ids : ["none"]]]
-          : [],
+          : [["clubId", "==", "pprc"]],
       ).data ?? [];
   return (
     <>
@@ -397,7 +402,7 @@ function EventAdmin({ eventId, tab }: { eventId: string; tab: string }) {
       </p>
     );
   if (!event) return <Empty title="Event not found" />;
-  if (event.competition === "triace")
+  if (["triace", "koc", "doubles"].includes(event.competition))
     return <TriaceTournament eventId={eventId} adminMode />;
   const readOnly = !canManage(member?.role, user!.uid, event as Event);
   const common = { eventId };
@@ -1055,7 +1060,7 @@ function ReportingQueue({ events }: { events: Entity[] }) {
       "matchResults",
       member?.role === "eventAdmin"
         ? [["eventId", "in", ids.length ? ids : ["none"]]]
-        : [],
+        : [["clubId", "==", "pprc"]],
     ).data ?? [];
   return (
     <Panel title="Reporting-status queue">
@@ -1178,13 +1183,13 @@ function Members() {
     action = useAction();
   const users = useList(
     "users",
-    [],
+    [["clubId", "==", "pprc"]],
     ["clubAdmin", "platformAdmin"].includes(member?.role),
   );
   const memberships =
     useList(
       "memberships",
-      [],
+      [["clubId", "==", "pprc"]],
       ["clubAdmin", "platformAdmin"].includes(member?.role),
     ).data ?? [];
   return (
@@ -1319,7 +1324,12 @@ function Audits({ eventId }: { eventId?: string }) {
   const { member } = useSession();
   const entries = useList(
     "auditEvents",
-    eventId ? [["eventId", "==", eventId]] : [],
+    eventId
+      ? [
+          ["clubId", "==", "pprc"],
+          ["eventId", "==", eventId],
+        ]
+      : [["clubId", "==", "pprc"]],
     !!eventId || ["clubAdmin", "platformAdmin"].includes(member?.role),
   );
   return (
@@ -1378,10 +1388,15 @@ export function EventWizard() {
   const duplicate = params.get("duplicate");
   const existing = useEvent(duplicate ?? "");
   const templates =
-    useList("eventTemplates", [], member?.role === "clubAdmin").data ?? [];
+    useList(
+      "eventTemplates",
+      [["clubId", "==", "pprc"]],
+      member?.role === "clubAdmin",
+    ).data ?? [];
   const courts = useList("courts").data ?? [];
   const [cover, setCover] = useState<File | null>(null);
   const [competition, setCompetition] = useState("individual");
+  const [teamStage, setTeamStage] = useState("groups-playoffs");
   const [step, setStep] = useState(0),
     [divisions, setDivisions] = useState<any[]>([{ ...defaultDivision }]),
     [template, setTemplate] = useState<Entity | undefined>();
@@ -1389,6 +1404,7 @@ export function EventWizard() {
   const source = template?.event ?? existing.event;
   if (source && !loaded) {
     setCompetition(source.competition ?? "individual");
+    setTeamStage(source.teamRules?.stageFormat ?? "groups-playoffs");
     setLoaded(true);
     setDivisions(
       (template?.divisions ?? existing.divisions).map((d: Entity) => ({
@@ -1469,6 +1485,21 @@ export function EventWizard() {
               ...(competition === "triace"
                 ? { triaceRules: source?.triaceRules ?? defaultTriaceRules }
                 : {}),
+              ...(["koc", "doubles"].includes(competition)
+                ? {
+                    teamRules: {
+                      ...(source?.teamRules ??
+                        (competition === "doubles"
+                          ? defaultDoublesRules
+                          : defaultKocRules)),
+                      stageFormat: teamStage,
+                      groupCount:
+                        teamStage === "round-robin"
+                          ? 1
+                          : (source?.teamRules?.groupCount ?? 1),
+                    },
+                  }
+                : {}),
               ...(coverPath ? { coverPath } : {}),
               name: text(f, "name"),
               description: text(f, "description"),
@@ -1504,6 +1535,14 @@ export function EventWizard() {
               event,
               divisions: divisions.map((d) => ({
                 ...d,
+                ...(["koc", "doubles"].includes(competition)
+                  ? {
+                      format:
+                        teamStage === "groups-playoffs"
+                          ? "round-robin-playoffs"
+                          : teamStage,
+                    }
+                  : {}),
                 fee: d.fee === undefined ? undefined : Number(d.fee),
               })),
             });
@@ -1517,13 +1556,21 @@ export function EventWizard() {
                 value={competition}
                 onChange={(e) => {
                   setCompetition(e.target.value);
+                  setTeamStage(
+                    e.target.value === "doubles"
+                      ? "round-robin"
+                      : "groups-playoffs",
+                  );
                   setDivisions([
                     {
                       ...defaultDivision,
-                      ...(e.target.value === "triace"
+                      ...(e.target.value !== "individual"
                         ? {
-                            name: "TRIACE teams",
-                            format: "round-robin-playoffs",
+                            name: `${e.target.value.toUpperCase()} teams`,
+                            format:
+                              e.target.value === "doubles"
+                                ? "round-robin"
+                                : "round-robin-playoffs",
                             capacity: 8,
                           }
                         : {}),
@@ -1533,8 +1580,42 @@ export function EventWizard() {
               >
                 <option value="individual">Individual tournament</option>
                 <option value="triace">TRIACE 2.0 team tournament</option>
+                <option value="koc">Configurable KOC team competition</option>
+                <option value="doubles">Doubles tournament</option>
               </select>
             </Field>
+            {["koc", "doubles"].includes(competition) && (
+              <Field label="Team tournament stages">
+                <select
+                  value={teamStage}
+                  onChange={(e) => {
+                    setTeamStage(e.target.value);
+                    setDivisions((ds) =>
+                      ds.map((d) => ({
+                        ...d,
+                        format:
+                          e.target.value === "groups-playoffs"
+                            ? "round-robin-playoffs"
+                            : e.target.value,
+                      })),
+                    );
+                  }}
+                >
+                  <option value="groups-playoffs">
+                    Group stage and playoffs
+                  </option>
+                  <option value="round-robin">Round robin</option>
+                  <option value="single-elimination">Knockout</option>
+                </select>
+              </Field>
+            )}
+            {competition !== "individual" && (
+              <p className="notice">
+                Capacity and fees apply per team. Review roster, scoring,
+                eligibility and deadline policies in the draft event’s Rules tab
+                before publishing.
+              </p>
+            )}
             {competition === "triace" && (
               <p className="notice">
                 Three players per team. Configure lineup, reference and
@@ -1686,7 +1767,7 @@ export function EventWizard() {
                   name="capacity"
                   type="number"
                   min="2"
-                  max={competition === "triace" ? 16 : 128}
+                  max={competition !== "individual" ? 16 : 128}
                   defaultValue={source?.capacity ?? 16}
                 />
               </Field>
@@ -1754,6 +1835,7 @@ export function EventWizard() {
                   <Field label="Format">
                     <select
                       value={d.format}
+                      disabled={competition !== "individual"}
                       onChange={(e) => update(i, "format", e.target.value)}
                     >
                       {formats.map((f) => (
@@ -1769,16 +1851,22 @@ export function EventWizard() {
                     ["maxAge", "Maximum age"],
                     ["groupSize", "Group size"],
                     ["qualifiers", "Playoff qualifiers per group"],
-                  ].map(([k, l]) => (
-                    <Field key={k} label={l}>
-                      <input
-                        type="number"
-                        value={d[k]}
-                        min="0"
-                        onChange={(e) => update(i, k, Number(e.target.value))}
-                      />
-                    </Field>
-                  ))}
+                  ]
+                    .filter(
+                      ([k]) =>
+                        competition === "individual" ||
+                        !["groupSize", "qualifiers"].includes(k),
+                    )
+                    .map(([k, l]) => (
+                      <Field key={k} label={l}>
+                        <input
+                          type="number"
+                          value={d[k]}
+                          min="0"
+                          onChange={(e) => update(i, k, Number(e.target.value))}
+                        />
+                      </Field>
+                    ))}
                   <Field label="Gender category">
                     <select
                       value={d.gender}
@@ -1789,17 +1877,19 @@ export function EventWizard() {
                       ))}
                     </select>
                   </Field>
-                  <Field label="Third set">
-                    <select
-                      value={d.scoring}
-                      onChange={(e) => update(i, "scoring", e.target.value)}
-                    >
-                      <option value="match-tiebreak">
-                        10-point match tiebreak
-                      </option>
-                      <option value="standard">Full set</option>
-                    </select>
-                  </Field>
+                  {competition === "individual" && (
+                    <Field label="Third set">
+                      <select
+                        value={d.scoring}
+                        onChange={(e) => update(i, "scoring", e.target.value)}
+                      >
+                        <option value="match-tiebreak">
+                          10-point match tiebreak
+                        </option>
+                        <option value="standard">Full set</option>
+                      </select>
+                    </Field>
+                  )}
                   <Field label="Eligibility notes">
                     <textarea
                       value={d.eligibilityNotes ?? ""}
@@ -1808,26 +1898,28 @@ export function EventWizard() {
                       }
                     />
                   </Field>
-                  <Field label="Standings order (comma-separated)">
-                    <input
-                      value={(
-                        d.tieBreakOrder ?? [
-                          "wins",
-                          "head-to-head",
-                          "set-percentage",
-                          "game-percentage",
-                          "admin",
-                        ]
-                      ).join(",")}
-                      onChange={(e) =>
-                        update(
-                          i,
-                          "tieBreakOrder",
-                          e.target.value.split(",").map((v) => v.trim()),
-                        )
-                      }
-                    />
-                  </Field>
+                  {competition === "individual" && (
+                    <Field label="Standings order (comma-separated)">
+                      <input
+                        value={(
+                          d.tieBreakOrder ?? [
+                            "wins",
+                            "head-to-head",
+                            "set-percentage",
+                            "game-percentage",
+                            "admin",
+                          ]
+                        ).join(",")}
+                        onChange={(e) =>
+                          update(
+                            i,
+                            "tieBreakOrder",
+                            e.target.value.split(",").map((v) => v.trim()),
+                          )
+                        }
+                      />
+                    </Field>
+                  )}
                   <Field label="Price override in cents (optional)">
                     <input
                       type="number"
@@ -1849,7 +1941,7 @@ export function EventWizard() {
             <button
               type="button"
               className="button secondary"
-              disabled={competition === "triace"}
+              disabled={competition !== "individual"}
               onClick={() =>
                 setDivisions((ds) => [
                   ...ds,
@@ -1900,7 +1992,8 @@ export function EventWizard() {
                   min="15"
                   max="240"
                   defaultValue={
-                    source?.duration ?? (competition === "triace" ? 180 : 75)
+                    source?.duration ??
+                    (["triace", "koc"].includes(competition) ? 180 : 75)
                   }
                 />
               </Field>

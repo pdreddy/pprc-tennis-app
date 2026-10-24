@@ -2,12 +2,19 @@ import { z } from "zod";
 import { HttpsError } from "firebase-functions/v2/https";
 import {
   triaceRulesSchema,
-  validateTeamLineup,
-  ratingSnapshot,
-  validateTeamRating,
-  validateRubberScore,
+  competitionRules,
+  competitionRulesSchema,
+  validateCompetitionLineup,
+  competitionRatingSnapshot,
+  validateCompetitionRating,
+  validateCompetitionScore,
+  competitionStandings,
+  rubberKinds,
+  rosterForRules,
+  isTeamCompetition,
+  eligibility,
+  type Division,
   singlesParticipation,
-  teamStandings,
   roundRobin,
   elimination,
   registrationPlacement,
@@ -55,21 +62,24 @@ export interface TriaceContext {
   notify: (uid: string, title: string, body: string, type: string) => Entity;
   readPlayer: (uid: string) => Promise<Entity | undefined>;
   readCourt: (id: string) => Promise<Entity | undefined>;
+  readMembership: (id: string) => Promise<Entity | undefined>;
   reason: () => string;
 }
 // This handler shares execute()'s transaction, authorization, receipt and audit commit.
 // It never writes through a second database path or directly from the browser.
 export async function executeTriace(c: TriaceContext): Promise<any> {
   const { uid, role, data, event, list, find, make, edit, notify, manager } = c;
-  if (event.clubId !== "pprc" || event.competition !== "triace")
-    fail("Choose a TRIACE event");
+  if (event.clubId !== "pprc" || !isTeamCompetition(event))
+    fail("Choose a supported team competition");
   if (role === "platformAdmin")
     fail("Support role is read only", "permission-denied");
   if (event.visibility === "private" && !c.clubMember && !manager)
     fail("Club membership required", "permission-denied");
   if (event.status === "Draft" && !manager)
     fail("Event is not published", "permission-denied");
-  const rules = triaceRulesSchema.parse(event.triaceRules ?? {});
+  const rules = competitionRules(event);
+  const kinds = rubberKinds(rules);
+  const slots = rosterForRules(rules);
   if (
     event.status === "Cancelled" &&
     !["exportTeamReport", "withdrawTeam"].includes(data.action)
@@ -103,18 +113,35 @@ export async function executeTriace(c: TriaceContext): Promise<any> {
   const refreshTables = () => {
     for (const g of list("teamGroups"))
       edit("teamGroups", g, {
-        standings: teamStandings(
+        standings: competitionStandings(
           g.teamIds,
           list("teamEncounters").filter((e) => e.groupId === g.id),
+          rules,
           g.resolutions,
         ),
       });
+  };
+  const finishRoundRobin = () => {
+    if (rules.stageFormat !== "round-robin") return;
+    const games = list("teamEncounters").filter((e) => e.phase === "groups"),
+      g = list("teamGroups")[0];
+    if (!g || !games.length) return;
+    const rows = competitionStandings(g.teamIds, games, rules, g.resolutions);
+    const complete =
+      games.every((e) => e.status === "Final") &&
+      !rows[0]?.tied &&
+      !rows[1]?.tied &&
+      !list("disputes").some((d) => d.status === "Open");
+    edit("events", event, {
+      status: complete ? "Completed" : "In Progress",
+      championTeamId: complete ? rows[0].teamId : null,
+      runnerUpTeamId: complete ? (rows[1]?.teamId ?? null) : null,
+    });
   };
   const createEncounter = (fields: any, encounterId: string) => {
     const e = make(
       "teamEncounters",
       {
-        ...fields,
         eventName: event.name,
         timezone: event.timezone,
         winner: null,
@@ -123,6 +150,7 @@ export async function executeTriace(c: TriaceContext): Promise<any> {
         version: 0,
         status: "Awaiting lineups",
         published: true,
+        ...fields,
       },
       encounterId,
     );
@@ -136,9 +164,15 @@ export async function executeTriace(c: TriaceContext): Promise<any> {
     const winsB = rs.filter(
       (r) => r.status === "Final" && r.winner === e.teamB,
     ).length;
-    const clinched = winsA >= 3 || winsB >= 3;
+    const clinched = winsA >= rules.winsRequired || winsB >= rules.winsRequired;
     const final =
-      clinched && (rules.stopAtClinch || rs.every((r) => r.status === "Final"));
+      clinched &&
+      (rules.stopAtClinch ||
+        rs.every(
+          (r) =>
+            r.status === "Final" ||
+            (r.status === "Not required" && r.outcome === "forfeit"),
+        ));
     const winner = final ? (winsA > winsB ? e.teamA : e.teamB) : null;
     const next = e.nextId ? encounter(e.nextId) : null;
     if (
@@ -168,6 +202,7 @@ export async function executeTriace(c: TriaceContext): Promise<any> {
       edit("events", event, {
         status: final ? "Completed" : "In Progress",
         championTeamId: winner,
+        runnerUpTeamId: final ? (winner === e.teamA ? e.teamB : e.teamA) : null,
       });
       if (winner && winner !== e.winner)
         for (const t of list("teams"))
@@ -179,6 +214,7 @@ export async function executeTriace(c: TriaceContext): Promise<any> {
     } else if (event.status !== "Cancelled" && event.status !== "Completed")
       edit("events", event, { status: "In Progress" });
     refreshTables();
+    finishRoundRobin();
   };
   const finalize = (r: Entity, res: Entity) => {
     if (
@@ -186,7 +222,7 @@ export async function executeTriace(c: TriaceContext): Promise<any> {
       !["Submitted", "Disputed"].includes(res.state)
     )
       fail("Score version changed; reload before confirming");
-    const score = validateRubberScore(res.score, r, rules);
+    const score = validateCompetitionScore(res.score, r, rules);
     edit("rubberResults", res, {
       state: "Final",
       confirmedBy: uid,
@@ -238,14 +274,38 @@ export async function executeTriace(c: TriaceContext): Promise<any> {
         list("teamEncounters").length
       )
         fail("Rules are locked after registration");
-      edit("events", event, {
-        triaceRules: triaceRulesSchema.parse(data.rules),
-        schemaVersion: 2,
+      competitionRules({
+        ...event,
+        ...(event.competition === "triace"
+          ? { triaceRules: triaceRulesSchema.parse(data.rules) }
+          : { teamRules: data.rules }),
       });
+      edit("events", event, {
+        ...(event.competition === "triace"
+          ? { triaceRules: triaceRulesSchema.parse(data.rules) }
+          : {
+              teamRules: competitionRules({
+                ...event,
+                teamRules: competitionRulesSchema.parse(data.rules),
+              }),
+            }),
+        schemaVersion: event.competition === "triace" ? 2 : 3,
+      });
+      if (event.competition !== "triace") {
+        const policy = competitionRules({ ...event, teamRules: data.rules });
+        edit("divisions", list("divisions")[0], {
+          format:
+            policy.stageFormat === "groups-playoffs"
+              ? "round-robin-playoffs"
+              : policy.stageFormat,
+        });
+      }
       return { status: "Configured" };
     }
     case "createTeam": {
       if (!c.profile) fail("Complete your player profile first");
+      if (!data.waiver && !data.rosterConsent)
+        fail("Consent to the public approved roster is required");
       if (
         event.status !== "Registration Open" ||
         Date.now() > Date.parse(event.registrationClose) ||
@@ -288,7 +348,13 @@ export async function executeTriace(c: TriaceContext): Promise<any> {
       captain(t);
       openRoster(t);
       const playerId = id.parse(data.playerId),
-        slot = z.enum(["P2", "P3"]).parse(data.slot);
+        slot = z
+          .string()
+          .refine(
+            (v) => slots.slice(1).includes(v),
+            "Choose an available configured roster slot",
+          )
+          .parse(data.slot);
       if (
         t.roster.some((p) => p.slot === slot) ||
         list("teams").some(
@@ -338,6 +404,8 @@ export async function executeTriace(c: TriaceContext): Promise<any> {
       )
         fail("Team registration is closed");
       if (accepted) {
+        if (!data.waiver && !data.rosterConsent)
+          fail("Consent to the public approved roster is required");
         if (!c.profile) fail("Complete your player profile first");
         if (event.waiverRequired && !data.waiver)
           fail("Waiver acknowledgement required");
@@ -399,11 +467,20 @@ export async function executeTriace(c: TriaceContext): Promise<any> {
         Date.now() > Date.parse(event.registrationClose)
       )
         fail("Registration is closed");
-      if (t.roster.length !== 3 || new Set(t.memberIds).size !== 3)
-        fail("Three confirmed players required");
+      if (
+        t.roster.length !== rules.teamSize ||
+        new Set(t.memberIds).size !== rules.teamSize ||
+        new Set(t.roster.map((p) => p.slot)).size !== rules.teamSize ||
+        t.roster.some((p) => !slots.includes(p.slot))
+      )
+        fail(
+          rules.teamSize === 3
+            ? "Three confirmed players required"
+            : `${rules.teamSize} distinct confirmed players required`,
+        );
       if (
         event.waiverRequired &&
-        (t.waiverAcceptedBy.length !== 3 ||
+        (t.waiverAcceptedBy.length !== rules.teamSize ||
           t.waiverVersion !== (event.waiverVersion ?? 1))
       )
         fail(
@@ -412,10 +489,28 @@ export async function executeTriace(c: TriaceContext): Promise<any> {
       const profiles = await Promise.all(
         t.roster.map((p) => c.readPlayer(p.playerId)),
       );
-      if (profiles.some((p) => !p)) fail("Every roster player needs a profile");
-      const snapshots = profiles.map((p) => ratingSnapshot(p!)),
-        combined = validateTeamRating(snapshots, rules);
+      if (profiles.some((p) => !p || p.clubId !== "pprc"))
+        fail("Every roster player needs a PPRC profile");
+      if (rules.membersOnly) {
+        const memberships = await Promise.all(
+          t.memberIds.map((id) => c.readMembership(id)),
+        );
+        if (memberships.some((m) => m?.clubId !== "pprc" || m.member !== true))
+          fail("Every roster player needs club membership");
+      }
+      const snapshots = profiles.map((p) =>
+          competitionRatingSnapshot(p!, rules),
+        ),
+        combined = validateCompetitionRating(snapshots, rules);
       const division = find("divisions", data.divisionId);
+      for (let i = 0; i < profiles.length; i++) {
+        const errors = eligibility(
+          { ...profiles[i], externalRating: snapshots[i].reference } as Entity,
+          division as Division,
+          new Date(event.startDate),
+        );
+        if (errors) fail(`${t.roster[i].displayName}: ${errors}`);
+      }
       const state = registrationPlacement(
         list("registrations").filter(
           (r) =>
@@ -480,7 +575,7 @@ export async function executeTriace(c: TriaceContext): Promise<any> {
         fail("Team must be paid or free before approval");
       if (list("teamEncounters").length)
         fail("Approval and seeding are locked after fixture generation");
-      validateTeamRating(reg.ratingSnapshots, rules);
+      validateCompetitionRating(reg.ratingSnapshots, rules);
       const seed = z
         .number()
         .int()
@@ -529,6 +624,8 @@ export async function executeTriace(c: TriaceContext): Promise<any> {
         regs.length > 16
       )
         fail("Use 2–16 approved teams with enough teams in each group");
+      if (rules.stageFormat === "single-elimination")
+        fail("Knockout fixtures do not use groups");
       const groups: { teamIds: string[] }[] = data.groups
         ? z
             .array(z.object({ teamIds: z.array(id).min(2).max(8) }))
@@ -563,7 +660,7 @@ export async function executeTriace(c: TriaceContext): Promise<any> {
           number: i,
           teamIds: g.teamIds,
           resolutions: {},
-          standings: teamStandings(g.teamIds, []),
+          standings: competitionStandings(g.teamIds, [], rules),
           published: true,
         };
         const previous = list("teamGroups").find(
@@ -577,6 +674,58 @@ export async function executeTriace(c: TriaceContext): Promise<any> {
     }
     case "generateFixtures": {
       admin();
+      if (rules.stageFormat === "single-elimination") {
+        if (list("teamEncounters").length) fail("Fixtures already generated");
+        if (
+          list("registrations").some((r) =>
+            ["Pending Payment", "Registered"].includes(r.state),
+          )
+        )
+          fail(
+            "Approve or resolve every pending registration before generating fixtures",
+          );
+        const regs = list("registrations")
+          .filter(
+            (r) =>
+              r.kind === "team" &&
+              r.state === "Approved" &&
+              !team(r.teamId).withdrawn,
+          )
+          .sort(
+            (a, b) =>
+              (a.seed || 999) - (b.seed || 999) ||
+              (b.combinedReference ?? -1) - (a.combinedReference ?? -1) ||
+              a.id.localeCompare(b.id),
+          );
+        if (regs.length < 2 || regs.length > 16)
+          fail("Use 2–16 approved teams");
+        const games = elimination(
+          regs.map((r) => r.teamId),
+          `${event.id}-team-knockout`,
+          list("divisions")[0].id,
+        );
+        for (const m of games)
+          createEncounter(
+            {
+              teamA: m.p1,
+              teamB: m.p2,
+              phase: "playoffs",
+              round: m.round,
+              position: m.position,
+              status: m.status === "Bye" ? "Bye" : "Awaiting lineups",
+              winner: m.winner ?? null,
+              ...(m.nextId
+                ? {
+                    nextId: m.nextId,
+                    nextSlot: m.nextSlot === "p1" ? "teamA" : "teamB",
+                  }
+                : {}),
+            },
+            m.id,
+          );
+        edit("events", event, { status: "Check-In" });
+        return { encounters: games.length };
+      }
       if (!list("teamGroups").length || list("teamEncounters").length)
         fail("Assign groups once before generating fixtures");
       const assigned = list("teamGroups").flatMap((g) => g.teamIds);
@@ -635,8 +784,18 @@ export async function executeTriace(c: TriaceContext): Promise<any> {
         e.status === "Final"
       )
         fail("Lineup is already locked");
-      if (e.phase === "playoffs") assertPlayoffParticipation(t);
-      const lineup = validateTeamLineup(t, data.lineup, rules);
+      if (e.phase === "playoffs" && rules.stageFormat === "groups-playoffs")
+        assertPlayoffParticipation(t);
+      if (
+        rules.lineupDeadlineMinutes !== null &&
+        (!e.scheduledAt ||
+          Date.now() >
+            Date.parse(e.scheduledAt) - rules.lineupDeadlineMinutes * 60000)
+      )
+        fail(
+          "Lineup submission deadline has passed or the encounter is not scheduled",
+        );
+      const lineup = validateCompetitionLineup(t, data.lineup, rules);
       const l = make(
         "lineups",
         {
@@ -656,19 +815,20 @@ export async function executeTriace(c: TriaceContext): Promise<any> {
         edit("lineups", other, { published: true });
         const a = l.teamId === e.teamA ? l : other,
           b = l.teamId === e.teamB ? l : other;
-        for (let index = 0; index < 5; index++) {
+        for (let index = 0; index < kinds.length; index++) {
           const players = (line: Entity) =>
-            index < 2
+            index < rules.singlesRubbers
               ? [line.lineup.singles[index]]
-              : index < 4
-                ? line.lineup.doubles[index - 2].players
+              : index < rules.singlesRubbers + rules.doublesRubbers
+                ? line.lineup.doubles[index - rules.singlesRubbers].players
                 : line.lineup.tiebreak;
           make(
             "rubbers",
             {
               encounterId: e.id,
               index,
-              kind: index < 2 ? "singles" : index < 4 ? "doubles" : "tiebreak",
+              kind: kinds[index],
+              competition: event.competition,
               teamA: e.teamA,
               teamB: e.teamB,
               playersA: players(a),
@@ -685,9 +845,48 @@ export async function executeTriace(c: TriaceContext): Promise<any> {
             `${e.id}-rubber-${index}`,
           );
         }
-        edit("teamEncounters", e, { status: "Ready" });
+        edit("teamEncounters", e, {
+          status:
+            rules.encounterConfirmation === "lineups"
+              ? "Ready"
+              : "Awaiting encounter confirmation",
+          confirmedTeamIds:
+            rules.encounterConfirmation === "lineups" ? [e.teamA, e.teamB] : [],
+          lineupCaptainIds: [a.createdBy, b.createdBy],
+          confirmationBasis: rules.encounterConfirmation,
+        });
       }
-      return { status: other ? "Ready" : "Awaiting opponent lineup" };
+      return {
+        status: other
+          ? rules.encounterConfirmation === "lineups"
+            ? "Ready"
+            : "Awaiting encounter confirmation"
+          : "Awaiting opponent lineup",
+      };
+    }
+    case "confirmEncounter": {
+      const e = encounter(data.encounterId),
+        t = team(data.teamId);
+      captain(t);
+      if (
+        ![e.teamA, e.teamB].includes(t.id) ||
+        e.status !== "Awaiting encounter confirmation" ||
+        !list("lineups").some(
+          (l) => l.encounterId === e.id && l.teamId === t.id && l.published,
+        )
+      )
+        fail("Submit both lineups before encounter confirmation");
+      const confirmed = e.confirmedTeamIds ?? [];
+      if (confirmed.includes(t.id))
+        fail("Encounter already confirmed by this team");
+      const next = [...confirmed, t.id];
+      edit("teamEncounters", e, {
+        confirmedTeamIds: next,
+        status: next.length === 2 ? "Ready" : "Awaiting encounter confirmation",
+      });
+      return {
+        status: next.length === 2 ? "Ready" : "Awaiting opponent confirmation",
+      };
     }
     case "submitRubberScore": {
       const r = find("rubbers", data.rubberId),
@@ -699,6 +898,17 @@ export async function executeTriace(c: TriaceContext): Promise<any> {
         ![...r.playersA, ...r.playersB].includes(uid)
       )
         fail("Captain or assigned rubber player required", "permission-denied");
+      if (e.status === "Awaiting encounter confirmation")
+        fail("Both captains must confirm the encounter before scoring");
+      if (
+        e.scoreDeadline
+          ? Date.now() > Date.parse(e.scoreDeadline)
+          : rules.resultDeadlineHours !== null &&
+            (!e.scheduledAt ||
+              Date.now() >
+                Date.parse(e.scheduledAt) + rules.resultDeadlineHours * 3600000)
+      )
+        fail("Score entry deadline has passed");
       if (
         r.status !== "Scheduled" ||
         e.status === "Final" ||
@@ -721,12 +931,17 @@ export async function executeTriace(c: TriaceContext): Promise<any> {
         );
       if (
         r.kind === "tiebreak" &&
+        rules.tiebreakAfterOthers &&
         list("rubbers").filter(
-          (x) => x.encounterId === e.id && x.index < 4 && x.status === "Final",
-        ).length !== 4
+          (x) =>
+            x.encounterId === e.id &&
+            x.index < kinds.length - 1 &&
+            x.status === "Final",
+        ).length !==
+          kinds.length - 1
       )
-        fail("Play the four preceding rubbers before the deciding tiebreak");
-      const score = validateRubberScore(data.score, r, rules);
+        fail("Play the preceding rubbers before the deciding tiebreak");
+      const score = validateCompetitionScore(data.score, r, rules);
       if (data.baseVersion !== r.version)
         fail("Score version changed; reload before submitting");
       const res = make("rubberResults", {
@@ -794,6 +1009,7 @@ export async function executeTriace(c: TriaceContext): Promise<any> {
         edit("rubberResults", res, { state: "Disputed" });
       for (const p of event.assignedAdmins ?? [])
         notify(p, "Score dispute needs review", event.name, "dispute");
+      finishRoundRobin();
       return { disputeId: d.id };
     }
     case "resolveDispute": {
@@ -815,7 +1031,7 @@ export async function executeTriace(c: TriaceContext): Promise<any> {
           )
             fail("Downstream lineups or scores lock this correction");
         }
-        const score = validateRubberScore(data.score, r, rules);
+        const score = validateCompetitionScore(data.score, r, rules);
         edit("rubberResults", res, { state: "Superseded" });
         const replacement = make("rubberResults", {
           encounterId: e.id,
@@ -839,6 +1055,7 @@ export async function executeTriace(c: TriaceContext): Promise<any> {
         resolvedBy: uid,
         resolutionReason: data.reason,
       });
+      finishRoundRobin();
       return { status: "Resolved" };
     }
     case "resolveTeamTies": {
@@ -858,10 +1075,13 @@ export async function executeTriace(c: TriaceContext): Promise<any> {
         resolutions: Object.fromEntries(order.map((t, i) => [t, i + 1])),
       });
       refreshTables();
+      finishRoundRobin();
       return { status: "Resolved" };
     }
     case "generateTeamPlayoffs": {
       admin();
+      if (rules.stageFormat !== "groups-playoffs")
+        fail("This tournament does not use group-stage playoffs");
       const games = list("teamEncounters");
       if (
         !games.length ||
@@ -872,9 +1092,10 @@ export async function executeTriace(c: TriaceContext): Promise<any> {
         fail("Finish all group encounters and disputes before qualification");
       const groups = list("teamGroups").sort((a, b) => a.number - b.number);
       const tables = groups.map((g) =>
-        teamStandings(
+        competitionStandings(
           g.teamIds,
           games.filter((e) => e.groupId === g.id),
+          rules,
           g.resolutions,
         ),
       );
@@ -923,6 +1144,22 @@ export async function executeTriace(c: TriaceContext): Promise<any> {
       });
       return { qualifiers };
     }
+    case "extendScoreDeadline": {
+      admin();
+      c.reason();
+      const e = encounter(data.encounterId);
+      const deadline = z.string().datetime().parse(data.scoreDeadline);
+      if (
+        e.status === "Final" ||
+        Date.parse(deadline) < Date.now() ||
+        Date.parse(deadline) > Date.now() + 30 * 86400000
+      )
+        fail(
+          "Choose a future score deadline within 30 days for an open encounter",
+        );
+      edit("teamEncounters", e, { scoreDeadline: deadline });
+      return { status: "Updated" };
+    }
     case "scheduleEncounter":
     case "generateTeamSchedule": {
       admin();
@@ -939,7 +1176,7 @@ export async function executeTriace(c: TriaceContext): Promise<any> {
       const schedule = (e: Entity, start: number, courtId: string) => {
         const end = start + duration,
           existing = list("teamEncounters").filter(
-            (x) => x.id !== e.id && x.scheduledAt && x.status !== "Final",
+            (x) => x.id !== e.id && x.scheduledAt && x.status !== "Bye",
           );
         if (
           !event.courtIds.includes(courtId) ||
@@ -973,7 +1210,19 @@ export async function executeTriace(c: TriaceContext): Promise<any> {
           )
         )
           return false;
-        const feeders = list("teamEncounters").filter((x) => x.nextId === e.id);
+        if (
+          e.phase === "playoffs" &&
+          list("teamEncounters").some(
+            (x) =>
+              x.phase === "groups" &&
+              (!x.scheduledAt ||
+                Date.parse(x.scheduledAt) + duration + buffer > start),
+          )
+        )
+          return false;
+        const feeders = list("teamEncounters").filter(
+          (x) => x.nextId === e.id && x.status !== "Bye",
+        );
         if (
           feeders.some(
             (x) =>
@@ -984,13 +1233,18 @@ export async function executeTriace(c: TriaceContext): Promise<any> {
           return false;
         return true;
       };
+      const affectedTeams = new Set<string>();
+      const notifySchedule = () => {
+        for (const t of affectedTeams)
+          notifyTeam(team(t), "Team schedule updated", event.name);
+      };
       const apply = (e: Entity, start: number, courtId: string) => {
         edit("teamEncounters", e, {
           scheduledAt: new Date(start).toISOString(),
           courtId,
         });
         for (const t of [e.teamA, e.teamB].filter(Boolean))
-          notifyTeam(team(t), "Team schedule updated", event.name);
+          affectedTeams.add(t);
       };
       if (data.action === "scheduleEncounter") {
         c.reason();
@@ -1004,10 +1258,11 @@ export async function executeTriace(c: TriaceContext): Promise<any> {
             "Court, team, predecessor, daily-hours or blackout scheduling conflict",
           );
         apply(e, start, courtId);
+        notifySchedule();
         return { status: "Scheduled" };
       }
       const pending = list("teamEncounters")
-        .filter((e) => !e.scheduledAt && e.status !== "Final")
+        .filter((e) => !e.scheduledAt && !["Final", "Bye"].includes(e.status))
         .sort(
           (a, b) =>
             (a.phase === "groups" ? 0 : 100) +
@@ -1033,6 +1288,7 @@ export async function executeTriace(c: TriaceContext): Promise<any> {
             "No conflict-free schedule fits the event window; extend dates or add courts",
           );
       }
+      notifySchedule();
       return { scheduled: pending.length };
     }
     case "withdrawTeam": {
@@ -1090,7 +1346,7 @@ export async function executeTriace(c: TriaceContext): Promise<any> {
         fail(
           "Resolve existing rubber results through disputes before recording a team forfeit",
         );
-      for (let index = 0; index < 5; index++) {
+      for (let index = 0; index < kinds.length; index++) {
         const r =
           list("rubbers").find((r) => r.id === `${e.id}-rubber-${index}`) ??
           make(
@@ -1098,7 +1354,8 @@ export async function executeTriace(c: TriaceContext): Promise<any> {
             {
               encounterId: e.id,
               index,
-              kind: index < 2 ? "singles" : index < 4 ? "doubles" : "tiebreak",
+              kind: kinds[index],
+              competition: event.competition,
               teamA: e.teamA,
               teamB: e.teamB,
               playersA: [],
@@ -1113,12 +1370,12 @@ export async function executeTriace(c: TriaceContext): Promise<any> {
             `${e.id}-rubber-${index}`,
           );
         edit("rubbers", r, {
-          status: index < 3 ? "Final" : "Not required",
-          winner: index < 3 ? winner : null,
+          status: index < rules.winsRequired ? "Final" : "Not required",
+          winner: index < rules.winsRequired ? winner : null,
           outcome: "forfeit",
           version: r.version + 1,
         });
-        if (index < 3)
+        if (index < rules.winsRequired)
           make("rubberResults", {
             encounterId: e.id,
             rubberId: r.id,
@@ -1151,6 +1408,6 @@ export async function executeTriace(c: TriaceContext): Promise<any> {
       return { csv: csv(rows) };
     }
     default:
-      fail("Unknown TRIACE action");
+      fail("Unknown team competition action");
   }
 }

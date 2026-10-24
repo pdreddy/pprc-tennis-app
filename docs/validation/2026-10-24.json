@@ -14,15 +14,15 @@
   },
   "suites": {
     "shared_unit": {
-      "passed": 58,
+      "passed": 72,
       "skipped": 0
     },
     "firebase_integration": {
-      "passed": 54,
+      "passed": 66,
       "skipped": 0
     },
     "browser_flows": {
-      "passed": 7
+      "passed": 9
     },
     "browser_shell": {
       "passed": 3
@@ -60,6 +60,6 @@
     "remote CI"
   ],
   "foundation_commit": "4faa90a53a52cbeb52da5a41f1e922dd2267a77e",
-  "log": ".local/validation/milestone2-final-full-rerun.log",
-  "tested_source_commit": "9077c2a237fb2186eddaad22c852402c741d78cf"
+  "log": ".local/validation/milestone3-final-full.log",
+  "previous_tested_source_commit": "9077c2a237fb2186eddaad22c852402c741d78cf"
 }

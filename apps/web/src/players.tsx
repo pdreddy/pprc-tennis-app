@@ -245,10 +245,11 @@ export function PerformanceDashboard() {
           <div className="division-row" key={snapshot.id}>
             <div>
               <strong>
-                {snapshot.reference.toFixed(2)} team-eligibility reference
+                {reference(snapshot.reference)} team-eligibility reference
               </strong>
               <p>
-                Singles {snapshot.singles} · Doubles {snapshot.doubles}
+                Singles {reference(snapshot.singles)} · Doubles{" "}
+                {reference(snapshot.doubles)}
               </p>
               <small>
                 {snapshot.capturedAt

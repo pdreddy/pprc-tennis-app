@@ -1,8 +1,10 @@
 import { z } from "zod";
 import { triaceRulesSchema } from "./triace";
+import { competitionRulesSchema } from "./competition";
 export * from "./triace";
 export * from "./club";
 export * from "./players";
+export * from "./competition";
 export type Role = "player" | "eventAdmin" | "clubAdmin" | "platformAdmin";
 export const statuses = [
   "Draft",
@@ -253,8 +255,11 @@ export const eventSchema = z
     genderCategory: z.enum(["Open", "Male", "Female"]).default("Open"),
     divisionSummary: z.string().max(200).default("Open divisions"),
     coverPath: z.string().startsWith("covers/").max(500).optional(),
-    competition: z.enum(["individual", "triace"]).default("individual"),
+    competition: z
+      .enum(["individual", "triace", "koc", "doubles"])
+      .default("individual"),
     triaceRules: triaceRulesSchema.optional(),
+    teamRules: competitionRulesSchema.optional(),
   })
   .refine(
     (e) =>
@@ -285,6 +290,7 @@ export function canManage(
   uid: string,
   event?: Partial<Event>,
 ) {
+  if (event?.clubId && event.clubId !== "pprc") return false;
   return (
     role === "clubAdmin" ||
     (role === "eventAdmin" && !!event?.assignedAdmins?.includes(uid))

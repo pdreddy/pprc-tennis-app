@@ -373,7 +373,7 @@ test("TRIACE captain invitations → registration → groups → confirmed rubbe
   await finalist.goto("/results");
   await expect(
     finalist.getByRole("heading", {
-      name: "My TRIACE match history",
+      name: "My team match history",
       exact: true,
     }),
   ).toBeVisible();
@@ -383,7 +383,7 @@ test("TRIACE captain invitations → registration → groups → confirmed rubbe
       .locator(".panel")
       .filter({
         has: finalist.getByRole("heading", {
-          name: "My TRIACE match history",
+          name: "My team match history",
           exact: true,
         }),
       })

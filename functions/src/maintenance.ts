@@ -6,6 +6,7 @@ export async function runEventMaintenance() {
   const db = getFirestore();
   const events = await db
     .collection("events")
+    .where("clubId", "==", "pprc")
     .where("status", "in", [
       "Published",
       "Registration Open",

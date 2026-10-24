@@ -51,7 +51,7 @@ export function EventDetail() {
       </div>
     );
   if (!event) return <Empty title="Event not found" />;
-  if (event.competition === "triace")
+  if (["triace", "koc", "doubles"].includes(event.competition))
     return <TriaceTournament eventId={eventId} />;
   return (
     <div className="page">

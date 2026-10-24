@@ -2,6 +2,20 @@
 
 Date: October 24, 2026. Feature branch: `feat/pprc-sports-triace`. Completed foundation commit: `4faa90a`; original baseline: `2b062c6`.
 
+## Milestone 3 completed gate
+
+`./pprc.sh test-all` exited **0** on October 24, 2026: **72 shared unit, 66 Firebase integration, nine full browser, three browser-shell, one production PWA and four legacy tests passed**, with no skipped tests. Actual migration dry-run/apply/idempotence and Firestore/Auth export/import/restore passed. Raw log: `.local/validation/milestone3-final-full.log`. The committed source revision is recorded after the implementation commit.
+
+KOC and doubles now use the existing team transaction engine, collections, payments, scheduling, score history and shared standings. KOC policy is explicitly configurable and must be reviewed before publication. Doubles supports fixed consenting pairs, round robin, knockout/byes and group-stage playoffs. TRIACE retains its default three-player/five-rubber/40% policy and pending 18.5 maximum, with additional configurable encounter confirmation, verification and deadlines. Championship results now persist champion and runner-up. Eligibility snapshot details and structured policy controls are integrated into the React screens.
+
+The new 14 shared tests exercise feasible/infeasible policies, authorized assignments, selected-reference bounds/verification, unknown references, short sets, capped points, deciding match tiebreaks, configured standings and participation denominators. Twelve new Firebase cases cover the complete KOC lifecycle, hidden/revealed lineups, opposing confirmation, version/concurrency/disputes, corrected standings, single playoff generation, all three doubles formats, byes, forfeits, verified membership/references, actual deadline enforcement/extension and foreign-club API/rules denial. The original 13 TRIACE/operations cases also passed in a separate focused regression run before the full gate.
+
+Two new browser journeys exercise the event wizard/policy review, four-player invitations including P4 acceptance, registration/approval/check-in, fixtures/scheduling, captain lineups/encounter confirmation, score submission/opponent confirmation, championship/runner-up and mobile layout. Doubles verifies a real deciding third-set match tiebreak and rejects same-pair confirmation. Browser setup initially read invitations/playoffs before asynchronous UI operations finished; explicit persisted-state readiness assertions fixed the harness, retaining every workflow assertion. The existing history heading assertion was updated to the generalized “My team match history”; its TRIACE record checks remain.
+
+Authorization now checks the event club in trusted operations and Firestore reads. Administrative lists use explicit club scopes and declared indexes; foreign membership/profile/resource overwrites are rejected. Support remains read-only. Bulk schedule notices are consolidated per team; finals cannot precede scheduled group fixtures. Complete encounter forfeits also terminate correctly under a normal play-all policy.
+
+See COMPETITIONS.md for supported configuration and limits. No reference package was available, no proprietary rating algorithm was added, and no production deployment/live payment/real-player mutation was performed. Milestone 4 is in progress; its sporting ladder is not yet complete.
+
 ## Milestone 2 completed gate
 
 `./pprc.sh test-all` exited **0** on October 24, 2026. Tested implementation commit: `9077c2a237fb2186eddaad22c852402c741d78cf` (based on foundation `4faa90a`). Actual results: **58 shared unit, 54 Firebase integration, seven full browser, three browser-shell, one production PWA and four legacy tests passed**, with no skipped cases. Migration dry-run/apply/reapply and complete Firestore/Auth backup/restore passed. Log: `.local/validation/milestone2-final-full-rerun.log`.

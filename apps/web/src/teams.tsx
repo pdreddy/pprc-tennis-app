@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { CompetitionRulesEditor } from "./competition-ui";
 import { Link } from "react-router-dom";
 import { Trophy, Shield, ChevronRight } from "lucide-react";
 import { useSession, useAction, useEvent, useList } from "./context";
@@ -12,9 +13,14 @@ import {
   date,
   text,
   number,
+  reference,
 } from "./ui";
 import {
   triaceRulesSchema,
+  competitionRules,
+  rosterForRules,
+  isTeamCompetition,
+  type CompetitionRules,
   singlesParticipation,
   type Entity,
   type TriaceRules,
@@ -202,7 +208,7 @@ export function TeamsHub() {
       ) && <p className="muted">You’re all caught up.</p>}
       <Panel title="Find your team competition">
         {events.data
-          ?.filter((e) => e.competition === "triace")
+          ?.filter((e) => isTeamCompetition(e))
           .map((e) => (
             <div className="division-row" key={e.id}>
               <div>
@@ -313,7 +319,7 @@ export function TeamHistory() {
         r.status === "Final",
     ) ?? [];
   return (
-    <Panel title="My TRIACE match history">
+    <Panel title="My team match history">
       {(rubbers.error || results.error) && (
         <p className="error" role="alert">
           {(rubbers.error ?? results.error)?.message}
@@ -421,9 +427,10 @@ export function TriaceTournament({
     );
   if (!d.event) return <Empty title="Tournament not found" />;
   const event = d.event,
-    rules = triaceRulesSchema.parse(event.triaceRules ?? {}),
+    rules = competitionRules(event),
     myTeams = d.teams.filter((t) => t.memberIds.includes(user?.uid));
   const champion = d.teams.find((t) => t.id === event.championTeamId);
+  const runnerUp = d.teams.find((t) => t.id === event.runnerUpTeamId);
   const groupGames = d.encounters.filter((e) => e.phase === "groups");
   return (
     <div className={adminMode ? "triace-workspace" : "page triace-workspace"}>
@@ -433,24 +440,33 @@ export function TriaceTournament({
       <section className="triace-hero">
         <div>
           <p className="eyebrow">
-            <Trophy size={15} /> PPRC SPORTS · TRIACE 2.0
+            <Trophy size={15} /> PPRC SPORTS ·{" "}
+            {event.competition === "triace"
+              ? "TRIACE 2.0"
+              : event.competition.toUpperCase()}
           </p>
           <Badge>{event.status}</Badge>
           <h1>{event.name}</h1>
           <p>
-            {event.location} · {date(event.startDate, event.timezone)} · Three
-            players. One team.
+            {event.location} · {date(event.startDate, event.timezone)} ·{" "}
+            {rules.teamSize} players. One team.
           </p>
           <div className="triace-facts">
-            <span>2 singles</span>
-            <span>2 doubles</span>
-            <span>10-point decider</span>
-            <strong>First to 3</strong>
+            {!!rules.singlesRubbers && (
+              <span>{rules.singlesRubbers} singles</span>
+            )}
+            {!!rules.doublesRubbers && (
+              <span>{rules.doublesRubbers} doubles</span>
+            )}
+            {rules.decidingTiebreak && (
+              <span>{rules.decidingTiebreakTarget}-point decider</span>
+            )}
+            <strong>First to {rules.winsRequired}</strong>
           </div>
         </div>
         <div className="triace-emblem" aria-hidden="true">
           <Trophy size={78} strokeWidth={1} />
-          <span>TRIACE</span>
+          <span>{event.competition.toUpperCase()}</span>
           <small>PLAY AS ONE</small>
         </div>
       </section>
@@ -460,17 +476,19 @@ export function TriaceTournament({
           <div>
             <small>CHAMPIONS</small>
             <h2>{champion.name}</h2>
+            {runnerUp && <p>Runner-up: {runnerUp.name}</p>}
           </div>
           <TeamCrest name={champion.name} />
         </div>
       )}
-      {!rules.maximumPolicyConfirmed && (
-        <p className="policy-note">
-          Combined reference range: {rules.combinedMinimum}–
-          {rules.combinedMaximum}. The maximum is pending final club policy
-          confirmation.
-        </p>
-      )}
+      {event.competition === "triace" &&
+        !event.triaceRules?.maximumPolicyConfirmed && (
+          <p className="policy-note">
+            Combined reference range: {rules.combinedMinimum}–
+            {rules.combinedMaximum}. The maximum is pending final club policy
+            confirmation.
+          </p>
+        )}
       {adminMode && d.admin && (
         <Panel title="Tournament operations">
           <div className="button-row">
@@ -483,13 +501,19 @@ export function TriaceTournament({
               </Action>
             )}
             <Action
-              disabled={!!d.groups.length}
+              disabled={
+                rules.stageFormat === "single-elimination" || !!d.groups.length
+              }
               onClick={() => run("assignGroups")}
             >
               Assign groups
             </Action>
             <Action
-              disabled={!d.groups.length || !!d.encounters.length}
+              disabled={
+                (rules.stageFormat !== "single-elimination" &&
+                  !d.groups.length) ||
+                !!d.encounters.length
+              }
               onClick={() => run("generateFixtures")}
             >
               Generate fixtures
@@ -507,6 +531,7 @@ export function TriaceTournament({
             <Action
               variant="primary"
               disabled={
+                rules.stageFormat !== "groups-playoffs" ||
                 !groupGames.length ||
                 groupGames.some((e) => e.status !== "Final") ||
                 d.encounters.some((e) => e.phase === "playoffs")
@@ -638,13 +663,8 @@ export function TriaceTournament({
                     />
                   </Field>
                   <label className="check">
-                    <input
-                      type="checkbox"
-                      name="waiver"
-                      required={event.waiverRequired}
-                    />
-                    I accept the event waiver and consent to the public
-                    approved-team roster.
+                    <input type="checkbox" name="waiver" required />I accept the
+                    event waiver and consent to the public approved-team roster.
                   </label>
                   <p>{event.refundPolicy}</p>
                 </Form>
@@ -676,7 +696,7 @@ export function TriaceTournament({
                   </div>
                 </div>
                 <ol className="team-roster">
-                  {["P1", "P2", "P3"].map((slot) => {
+                  {rosterForRules(rules).map((slot) => {
                     const p = t.roster.find((r: any) => r.slot === slot);
                     return (
                       <li key={slot}>
@@ -687,11 +707,46 @@ export function TriaceTournament({
                     );
                   })}
                 </ol>
-                {t.combinedReference !== undefined && (
+                {typeof t.combinedReference === "number" && (
                   <p className="reference-total">
                     Combined reference{" "}
                     <strong>{t.combinedReference.toFixed(2)}</strong>
                   </p>
+                )}
+                {t.registrationId && t.combinedReference === null && (
+                  <p className="notice">
+                    Unrated registration permitted by this event’s policy.
+                  </p>
+                )}
+                {d.registrations.find((r) => r.id === t.registrationId)
+                  ?.ratingSnapshots && (
+                  <details>
+                    <summary>Eligibility reference snapshots</summary>
+                    <ol>
+                      {d.registrations
+                        .find((r) => r.id === t.registrationId)!
+                        .ratingSnapshots.map((snapshot: any) => (
+                          <li key={snapshot.playerId}>
+                            <strong>
+                              {
+                                t.roster.find(
+                                  (p: any) => p.playerId === snapshot.playerId,
+                                )?.displayName
+                              }
+                            </strong>
+                            <p>
+                              Singles {reference(snapshot.singles)} · Doubles{" "}
+                              {reference(snapshot.doubles)} · Eligibility{" "}
+                              {reference(snapshot.reference)}
+                            </p>
+                            <small>
+                              {snapshot.source} ·{" "}
+                              {date(snapshot.capturedAt, event.timezone, true)}
+                            </small>
+                          </li>
+                        ))}
+                    </ol>
+                  </details>
                 )}
                 {t.captainId === user?.uid && !t.withdrawn && (
                   <CaptainControls team={t} data={d} run={run} />
@@ -770,7 +825,7 @@ export function TriaceTournament({
           </div>
           {!d.teams.length && (
             <Empty title="The field is taking shape">
-              Captains can create teams and invite two players.
+              Captains can create teams and invite {rules.teamSize - 1} players.
             </Empty>
           )}
         </>
@@ -938,7 +993,20 @@ export function TriaceTournament({
       {tab === "Rules" && (
         <>
           <RulesSummary rules={rules} />
-          {adminMode && d.admin && <RulesEditor rules={rules} run={run} />}
+          {adminMode &&
+            d.admin &&
+            (event.competition === "triace" ? (
+              <RulesEditor
+                rules={triaceRulesSchema.parse(event.triaceRules ?? {})}
+                run={run}
+              />
+            ) : (
+              <CompetitionRulesEditor
+                rules={rules}
+                run={run}
+                fixedPair={event.competition === "doubles"}
+              />
+            ))}
         </>
       )}
       {tab === "Disputes" && (
@@ -1001,11 +1069,12 @@ function CaptainControls({
   run: (action: string, data?: any) => Promise<any>;
 }) {
   const profiles = useList("publicProfiles");
+  const rules = competitionRules(d.event!);
   return (
     <div className="captain-controls">
       {!t.registrationId && (
         <>
-          {t.roster.length < 3 && (
+          {t.roster.length < rules.teamSize && (
             <Form
               label="Send player invitation"
               onSubmit={(f) =>
@@ -1018,7 +1087,8 @@ function CaptainControls({
             >
               <Field label="Roster slot">
                 <select name="slot">
-                  {["P2", "P3"]
+                  {rosterForRules(rules)
+                    .slice(1)
                     .filter((s) => !t.roster.some((p: any) => p.slot === s))
                     .map((s) => (
                       <option key={s}>{s}</option>
@@ -1060,7 +1130,7 @@ function CaptainControls({
                 )}
               </div>
             ))}
-          {t.roster.length === 3 && (
+          {t.roster.length === rules.teamSize && (
             <Form
               label="Register confirmed team"
               onSubmit={(f) =>
@@ -1120,7 +1190,7 @@ function EncounterCard({
 }: {
   encounter: Entity;
   data: TournamentData;
-  rules: TriaceRules;
+  rules: CompetitionRules;
   run: (action: string, data?: any) => Promise<any>;
   adminMode: boolean;
 }) {
@@ -1138,7 +1208,7 @@ function EncounterCard({
         <span>
           {e.phase === "playoffs"
             ? e.nextId
-              ? "PLAYOFF · SEMIFINAL"
+              ? "PLAYOFF"
               : "CHAMPIONSHIP FINAL"
             : d.groups.find((g) => g.id === e.groupId)?.name.toUpperCase()}{" "}
           · ROUND {e.round}
@@ -1165,6 +1235,18 @@ function EncounterCard({
           ? `${date(e.scheduledAt, d.event!.timezone, true)} · ${e.courtId}`
           : "Schedule to be announced"}
       </p>
+      {captain &&
+        e.status === "Awaiting encounter confirmation" &&
+        !(e.confirmedTeamIds ?? []).includes(own!.id) && (
+          <Action
+            variant="primary"
+            onClick={() =>
+              run("confirmEncounter", { encounterId: e.id, teamId: own!.id })
+            }
+          >
+            Confirm encounter
+          </Action>
+        )}
       {captain &&
         a &&
         b &&
@@ -1205,8 +1287,8 @@ function EncounterCard({
               <span>
                 {r.index + 1}.{" "}
                 {r.kind === "tiebreak"
-                  ? "10-point super tiebreak"
-                  : `${r.kind} ${(r.index % 2) + 1}`}
+                  ? `${rules.decidingTiebreakTarget}-point super tiebreak`
+                  : `${r.kind} ${r.kind === "singles" ? r.index + 1 : r.index - rules.singlesRubbers + 1}`}
               </span>
               <strong>
                 {final?.score.sets.map((s: any) => `${s.a}–${s.b}`).join(" ") ||
@@ -1231,7 +1313,8 @@ function EncounterCard({
             </p>
             <small>Result version {r.version}</small>
             {(authorized || (adminMode && d.admin)) &&
-              r.status === "Scheduled" && (
+              r.status === "Scheduled" &&
+              e.status !== "Awaiting encounter confirmation" && (
                 <RubberScoreForm
                   rubber={r}
                   data={d}
@@ -1310,6 +1393,25 @@ function EncounterCard({
         <details className="organizer-fixture-tools">
           <summary>Organizer scheduling & forfeit</summary>
           <Form
+            label="Extend score deadline"
+            onSubmit={(f) =>
+              run("extendScoreDeadline", {
+                encounterId: e.id,
+                scoreDeadline: new Date(
+                  text(f, "scoreDeadline") + "Z",
+                ).toISOString(),
+                reason: text(f, "reason"),
+              })
+            }
+          >
+            <Field label="New score deadline (UTC)">
+              <input type="datetime-local" name="scoreDeadline" required />
+            </Field>
+            <Field label="Deadline extension reason">
+              <input name="reason" required minLength={5} />
+            </Field>
+          </Form>
+          <Form
             label="Reschedule encounter"
             onSubmit={(f) =>
               run("scheduleEncounter", {
@@ -1370,7 +1472,7 @@ function LineupForm({
   onSubmit,
 }: {
   team: Entity;
-  rules: TriaceRules;
+  rules: CompetitionRules;
   onSubmit: (lineup: any) => Promise<any>;
 }) {
   const roster = team.roster;
@@ -1392,50 +1494,58 @@ function LineupForm({
         label="Lock & submit lineup"
         onSubmit={(f) =>
           onSubmit({
-            singles: [text(f, "s1"), text(f, "s2")],
-            doubles: [
-              { players: text(f, "d1").split("|") },
-              { players: text(f, "d2").split("|") },
-            ],
-            tiebreak: [
-              text(f, "t1"),
-              ...(rules.tiebreakPlayers === 2 ? [text(f, "t2")] : []),
-            ],
+            singles: Array.from({ length: rules.singlesRubbers }, (_, i) =>
+              text(f, `s${i + 1}`),
+            ),
+            doubles: Array.from({ length: rules.doublesRubbers }, (_, i) => ({
+              players: text(f, `d${i + 1}`).split("|"),
+            })),
+            tiebreak: rules.decidingTiebreak
+              ? [
+                  text(f, "t1"),
+                  ...(rules.tiebreakPlayers === 2 ? [text(f, "t2")] : []),
+                ]
+              : [],
           })
         }
       >
         <div className="form-grid">
-          {player("s1", "Singles 1 player", 0)}
-          {player("s2", "Singles 2 player", 1)}
-          {[0, 1].map((i) => (
-            <Field key={i} label={`Doubles ${i + 1} pair`}>
-              <select
-                name={`d${i + 1}`}
-                defaultValue={rules.allowedDoublesPairs[
-                  i % rules.allowedDoublesPairs.length
-                ]
-                  .split("+")
-                  .map((s) => roster.find((p: any) => p.slot === s).playerId)
-                  .join("|")}
-              >
-                {rules.allowedDoublesPairs.map((pair) => (
-                  <option
-                    key={pair}
-                    value={pair
-                      .split("+")
-                      .map(
-                        (s) => roster.find((p: any) => p.slot === s).playerId,
-                      )
-                      .join("|")}
-                  >
-                    {pair}
-                  </option>
-                ))}
-              </select>
-            </Field>
-          ))}
-          {player("t1", "Super tiebreak player 1", 2)}
-          {rules.tiebreakPlayers === 2 &&
+          {Array.from({ length: rules.singlesRubbers }, (_, i) =>
+            player(`s${i + 1}`, `Singles ${i + 1} player`, i % roster.length),
+          )}
+          {Array.from({ length: rules.doublesRubbers }, (_, i) => i).map(
+            (i) => (
+              <Field key={i} label={`Doubles ${i + 1} pair`}>
+                <select
+                  name={`d${i + 1}`}
+                  defaultValue={rules.allowedDoublesPairs[
+                    i % rules.allowedDoublesPairs.length
+                  ]
+                    .split("+")
+                    .map((s) => roster.find((p: any) => p.slot === s).playerId)
+                    .join("|")}
+                >
+                  {rules.allowedDoublesPairs.map((pair) => (
+                    <option
+                      key={pair}
+                      value={pair
+                        .split("+")
+                        .map(
+                          (s) => roster.find((p: any) => p.slot === s).playerId,
+                        )
+                        .join("|")}
+                    >
+                      {pair}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            ),
+          )}
+          {rules.decidingTiebreak &&
+            player("t1", "Super tiebreak player 1", roster.length - 1)}
+          {rules.decidingTiebreak &&
+            rules.tiebreakPlayers === 2 &&
             player("t2", "Super tiebreak player 2", 0)}
         </div>
         <p className="muted">
@@ -1455,7 +1565,7 @@ function RubberScoreForm({
 }: {
   rubber: Entity;
   data: TournamentData;
-  rules: TriaceRules;
+  rules: CompetitionRules;
   onSubmit: (score: any, reason?: string) => Promise<any>;
   label?: string;
   reasonRequired?: boolean;
@@ -1479,6 +1589,9 @@ function RubberScoreForm({
                     .map((i) => ({
                       a: number(f, `a${i}`),
                       b: number(f, `b${i}`),
+                      ...(i === 2 && f.get("matchTiebreak") === "on"
+                        ? { matchTiebreak: true }
+                        : {}),
                     })),
             outcome,
             notes: text(f, "notes"),
@@ -1510,7 +1623,7 @@ function RubberScoreForm({
         Array.from({ length: sets }, (_, i) => (
           <div className="form-grid" key={i}>
             <Field
-              label={`Team A ${r.kind === "tiebreak" ? "points" : `set ${i + 1}`} `}
+              label={`Team A ${r.kind === "tiebreak" || rules.pointsOnly ? "points" : `set ${i + 1}`} `}
             >
               <input
                 name={`a${i}`}
@@ -1521,7 +1634,7 @@ function RubberScoreForm({
               />
             </Field>
             <Field
-              label={`Team B ${r.kind === "tiebreak" ? "points" : `set ${i + 1}`} `}
+              label={`Team B ${r.kind === "tiebreak" || rules.pointsOnly ? "points" : `set ${i + 1}`} `}
             >
               <input
                 name={`b${i}`}
@@ -1533,6 +1646,12 @@ function RubberScoreForm({
             </Field>
           </div>
         ))}
+      {sets === 3 && rules.finalSetTiebreak && (
+        <label className="check">
+          <input type="checkbox" name="matchTiebreak" />
+          Third set is a {rules.decidingTiebreakTarget}-point match tiebreak
+        </label>
+      )}
       <Field label="Rubber notes / exceptional outcome reason">
         <textarea name="notes" required={outcome !== "played"} />
       </Field>
@@ -1544,34 +1663,39 @@ function RubberScoreForm({
     </Form>
   );
 }
-function RulesSummary({ rules: r }: { rules: TriaceRules }) {
+function RulesSummary({ rules: r }: { rules: CompetitionRules }) {
   return (
-    <Panel title="The TRIACE rulebook">
+    <Panel title="Event rulebook">
       <div className="rule-grid">
         {[
-          ["Roster", "Three confirmed players: P1, P2, P3"],
+          [
+            "Roster",
+            `${r.teamSize} confirmed players: ${rosterForRules(r).join(", ")}`,
+          ],
           [
             "Reference range",
-            `${r.combinedMinimum}–${r.combinedMaximum} combined; higher of singles/doubles per player`,
+            `${r.combinedMinimum}–${r.combinedMaximum ?? "no maximum"} combined; ${r.referenceMetric} supplied reference per player`,
           ],
           [
             "Encounter",
-            "Two singles, two doubles, one 10-point super tiebreak",
+            `${r.singlesRubbers} singles, ${r.doublesRubbers} doubles${r.decidingTiebreak ? `, ${r.decidingTiebreakTarget}-point deciding tiebreak` : ""}`,
           ],
           [
             "Victory",
-            `First to three rubbers${r.stopAtClinch ? "; stop at clinch" : "; play all five"}`,
+            `First to ${r.winsRequired} rubbers${r.stopAtClinch ? "; stop at clinch" : "; play all rubbers"}`,
           ],
           [
             "Scoring",
-            r.rubberScoring === "one-set"
-              ? "One full set per singles/doubles rubber"
-              : "Best of three full sets",
+            r.pointsOnly
+              ? `${r.pointsTarget} point games; win by ${r.pointsWinBy}${r.pointsCap ? `; cap ${r.pointsCap}` : ""}`
+              : `${r.rubberScoring === "one-set" ? "One set" : "Best of three"}; target ${r.setGames} games${r.finalSetTiebreak ? "; deciding match tiebreak permitted" : ""}`,
           ],
           ["Doubles pairs", r.allowedDoublesPairs.join(", ")],
           [
             "Decider",
-            `${r.tiebreakPlayers} player(s) per side, ten points, win by two`,
+            r.decidingTiebreak
+              ? `${r.tiebreakPlayers} player(s) per side, ${r.decidingTiebreakTarget} points, win by ${r.pointsWinBy}`
+              : "No separate deciding rubber",
           ],
           [
             "Playoff eligibility",
@@ -1579,11 +1703,13 @@ function RulesSummary({ rules: r }: { rules: TriaceRules }) {
           ],
           [
             "Qualification",
-            `${r.groupCount} groups; ${r.qualifiersPerGroup} qualifiers per group`,
+            r.stageFormat === "groups-playoffs"
+              ? `${r.groupCount} groups; ${r.qualifiersPerGroup} qualifiers per group`
+              : r.stageFormat.replaceAll("-", " "),
           ],
           [
             "Standings",
-            "Encounter wins, rubber difference, explicit organizer tie resolution",
+            `${r.standingsTieBreaks.join(", ")}, explicit organizer tie resolution`,
           ],
         ].map(([k, v]) => (
           <div key={k}>
@@ -1629,6 +1755,18 @@ function RulesEditor({
               participationBasis: text(f, "participationBasis"),
               tiebreakPlayers: number(f, "tiebreakPlayers"),
               rubberScoring: text(f, "rubberScoring"),
+              encounterConfirmation: text(f, "encounterConfirmation"),
+              maxRubbersPerPlayer: number(f, "maxRubbersPerPlayer"),
+              lineupDeadlineMinutes:
+                text(f, "lineupDeadlineMinutes") === ""
+                  ? null
+                  : number(f, "lineupDeadlineMinutes"),
+              resultDeadlineHours:
+                text(f, "resultDeadlineHours") === ""
+                  ? null
+                  : number(f, "resultDeadlineHours"),
+              requireVerified: f.get("requireVerified") === "on",
+              membersOnly: f.get("membersOnly") === "on",
               allowedDoublesPairs: f.getAll("pairs"),
               ...Object.fromEntries(
                 [
@@ -1691,7 +1829,62 @@ function RulesEditor({
               <option value="best-of-three">Best of three sets</option>
             </select>
           </Field>
+          <Field label="Encounter confirmation">
+            <select
+              name="encounterConfirmation"
+              defaultValue={r.encounterConfirmation}
+            >
+              <option value="lineups">
+                Both submitted lineups confirm the encounter
+              </option>
+              <option value="explicit">
+                Both captains confirm revealed lineups
+              </option>
+            </select>
+          </Field>
+          <Field label="Maximum rubbers per player">
+            <input
+              type="number"
+              name="maxRubbersPerPlayer"
+              min="1"
+              max="5"
+              defaultValue={r.maxRubbersPerPlayer}
+              required
+            />
+          </Field>
+          <Field label="Lineup deadline minutes before play (blank for none)">
+            <input
+              type="number"
+              name="lineupDeadlineMinutes"
+              min="0"
+              defaultValue={r.lineupDeadlineMinutes ?? ""}
+            />
+          </Field>
+          <Field label="Score deadline hours after scheduled start (blank for none)">
+            <input
+              type="number"
+              name="resultDeadlineHours"
+              min="1"
+              defaultValue={r.resultDeadlineHours ?? ""}
+            />
+          </Field>
         </div>
+        <label className="check">
+          <input
+            type="checkbox"
+            name="requireVerified"
+            defaultChecked={r.requireVerified}
+          />
+          Require club-admin-verified references
+        </label>
+        <label className="check">
+          <input
+            type="checkbox"
+            name="membersOnly"
+            defaultChecked={r.membersOnly}
+          />
+          Require every roster player to be a club member
+        </label>
         {["P1+P2", "P1+P3", "P2+P3"].map((p) => (
           <label className="check" key={p}>
             <input

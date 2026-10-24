@@ -28,6 +28,8 @@ import {
   type Match,
   type Role,
   triaceRulesSchema,
+  competitionRules,
+  isTeamCompetition,
   membershipRequestInput,
   membershipReviewInput,
   membershipWithdrawalInput,
@@ -108,7 +110,7 @@ export async function execute(
     ].includes(operation);
     const operationLimitId = clubOperation ? `club-${uid}` : uid;
     const operationLimit =
-      operation === "triace" || clubOperation
+      ["triace", "teamCompetition"].includes(operation) || clubOperation
         ? await tx.get(db.doc(`operationLimits/${operationLimitId}`))
         : null;
     const buckets: Record<string, Entity[]> = {};
@@ -218,8 +220,7 @@ export async function execute(
       )
         return;
       const regs = list("registrations");
-      if (event.competition === "triace" && list("teamEncounters").length)
-        return;
+      if (isTeamCompetition(event) && list("teamEncounters").length) return;
       for (const waiting of regs
         .filter((r) => r.state === "Waitlisted")
         .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id))) {
@@ -339,7 +340,8 @@ export async function execute(
       }
     };
     if (
-      event?.competition === "triace" &&
+      event &&
+      isTeamCompetition(event) &&
       [
         "registerForDivision",
         "generateDraw",
@@ -352,7 +354,11 @@ export async function execute(
         "updateRoundRobinStandings",
       ].includes(operation)
     )
-      fail("Use the TRIACE team workspace for this operation");
+      fail(
+        event?.competition === "triace"
+          ? "Use the TRIACE team workspace for this operation"
+          : "Use the team competition workspace for this operation",
+      );
     if (
       ![
         "createEvent",
@@ -368,6 +374,8 @@ export async function execute(
       !event
     )
       fail("Event not found", "not-found");
+    if (event && event.clubId !== "pprc")
+      fail("This deployment cannot manage another club", "permission-denied");
     switch (operation) {
       case "requestClubMembership": {
         const input = membershipRequestInput.parse(data);
@@ -502,7 +510,8 @@ export async function execute(
         result = { status: input.decision };
         break;
       }
-      case "triace": {
+      case "triace":
+      case "teamCompetition": {
         applyOperationLimit(manager ? 240 : 120);
         result = await executeTriace({
           uid,
@@ -524,6 +533,12 @@ export async function execute(
             const s = await tx.get(db.doc(`users/${idSchema.parse(playerId)}`));
             return s.exists ? ({ id: s.id, ...s.data() } as Entity) : undefined;
           },
+          readMembership: async (playerId) => {
+            const s = await tx.get(
+              db.doc(`memberships/${idSchema.parse(playerId)}`),
+            );
+            return s.exists ? ({ id: s.id, ...s.data() } as Entity) : undefined;
+          },
           readCourt: async (courtId) => {
             const s = await tx.get(db.doc(`courts/${idSchema.parse(courtId)}`));
             return s.exists ? ({ id: s.id, ...s.data() } as Entity) : undefined;
@@ -533,6 +548,11 @@ export async function execute(
         break;
       }
       case "saveProfile": {
+        if (profile && profile.clubId !== "pprc")
+          fail(
+            "Foreign-club profile cannot be overwritten",
+            "permission-denied",
+          );
         const p = z
           .object({
             displayName: z.string().min(2).max(100),
@@ -621,6 +641,18 @@ export async function execute(
         const target = z
           .enum(["court", "membership", "template", "rating", "venue", "club"])
           .parse(data.target);
+        if (["court", "venue"].includes(target) && data.id) {
+          const existing = await tx.get(
+            db.doc(
+              `${target === "court" ? "courts" : "venues"}/${idSchema.parse(data.id)}`,
+            ),
+          );
+          if (existing.exists && existing.get("clubId") !== "pprc")
+            fail(
+              "Foreign-club resources cannot be overwritten",
+              "permission-denied",
+            );
+        }
         if (target === "club") {
           const existingClub = await tx.get(db.doc("clubs/pprc"));
           const value = z
@@ -652,10 +684,20 @@ export async function execute(
             .parse(data.role);
           if (id === uid && memberRole !== "clubAdmin")
             fail("Cannot remove your own club-admin role");
-          const [player, request] = await Promise.all([
+          const [player, request, existingMembership] = await Promise.all([
             tx.get(db.doc(`users/${id}`)),
             tx.get(db.doc(`membershipRequests/${id}`)),
+            tx.get(db.doc(`memberships/${id}`)),
           ]);
+          if (
+            (existingMembership.exists &&
+              existingMembership.get("clubId") !== "pprc") ||
+            (player.exists && player.get("clubId") !== "pprc")
+          )
+            fail(
+              "Foreign-club membership cannot be overwritten",
+              "permission-denied",
+            );
           const membership = make(
             "memberships",
             { role: memberRole, member: !!data.member, playerId: id },
@@ -686,7 +728,8 @@ export async function execute(
         if (target === "rating") {
           const id = idSchema.parse(data.id);
           const snap = await tx.get(db.doc(`users/${id}`));
-          if (!snap.exists) fail("Player not found");
+          if (!snap.exists || snap.get("clubId") !== "pprc")
+            fail("PPRC player not found");
           const rating = z.number().min(0).max(20).parse(data.rating);
           const singlesUtr = z
             .number()
@@ -752,13 +795,15 @@ export async function execute(
             .parse(data.divisions);
         if (divisions.reduce((n, d) => n + d.capacity, 0) > 128)
           fail("Maximum 128 entries per event");
+        if (isTeamCompetition(e))
+          competitionRules({ ...e, id: eventId, clubId: "pprc" });
         if (
-          e.competition === "triace" &&
+          isTeamCompetition(e) &&
           (divisions.length !== 1 ||
             e.capacity > 16 ||
             divisions[0].capacity > 16)
         )
-          fail("TRIACE uses one division and at most 16 teams");
+          fail("Team competitions use one division and at most 16 teams");
         make(
           "events",
           {
@@ -767,6 +812,18 @@ export async function execute(
               ? {
                   triaceRules: triaceRulesSchema.parse(e.triaceRules ?? {}),
                   schemaVersion: 2,
+                }
+              : {}),
+            ...(["koc", "doubles"].includes(e.competition)
+              ? {
+                  teamRules: competitionRules({
+                    ...e,
+                    id: eventId,
+                    clubId: "pprc",
+                  }),
+                  schemaVersion: 3,
+                  formatLabel:
+                    e.competition === "doubles" ? "Doubles" : "KOC teams",
                 }
               : {}),
             divisionFilters: divisions.map((d) => ({
@@ -797,15 +854,15 @@ export async function execute(
         const patch = eventSchema.parse({ ...event, ...data.event });
         if (patch.competition !== (event!.competition ?? "individual"))
           fail("Competition format cannot be changed; create a separate event");
-        if (patch.competition === "triace") {
+        if (isTeamCompetition(patch)) {
           if (patch.capacity > 16) fail("TRIACE capacity is at most 16 teams");
-          if (data.event?.triaceRules)
+          if (data.event?.triaceRules || data.event?.teamRules)
             fail("Change TRIACE rules through the audited team workspace");
           if (
             data.divisions &&
             (data.divisions.length !== 1 || data.divisions[0].capacity > 16)
           )
-            fail("TRIACE uses one division and at most 16 teams");
+            fail("Team competitions use one division and at most 16 teams");
           if (
             list("teams").length &&
             (patch.waiverRequired !== event!.waiverRequired ||
@@ -858,6 +915,11 @@ export async function execute(
         requireAdmin();
         eventSchema.parse(event);
         if (!list("divisions").length) fail("At least one division required");
+        if (
+          ["koc", "doubles"].includes(event!.competition) &&
+          !competitionRules(event!).policyConfirmed
+        )
+          fail("Review and confirm the competition policy before publishing");
         if (event!.status !== "Draft" && event!.status !== "Published")
           fail("Event already published");
         edit("events", event!, {
@@ -1609,7 +1671,7 @@ export async function execute(
             ])
             .parse(data.status);
           if (
-            event!.competition === "triace" &&
+            isTeamCompetition(event!) &&
             status === "Completed" &&
             !event!.championTeamId
           )
@@ -1756,7 +1818,7 @@ export async function execute(
       event
     ) {
       const current = (updates.get(`events/${eventId}`) ?? event) as Entity;
-      if (event.competition === "triace")
+      if (isTeamCompetition(event))
         for (const r of list("registrations").filter(
           (r) =>
             r.teamId &&
@@ -1808,7 +1870,9 @@ export async function execute(
         clubId: "pprc",
         eventId,
         actor: uid,
-        action: operation === "triace" ? `triace.${data.action}` : operation,
+        action: ["triace", "teamCompetition"].includes(operation)
+          ? `${event?.competition}.${data.action}`
+          : operation,
         entityType: eventId ? "event" : "club",
         entityId: eventId || uid,
         before: auditBefore,
@@ -1846,6 +1910,8 @@ export async function assertEventAdmin(
     read(`events/${idSchema.parse(eventId)}`),
   ]);
   if (
+    !e.exists ||
+    e.get("clubId") !== "pprc" ||
     m.data()?.clubId !== "pprc" ||
     !canManage(m.data()?.role, uid, e.data() as Event)
   )

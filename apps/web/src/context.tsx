@@ -43,7 +43,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       value={{
         user,
         profile: profile.data ?? undefined,
-        member: member.data ?? undefined,
+        member: member.data?.clubId === "pprc" ? member.data : undefined,
         loading: loading || profile.isLoading || member.isLoading,
       }}
     >

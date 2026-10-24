@@ -2,7 +2,16 @@ import { z } from "zod";
 import type { Entity } from "./index";
 
 const playerId = z.string().regex(/^[\w-]{1,120}$/);
-export const rosterSlots = ["P1", "P2", "P3"] as const;
+export const rosterSlots = [
+  "P1",
+  "P2",
+  "P3",
+  "P4",
+  "P5",
+  "P6",
+  "P7",
+  "P8",
+] as const;
 export const triaceRulesSchema = z
   .object({
     version: z.literal(2).default(2),
@@ -27,6 +36,24 @@ export const triaceRulesSchema = z
     rubberScoring: z.enum(["one-set", "best-of-three"]).default("one-set"),
     stopAtClinch: z.boolean().default(true),
     forfeitCountsForParticipation: z.boolean().default(false),
+    maxRubbersPerPlayer: z.number().int().min(1).max(5).default(5),
+    encounterConfirmation: z.enum(["lineups", "explicit"]).default("lineups"),
+    lineupDeadlineMinutes: z
+      .number()
+      .int()
+      .min(0)
+      .max(10080)
+      .nullable()
+      .default(null),
+    resultDeadlineHours: z
+      .number()
+      .int()
+      .min(1)
+      .max(336)
+      .nullable()
+      .default(null),
+    requireVerified: z.boolean().default(false),
+    membersOnly: z.boolean().default(false),
   })
   .superRefine((r, ctx) => {
     if (r.combinedMinimum > r.combinedMaximum)
@@ -89,7 +116,7 @@ export interface TeamInvitation extends Entity {
   captainId: string;
   playerId: string;
   participantIds: string[];
-  slot: "P2" | "P3";
+  slot: Exclude<(typeof rosterSlots)[number], "P1">;
   status: "Pending" | "Accepted" | "Declined" | "Revoked";
 }
 export interface TeamGroup extends Entity {
@@ -165,7 +192,9 @@ export function validateTeamLineup(
   const lineup = teamLineupSchema.parse(input);
   if (
     team.roster.length !== 3 ||
-    new Set(team.roster.map((p) => p.playerId)).size !== 3
+    new Set(team.roster.map((p) => p.playerId)).size !== 3 ||
+    new Set(team.roster.map((p) => p.slot)).size !== 3 ||
+    team.roster.some((p) => !["P1", "P2", "P3"].includes(p.slot))
   )
     throw Error("Three confirmed roster players required");
   const slots = new Map(team.roster.map((p) => [p.playerId, p.slot]));
@@ -253,6 +282,7 @@ export const rubberScoreSchema = z.object({
         b: z.number().int().min(0).max(99),
         tiebreakA: z.number().int().min(0).max(99).optional(),
         tiebreakB: z.number().int().min(0).max(99).optional(),
+        matchTiebreak: z.boolean().optional(),
       }),
     )
     .max(3),
@@ -288,6 +318,10 @@ export function validateRubberScore(
   let a = 0,
     b = 0;
   for (const set of score.sets) {
+    if (set.matchTiebreak)
+      throw Error(
+        "TRIACE rubbers use full sets or the separate deciding tiebreak",
+      );
     if (a === needed || b === needed)
       throw Error("Points after rubber completion");
     if (rubber.kind === "tiebreak") {
@@ -327,7 +361,12 @@ export function singlesParticipation(
   teamId: string,
   encounters: Entity[],
   rubbers: Entity[],
-  rules: TriaceRules,
+  rules: Pick<
+    TriaceRules,
+    | "participationBasis"
+    | "singlesParticipationPercent"
+    | "forfeitCountsForParticipation"
+  > & { singlesRubbers?: number },
 ) {
   const completed = encounters.filter(
     (e) =>
@@ -348,7 +387,9 @@ export function singlesParticipation(
   ).length;
   const denominator =
     completed.length *
-    (rules.participationBasis === "singles-opportunities" ? 2 : 1);
+    (rules.participationBasis === "singles-opportunities"
+      ? (rules.singlesRubbers ?? 2)
+      : 1);
   const percent = denominator ? (appearances / denominator) * 100 : 0;
   return {
     playerId,
@@ -356,7 +397,8 @@ export function singlesParticipation(
     opportunities: denominator,
     percent,
     eligible:
-      denominator > 0 && percent + 1e-9 >= rules.singlesParticipationPercent,
+      rules.singlesParticipationPercent === 0 ||
+      (denominator > 0 && percent + 1e-9 >= rules.singlesParticipationPercent),
   };
 }
 export function teamStandings(

@@ -262,7 +262,11 @@ export function EventCard({ event }: { event: Entity }) {
         <div className="event-card-bottom">
           <span>
             <strong>{money(event.fee)}</strong>
-            <small> / player</small>
+            <small>
+              {event.competition && event.competition !== "individual"
+                ? " / team"
+                : " / player"}
+            </small>
           </span>
           <Link
             aria-label={`View ${event.name}`}
