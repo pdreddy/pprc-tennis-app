@@ -2,9 +2,9 @@
 
 | # | Item | Phase | Depends on | Status |
 | --- | --- | --- | --- | --- |
-| 1 | Navy/gold design tokens, bottom nav, state components | 1 | – | todo |
-| 2 | Manifest/theme colour update, PWA install check | 1 | 1 | todo |
-| 3 | TRIACE/KOC rules engine in `packages/shared` (pure, configurable) | 3 | – | todo |
+| 1 | Navy/gold design tokens, bottom nav, state components | 1 | – | done |
+| 2 | Manifest/theme colour update, PWA install check | 1 | 1 | manifest done; install untested |
+| 3 | TRIACE/KOC rules engine in `packages/shared` (pure, configurable) | 3 | – | done (`team.ts`, 8 tests) |
 | 4 | Team + doubles schema, rules, callables | 3/4 | 3 | todo |
 | 5 | Singles/doubles ratings, match history, aggregates | 2 | 4 | todo |
 | 6 | Player search, rankings, analytics views | 2 | 5 | todo |

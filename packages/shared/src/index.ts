@@ -762,3 +762,4 @@ export const profileSchema = z.object({
   gender: z.enum(["Male", "Female", "Other"]).optional(),
   photoPath: z.string().startsWith("photos/").max(500).optional(),
 });
+export * from "./team";
