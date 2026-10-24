@@ -48,6 +48,9 @@ const Admin = lazy(() => import("./admin").then((m) => ({ default: m.Admin })));
 const EventWizard = lazy(() =>
   import("./admin").then((m) => ({ default: m.EventWizard })),
 );
+const TeamsHub = lazy(() =>
+  import("./teams").then((m) => ({ default: m.TeamsHub })),
+);
 function Layout() {
   const { user, member } = useSession();
   const [menu, setMenu] = useState(false);
@@ -79,6 +82,7 @@ function Layout() {
         >
           <NavLink to="/events">Explore events</NavLink>
           <NavLink to="/my-events">My events</NavLink>
+          <NavLink to="/teams">My teams</NavLink>
           <NavLink to="/schedule">Schedule</NavLink>
           <NavLink to="/results">Results</NavLink>
           {admin && <NavLink to="/admin">Admin portal</NavLink>}
@@ -124,6 +128,15 @@ function Layout() {
             <Route path="/" element={<Discover home />} />
             <Route path="/events" element={<Discover />} />
             <Route path="/events/:eventId" element={<EventDetail />} />
+            <Route path="/events/:eventId/triace" element={<EventDetail />} />
+            <Route
+              path="/teams"
+              element={
+                <RequireUser>
+                  <TeamsHub />
+                </RequireUser>
+              }
+            />
             <Route
               path="/register/:eventId/:divisionId"
               element={
@@ -295,7 +308,8 @@ function SignIn() {
               <br />
               Admin: admin@pprc.test
               <br />
-              Password: PprcDemo2026!
+              Use the synthetic account credentials documented in the repository
+              README.
             </span>
           </div>
         )}

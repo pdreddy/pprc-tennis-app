@@ -1,8 +1,8 @@
-# PPRC Events
+# PPRC Sports · Events & TRIACE
 
-An original, mobile-first tournament and event module for Prosper Premier Racquet Club. React 18 + Vite + TypeScript, Tailwind, React Router, TanStack Query, Firebase Auth/Firestore/Gen 2 Functions/Storage, Stripe Checkout, and an installable PWA. Player and admin experiences share one app; permissions are enforced by Functions and security rules.
+An original, mobile-first individual and TRIACE team tournament module for Prosper Premier Racquet Club. React 18 + Vite + TypeScript, Tailwind, React Router, TanStack Query, Firebase Auth/Firestore/Gen 2 Functions/Storage, Stripe Checkout, and an installable PWA. Player and admin experiences share one app; permissions are enforced by Functions and security rules.
 
-**Current verification:** domain tests, type checks, lint, production builds, browser UI checks and Firebase emulator integration checks have passed. All three tournament-flow browser tests pass; see [validation details](docs/VALIDATION.md). Stripe test-mode reconciliation, real Google sign-in and FCM delivery still require staging configuration before live use.
+**Verification:** see [executed checks](docs/VALIDATION.md) and the [completion audit](docs/COMPLETION_AUDIT.md). TRIACE includes real captain invitations, registration, groups, private lineups, opponent-confirmed rubbers, participation, playoffs and champion declaration. Real Firebase staging, Stripe API/refunds, Google sign-in and FCM still require configuration and approval before live use.
 
 ## Repository layout
 
@@ -19,28 +19,47 @@ The original Next.js prototype below remains intact. Its `app/`, `lib/`, and SQL
 
 ## Run locally
 
-Prerequisites: Node 22 (production Functions target), pnpm 11.25+, Java 21+, and Chromium for Playwright. The cloud environment includes checksum-verified Node 22.23.3 and runs Functions with that runtime. Install a Playwright-managed Chromium on a normal workstation and set `PLAYWRIGHT_CHROMIUM_PATH` to that binary, or use `/usr/bin/chromium` on this cloud machine.
+Prerequisites: **Node 22 and Java 21+**. On a Mac with Homebrew:
 
 ```bash
-pnpm install --frozen-lockfile
-# Terminal 1: builds Functions and starts real Firebase emulators
-pnpm events:emulators
-# Terminal 2: seed once after emulator readiness; repeat preserves existing events
-pnpm events:seed
-pnpm events:dev
+brew install node@22
+brew install --cask temurin@21
+export PATH="$(brew --prefix node@22)/bin:$PATH"
 ```
+
+From the repository folder:
+
+```bash
+./pprc.sh setup   # installs project-local pnpm if missing, dependencies and browser
+./pprc.sh start   # starts Firebase + Vite; imports saved local state when available
+./pprc.sh seed    # initializes synthetic accounts and missing demo events
+```
+
+The helper requires no global pnpm install or sudo. Browser tests automatically use managed Chromium on macOS; `PLAYWRIGHT_CHROMIUM_PATH` can override it. Linux cloud uses the installed Chromium.
+
+```bash
+./pprc.sh status
+./pprc.sh doctor
+./pprc.sh stop                 # gracefully exports demo state and stops owned services
+./pprc.sh start                # restores .local/emulator-state
+./pprc.sh start --reset        # explicit fresh data; do not combine with --import
+./pprc.sh start --import PATH  # explicitly restore a Firebase emulator export
+./pprc.sh export               # save a snapshot without stopping
+```
+
+Run `stop` before starting with `--reset` or a different import. An already-running complete suite is reused. Only managed processes are stopped; foreign port conflicts produce an actionable error. Logs are `.local/emulators.log` and `.local/web.log`. Existing `pnpm events:emulators`, `pnpm events:seed`, and `pnpm events:dev` remain supported for manual development.
 
 The web app uses port 5173. Emulator UI uses 4000, Auth 9099, Firestore 8080, Functions 5001 and Storage 9199. These are local development ports, not public preview links. Auth emulator accounts:
 
-| Role | Email | Password |
-| --- | --- | --- |
-| Player | player1@pprc.test through player16@pprc.test | PprcDemo2026! |
-| Club admin | admin@pprc.test | PprcDemo2026! |
-| Assigned event admin | event-admin@pprc.test | PprcDemo2026! |
-| Read-only support | support@pprc.test | PprcDemo2026! |
-| Unassigned event admin | other-admin@pprc.test | PprcDemo2026! |
+| Role                   | Email                                        | Password      |
+| ---------------------- | -------------------------------------------- | ------------- |
+| Player                 | player1@pprc.test through player24@pprc.test | PprcDemo2026! |
+| Club admin             | admin@pprc.test                              | PprcDemo2026! |
+| Assigned event admin   | event-admin@pprc.test                        | PprcDemo2026! |
+| Read-only support      | support@pprc.test                            | PprcDemo2026! |
+| Unassigned event admin | other-admin@pprc.test                        | PprcDemo2026! |
 
-These accounts exist only in the emulator. The seed refuses a non-demo project and creates 16 sample players, three events (completed singles, open singles, group round robin/playoffs) and four courts. Emulator state is ephemeral unless you use Firebase `--import` / `--export-on-exit`; do not seed production. To reset local data, stop the emulators and restart without an import, then seed again.
+These accounts exist only in the emulator. The seed refuses a non-demo project and creates 24 sample players, four events (completed singles, open singles, group round robin/playoffs, TRIACE Champions Cup) and four courts. Emulator state is ephemeral unless you use Firebase `--import` / `--export-on-exit`; do not seed production. To reset local data, stop the emulators and restart without an import, then seed again.
 
 Local defaults require no `.env` and no payment secrets. `apps/web/.env.example` documents public Firebase config; copy it to `.env.local` only if overriding defaults. `functions/.env.example` documents production origin and Secret Manager bindings. Never put Stripe secret keys or service-account JSON in `VITE_*` variables.
 
@@ -68,45 +87,45 @@ The Firebase wrapper puts emulator downloads and CLI configuration in the checko
 4. Enter legal scores; supervised admins can finalize directly. Players submit for opponent/admin confirmation. Winners advance transactionally.
 5. Review corrections, reporting reference status, payments/refund requests and CSV exports. Audit history is immutable from clients.
 
-Formats: single elimination, round robin, and group round robin with knockout playoffs. A division locks new registration after draw generation. Standings ties affecting playoff qualification require explicit resolution. No proprietary rating calculation, ladder, external result submission, scraped data or copied branding is included.
+Formats: single elimination, round robin, group round robin with knockout playoffs, and TRIACE 2.0 team competition. See the [TRIACE rulebook and complete rehearsal](docs/TRIACE.md). A division locks new registration after draw generation. Standings ties affecting playoff qualification require explicit resolution. No proprietary rating calculation, ladder, external result submission, scraped data or copied branding is included.
 
 ## Test commands
 
-Stop any manually running emulator suite before integration/E2E commands; those commands own fresh emulator processes. Run E2E against fresh unseeded emulator state: its command seeds the project itself.
+The main quality gate finishes with real Firebase integration tests:
+
+```bash
+./pprc.sh test-all   # lint, types, unit, build, UI, PWA, restore, full browser, integration LAST
+./pprc.sh test       # lint, types, unit, Firebase integration
+./pprc.sh test-e2e   # individual + complete TRIACE browser workflows
+```
+
+Managed development services are exported/stopped before testing and restored afterwards. Tests use fresh synthetic `demo-pprc-events` data and never import development or production data. Stop manually started emulators/Vite first; test commands refuse unrelated port conflicts. Individual commands remain available:
 
 ```bash
 pnpm events:lint
 pnpm events:typecheck
-pnpm events:test            # shared domain tests
-pnpm events:build           # standalone Functions package + PWA
-pnpm events:ui              # browser shell/navigation/sign-in checks, no emulators needed
-pnpm events:integration     # real Firestore transactions + security rules
-pnpm events:e2e             # real callable-driven player/admin flows via Playwright
+pnpm events:test
+pnpm events:build
+pnpm events:ui
+pnpm events:pwa
+pnpm events:persistence  # isolated export/import; stop managed services first
+pnpm events:e2e
+pnpm events:integration
 ```
 
-`PLAYWRIGHT_CHROMIUM_PATH` overrides `/usr/bin/chromium`. `pnpm exec playwright install chromium` installs Playwright's managed browser; update that variable/configuration when using the managed binary. Browser screenshots, traces and reports are generated under ignored `test-results/` and `playwright-report/`. Full-flow tests include registration/payment, approval/seeding, draw publication, scheduling, scores and waitlist promotion. Integration tests also cover contention, idempotency, roles, immutable audits and direct-write denial.
+Browser reports/traces and emulator state remain ignored. `events:persistence` creates its own temporary export directory, verifies an actual callable write, restarts, re-authenticates and reads the private team back. Domain and integration tests cover references, legal lineups/scores, contention, waitlists, role/direct-write denial, participation, disputes, signed Stripe webhook reconciliation and reminders. CI runs the same gate; adding its workflow does not claim a remote CI result.
 
-## Firebase and Stripe deployment
+## Firebase and Stripe staging
 
-Deployment is intentionally not executed here. Use a **separate Firebase project from the existing ladder**, enable billing/required APIs for Gen 2 Functions, Firestore, Auth, Storage and Scheduler, and choose the desired Firestore region before creating data.
-
-1. Enable Google and/or email/password in Firebase Auth; add the Hosting domain as authorized.
-2. Bootstrap `memberships/{FIRST_ADMIN_UID}` through a trusted Admin SDK/IAM process with `{clubId:'pprc', role:'clubAdmin', member:true}`. Never grant this through signup or browser writes.
-3. Create `apps/web/.env.production.local` using your project's public Firebase configuration and `VITE_USE_EMULATORS=false`. Set messaging sender/VAPID config if using FCM. Build-time client config requires a rebuild after changes.
-4. Create ignored `functions/.env.YOUR_PROJECT_ID` containing `APP_ORIGIN=https://YOUR_PROJECT_ID.web.app`. The Functions build copies environment files into the generated deployment package. Keep secret values in Secret Manager:
+The provided Firebase project ID `multiclub-890ea` is configured as the proposed **staging alias**. Its supplied URL was Realtime Database; the app still uses Firestore. No real project has been deployed or populated. Verify this project is isolated from real player data before approving any write.
 
 ```bash
-pnpm exec firebase functions:secrets:set STRIPE_SECRET_KEY --project YOUR_PROJECT_ID
-pnpm exec firebase functions:secrets:set STRIPE_WEBHOOK_SECRET --project YOUR_PROJECT_ID
-pnpm events:build
-pnpm exec firebase deploy --project YOUR_PROJECT_ID --only firestore,storage,functions,hosting
+pnpm events:staging check
 ```
 
-5. Configure Stripe test-mode Checkout webhook delivery to the deployed `stripeWebhook` Gen 2 URL. Subscribe to `checkout.session.completed` and `checkout.session.async_payment_succeeded`. Use the corresponding signing secret. The handler verifies raw-body signatures, amount, currency, session and user binding; it does not trust redirect query parameters. Stripe test secrets are required for real payment/refund checks. The emulator payment adapter uses no Stripe key.
-6. Test signed webhook retries, duplicate delivery, late payments, withdrawals/refunds, unauthorized access and notification delivery against a staging project before enabling live payments. For Stripe CLI forwarding, use a dedicated staging test endpoint/key; do not point a live Stripe account at the local simulator.
-7. Configure Storage bucket CORS for the actual Hosting origin for authenticated profile photo reads. Covers are public marketing images; profile photos and waivers have separate access rules.
+Follow [STAGING.md](docs/STAGING.md) for client configuration, Auth, Secret Manager, rules/indexes, Storage CORS, guarded deployment, trusted initial admin bootstrap, private synthetic fixtures, Stripe test-mode checks, FCM/Scheduler and backup/recovery. Missing config fails the check. Mutations require explicit approval plus a matching project guard; live charges are disabled.
 
-`functions/deploy/` is generated and ignored. It includes bundled shared code and a standalone `package.json` with normal runtime dependencies, so Cloud Build does not need the pnpm workspace. Production targets Node 22. The cloud helper `bash scripts/events/cloud-install.sh` activates the verified Node 22 runtime and runs the installation/build checks. On a workstation, use your own Node 22 and pnpm installation. No production credentials, deployment, FCM delivery, fresh-task restoration or live Stripe transactions have been verified in this session.
+Existing Firestore documents stay compatible. [Schema/migration instructions](docs/SCHEMA_MIGRATIONS.md) provide dry-run and additive audited migration commands. No legacy SQLite or actual player data is imported. [Production readiness](docs/PRODUCTION_READINESS.md) lists remaining operational prerequisites and limits.
 
 ## Scope and operations
 
@@ -127,18 +146,18 @@ and it updates the moment a result is added. AI features run on [Replicate](http
 
 ## What's in it
 
-| Area | What you can do |
-|---|---|
-| Ratings | Original game-share rating engine (`lib/rating.ts`), match ratings per player per match, reliability %, 12-month history |
-| Players | Search and filter by name, club, city, division, age group, state; profile with rating plate, stats, chart, results |
-| Rankings | Leaderboards by division, age group (12U–18U, Adult, 40+) and state |
-| Results | Add a result with set scores (incl. match tiebreaks, retirements); both ratings recompute instantly |
-| Events | Upcoming level-based events with eligibility check, entry and withdrawal; completed draws round by round |
-| Clubs | Club pages with members and hosted events |
-| Accounts | Create a profile with a self-assessed starting level; demo sign-in as any sample player |
-| **AI coach** | Chat grounded in the player's own rating, trend and last 12 months of matches |
-| **Video review** | Upload a clip; get shot grades, patterns, timestamps to rewatch and drills |
-| **Generated graphics** | Shareable result cards with a generated court photo; generated profile avatars |
+| Area                   | What you can do                                                                                                          |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Ratings                | Original game-share rating engine (`lib/rating.ts`), match ratings per player per match, reliability %, 12-month history |
+| Players                | Search and filter by name, club, city, division, age group, state; profile with rating plate, stats, chart, results      |
+| Rankings               | Leaderboards by division, age group (12U–18U, Adult, 40+) and state                                                      |
+| Results                | Add a result with set scores (incl. match tiebreaks, retirements); both ratings recompute instantly                      |
+| Events                 | Upcoming level-based events with eligibility check, entry and withdrawal; completed draws round by round                 |
+| Clubs                  | Club pages with members and hosted events                                                                                |
+| Accounts               | Create a profile with a self-assessed starting level; demo sign-in as any sample player                                  |
+| **AI coach**           | Chat grounded in the player's own rating, trend and last 12 months of matches                                            |
+| **Video review**       | Upload a clip; get shot grades, patterns, timestamps to rewatch and drills                                               |
+| **Generated graphics** | Shareable result cards with a generated court photo; generated profile avatars                                           |
 
 ## Run it
 
@@ -165,11 +184,11 @@ cp .env.example .env.local
 
 Default models (official, always-warm, picked from Replicate's official collection in Oct 2026):
 
-| Feature | Env var | Default | Notes |
-|---|---|---|---|
-| Coach chat | `REPLICATE_TEXT_MODEL` | `google/gemini-3.5-flash` | `system_instruction` + `prompt` |
-| Video review | `REPLICATE_VIDEO_MODEL` | `google/gemini-3.5-flash` | video uploaded through the Files API, passed in `videos` |
-| Cards & avatars | `REPLICATE_IMAGE_MODEL` | `prunaai/p-image` | `aspect_ratio` 3:4 / 1:1; text is drawn by the app, not the model |
+| Feature         | Env var                 | Default                   | Notes                                                             |
+| --------------- | ----------------------- | ------------------------- | ----------------------------------------------------------------- |
+| Coach chat      | `REPLICATE_TEXT_MODEL`  | `google/gemini-3.5-flash` | `system_instruction` + `prompt`                                   |
+| Video review    | `REPLICATE_VIDEO_MODEL` | `google/gemini-3.5-flash` | video uploaded through the Files API, passed in `videos`          |
+| Cards & avatars | `REPLICATE_IMAGE_MODEL` | `prunaai/p-image`         | `aspect_ratio` 3:4 / 1:1; text is drawn by the app, not the model |
 
 Per the find-models skill, models change weekly: check the
 [official collection](https://replicate.com/collections/official) and each model's schema

@@ -5,6 +5,17 @@ test("original PPRC discovery shell and mobile navigation remain usable", async 
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto("/");
+  expect(
+    await page.evaluate(async () => {
+      // Test server configuration must override any workstation staging .env.
+      // @ts-expect-error Vite serves the browser module at this development URL.
+      const firebase = await import("/src/firebase.ts");
+      return {
+        emulator: firebase.emulator,
+        projectId: firebase.auth.app.options.projectId,
+      };
+    }),
+  ).toEqual({ emulator: true, projectId: "demo-pprc-events" });
   await expect(
     page.getByRole("heading", {
       name: "More than a match. A place to belong.",

@@ -1,5 +1,15 @@
 # PPRC Events architecture
 
+## TRIACE extension (October 2026)
+
+TRIACE uses the same React frontend and `execute()` transaction/receipt/audit boundary. `functions/src/triace.ts` is a handler inside that engine, not a second backend. `packages/shared/src/triace.ts` defines validated policy, typed team entities, reference snapshots, lineups, rubber scoring, standings and participation. Event compatibility and collection access are documented in SCHEMA_MIGRATIONS.md.
+
+Team registration uses the existing `registrations`, capacity, payments and waitlist service. Captain membership is derived from an event-scoped team, never a client-assigned global role. Invitation acceptance serializes against event teams to prevent double enrollment. Registration snapshots each player's higher singles/doubles reference. Rosters and policies lock at registration; groups/seeds may be revised with an audit reason before fixtures. Submitted lineups remain private until both teams submit.
+
+Each encounter has five authorized rubbers. Confirm a pending score and resolve open disputes before entering another rubber in that encounter, preventing results after a clinch. Opponent/admin confirmation updates versioned results, encounter totals, standings and playoff successors atomically. Eligibility and unresolved ties gate playoff generation. Final confirmation records the champion. Corrections retain superseded results and respect qualification/downstream locks. Team reminders share the existing scheduled maintenance and FCM path. Real Stripe webhook signatures, retries/failures, amount/session/currency binding and late-payment reconciliation are exercised locally; provider API delivery still requires staging.
+
+The navy/gold theme applies across existing Events routes. `/teams` handles invitations and captain teams; event pages and existing admin event routes render TRIACE operations when appropriate. Existing player schedule/results include team encounters and played rubbers. `pprc.sh` manages repeatable emulator/Vite startup, isolated tests and explicit export/import without touching legacy SQLite. The final test gate ends with emulator integration tests.
+
 ## Boundaries
 
 The existing root Next.js app, `app/`, `lib/`, and `data/baseline.db` remain independent. Root TypeScript excludes the new workspaces. PPRC Events is a React 18/Vite PWA in `apps/web`, Gen 2 Firebase Functions in `functions`, and shared TypeScript/Zod domain logic in `packages/shared`. It never reads or writes ladder or legacy SQLite paths.

@@ -540,6 +540,20 @@ describe("additional tournament and media workflows", () => {
     );
     await assertFails(guest.ref(path).getMetadata());
     await assertFails(b.ref(path).getMetadata());
+    await assertSucceeds(
+      env.authenticatedContext("test-admin").storage().ref(path).getMetadata(),
+    );
+    await db
+      .doc("memberships/foreign-club-admin")
+      .set({ clubId: "foreign-club", role: "clubAdmin", member: true });
+    const foreign = env.authenticatedContext("foreign-club-admin").storage();
+    await assertFails(foreign.ref(path).getMetadata());
+    await assertFails(
+      foreign
+        .ref("covers/foreign-club-admin/forged.png")
+        .put(new Uint8Array([1]), { contentType: "image/png" })
+        .then(() => undefined),
+    );
   }, 10000);
 });
 

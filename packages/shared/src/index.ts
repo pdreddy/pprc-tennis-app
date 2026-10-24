@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { triaceRulesSchema } from "./triace";
+export * from "./triace";
 export type Role = "player" | "eventAdmin" | "clubAdmin" | "platformAdmin";
 export const statuses = [
   "Draft",
@@ -39,6 +41,8 @@ export interface Player extends Entity {
   city: string;
   visibility: "public" | "private";
   externalRating?: number;
+  singlesUtr?: number;
+  doublesUtr?: number;
   ratingSource?: string;
   ratingVerifiedAt?: string;
 }
@@ -247,6 +251,8 @@ export const eventSchema = z
     genderCategory: z.enum(["Open", "Male", "Female"]).default("Open"),
     divisionSummary: z.string().max(200).default("Open divisions"),
     coverPath: z.string().startsWith("covers/").max(500).optional(),
+    competition: z.enum(["individual", "triace"]).default("individual"),
+    triaceRules: triaceRulesSchema.optional(),
   })
   .refine(
     (e) =>

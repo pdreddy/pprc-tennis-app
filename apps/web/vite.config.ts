@@ -8,11 +8,11 @@ export default defineConfig({
       registerType: "prompt",
       includeAssets: ["icon.svg"],
       manifest: {
-        name: "Prosper Premier Racquet Club Events",
-        short_name: "PPRC Events",
+        name: "PPRC Sports · Events & TRIACE",
+        short_name: "PPRC Sports",
         description: "Your court. Your competition. Your community.",
-        theme_color: "#102c43",
-        background_color: "#f5f7f9",
+        theme_color: "#0b1222",
+        background_color: "#080d17",
         display: "standalone",
         start_url: "/",
         icons: [

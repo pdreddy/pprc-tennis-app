@@ -7,9 +7,11 @@ import { onDocumentCreated } from "firebase-functions/v2/firestore";
 import { defineSecret } from "firebase-functions/params";
 import { setGlobalOptions } from "firebase-functions/v2";
 import Stripe from "stripe";
-import { randomUUID, createHash } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { z, ZodError } from "zod";
 import { execute, assertEventAdmin, requiredReason } from "./engine.js";
+import { verifyStripeWebhook, reconcileStripeCheckout } from "./payments.js";
+import { runEventMaintenance } from "./maintenance.js";
 initializeApp();
 setGlobalOptions({ region: "us-central1", maxInstances: 10 });
 const inEmulator = process.env.FUNCTIONS_EMULATOR === "true";
@@ -62,6 +64,7 @@ export const saveProfile = callable("saveProfile");
 export const requestAccountDeletion = callable("requestAccountDeletion");
 export const manageClub = callable("manageClub");
 export const registerPushToken = callable("registerPushToken");
+export const triace = callable("triace");
 interface PaymentProvider {
   checkout(input: {
     paymentId: string;
@@ -133,7 +136,7 @@ export const startCheckout = onCall(
     const provider: PaymentProvider =
       process.env.FUNCTIONS_EMULATOR === "true"
         ? new DevelopmentPayments()
-        : new StripePayments(new Stripe(stripeKey.value()));
+        : new StripePayments(new Stripe(testStripeKey()));
     return provider.checkout({
       ...payment,
       uid: req.auth.uid,
@@ -142,16 +145,15 @@ export const startCheckout = onCall(
   },
 );
 export const stripeWebhook = onRequest(
-  { secrets: inEmulator ? [] : [stripeKey, webhookKey] },
+  { secrets: inEmulator ? [] : [webhookKey] },
   async (req, res) => {
     if (req.method !== "POST") {
       res.status(405).send("POST required");
       return;
     }
-    const stripe = new Stripe(stripeKey.value());
     let event: Stripe.Event;
     try {
-      event = stripe.webhooks.constructEvent(
+      event = verifyStripeWebhook(
         req.rawBody,
         req.headers["stripe-signature"] as string,
         webhookKey.value(),
@@ -161,33 +163,7 @@ export const stripeWebhook = onRequest(
       return;
     }
     try {
-      if (
-        event.type === "checkout.session.completed" ||
-        event.type === "checkout.session.async_payment_succeeded"
-      ) {
-        const session = event.data.object as Stripe.Checkout.Session;
-        if (session.payment_status === "paid" && session.currency === "usd") {
-          const m = session.metadata!;
-          const p = await getFirestore().doc(`payments/${m.paymentId}`).get();
-          if (
-            p.get("stripeSessionId") !== session.id ||
-            p.get("playerId") !== m.uid
-          )
-            throw Error("Session binding mismatch");
-          await execute(
-            "recordStripePayment",
-            m.uid,
-            {
-              eventId: m.eventId,
-              paymentId: m.paymentId,
-              amount: session.amount_total,
-              providerReference: session.payment_intent,
-              requestId: uuidFor(event.id),
-            },
-            true,
-          );
-        }
-      }
+      await reconcileStripeCheckout(event);
       res.status(200).send("ok");
     } catch (error) {
       console.error("Stripe event needs retry", event.id, error);
@@ -229,7 +205,7 @@ export const refundPayment = onCall(
         "failed-precondition",
         "Paid Stripe payment required",
       );
-    const refund = await new Stripe(stripeKey.value()).refunds.create(
+    const refund = await new Stripe(testStripeKey()).refunds.create(
       {
         payment_intent: snap.get("providerReference"),
         metadata: { reason: data.reason },
@@ -276,86 +252,10 @@ export const refundPayment = onCall(
     return { status: "Refunded" };
   },
 );
-export const eventMaintenance = onSchedule("every 5 minutes", async () => {
-  const db = getFirestore();
-  const events = await db
-    .collection("events")
-    .where("status", "in", [
-      "Published",
-      "Registration Open",
-      "Registration Closed",
-      "Check-In",
-      "In Progress",
-    ])
-    .get();
-  for (const doc of events.docs) {
-    const event = doc.data(),
-      now = Date.now();
-    let status = event.status;
-    if (status === "Published" && now >= Date.parse(event.registrationOpen))
-      status = "Registration Open";
-    if (
-      status === "Registration Open" &&
-      now > Date.parse(event.registrationClose)
-    )
-      status = "Registration Closed";
-    if (status !== event.status)
-      await db.runTransaction(async (tx) => {
-        const fresh = await tx.get(doc.ref);
-        if (fresh.get("status") !== event.status) return;
-        tx.update(doc.ref, { status, updatedAt: FieldValue.serverTimestamp() });
-        tx.create(db.collection("auditEvents").doc(), {
-          actor: "system",
-          action: "eventDeadline",
-          clubId: "pprc",
-          eventId: doc.id,
-          entityType: "event",
-          entityId: doc.id,
-          before: { status: event.status },
-          after: { status },
-          createdAt: FieldValue.serverTimestamp(),
-          updatedAt: FieldValue.serverTimestamp(),
-          createdBy: "system",
-        });
-      });
-    await execute(
-      "expireReservations",
-      "system",
-      { eventId: doc.id, requestId: randomUUID() },
-      true,
-    );
-    const matches = await db
-      .collection("matches")
-      .where("eventId", "==", doc.id)
-      .get();
-    for (const match of matches.docs) {
-      const m = match.data(),
-        t = Date.parse(m.scheduledAt ?? "");
-      if (t < now || t > now + 30 * 60000 || m.status === "Final") continue;
-      for (const playerId of [m.p1, m.p2].filter(Boolean)) {
-        const ref = db.doc(
-          `notifications/reminder-${match.id}-${playerId}-${t}`,
-        );
-        await db.runTransaction(async (tx) => {
-          if ((await tx.get(ref)).exists) return;
-          tx.create(ref, {
-            id: ref.id,
-            clubId: "pprc",
-            eventId: doc.id,
-            playerId,
-            title: "Your match starts soon",
-            body: `${event.name}: check your court assignment.`,
-            type: "match-reminder",
-            read: false,
-            createdAt: FieldValue.serverTimestamp(),
-            updatedAt: FieldValue.serverTimestamp(),
-            createdBy: "system",
-          });
-        });
-      }
-    }
-  }
-});
+export const eventMaintenance = onSchedule(
+  "every 5 minutes",
+  runEventMaintenance,
+);
 export const deliverPush = onDocumentCreated(
   "notifications/{notificationId}",
   async (event) => {
@@ -384,7 +284,12 @@ export const deliverPush = onDocumentCreated(
     }
   },
 );
-function uuidFor(input: string) {
-  const h = createHash("sha256").update(input).digest("hex");
-  return `${h.slice(0, 8)}-${h.slice(8, 12)}-4${h.slice(13, 16)}-a${h.slice(17, 20)}-${h.slice(20, 32)}`;
+function testStripeKey() {
+  const key = stripeKey.value();
+  if (!key.startsWith("sk_test_"))
+    throw new HttpsError(
+      "failed-precondition",
+      "Stripe test-mode key required; live charges are disabled",
+    );
+  return key;
 }

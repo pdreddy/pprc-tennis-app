@@ -1,9 +1,18 @@
 rules_version = '2';
 service firebase.storage {
  match /b/{bucket}/o {
+  function clubAdminUser(uid) {
+   let m = firestore.get(/databases/(default)/documents/memberships/$(uid)).data;
+   return m.clubId == 'pprc' && m.role in ['clubAdmin','eventAdmin'];
+  }
+  function waiverOperator(eventId) {
+   let m = firestore.get(/databases/(default)/documents/memberships/$(request.auth.uid)).data;
+   let e = firestore.get(/databases/(default)/documents/events/$(eventId)).data;
+   return m.clubId == 'pprc' && e.clubId == 'pprc' && (m.role == 'clubAdmin' || (m.role == 'eventAdmin' && request.auth.uid in e.assignedAdmins));
+  }
   match /covers/{uid}/{file} {
    allow read: if true;
-   allow create,update: if request.auth != null && request.auth.uid == uid && firestore.get(/databases/(default)/documents/memberships/$(uid)).data.role in ['clubAdmin','eventAdmin'] && request.resource.size < 5 * 1024 * 1024 && request.resource.contentType.matches('image/(jpeg|png|webp)');
+   allow create,update: if request.auth != null && request.auth.uid == uid && clubAdminUser(uid) && request.resource.size < 5 * 1024 * 1024 && request.resource.contentType.matches('image/(jpeg|png|webp)');
    allow delete: if request.auth != null && request.auth.uid == uid;
   }
   match /photos/{uid}/{file} {
@@ -12,7 +21,7 @@ service firebase.storage {
    allow delete: if request.auth != null && request.auth.uid == uid;
   }
   match /waivers/{eventId}/{uid}/{file} {
-   allow read: if request.auth != null && (request.auth.uid == uid || (firestore.get(/databases/(default)/documents/memberships/$(request.auth.uid)).data.role == 'clubAdmin' || (firestore.get(/databases/(default)/documents/memberships/$(request.auth.uid)).data.role == 'eventAdmin' && request.auth.uid in firestore.get(/databases/(default)/documents/events/$(eventId)).data.assignedAdmins)));
+   allow read: if request.auth != null && (request.auth.uid == uid || waiverOperator(eventId));
    allow create: if request.auth != null && request.auth.uid == uid && request.resource.size < 10 * 1024 * 1024 && request.resource.contentType == 'application/pdf';
   }
  }

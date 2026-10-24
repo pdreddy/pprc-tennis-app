@@ -1,7 +1,13 @@
 import { initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
-import { elimination, advance } from "@pprc/shared";
+import {
+  elimination,
+  advance,
+  defaultTriaceRules,
+  eventSchema,
+  divisionSchema,
+} from "@pprc/shared";
 if (
   process.env.GCLOUD_PROJECT &&
   !process.env.GCLOUD_PROJECT.startsWith("demo-")
@@ -30,6 +36,14 @@ const names = [
   "Robin Foster",
   "Blake Turner",
   "Reese Martin",
+  "Parker Shah",
+  "Finley Reyes",
+  "Arden Kim",
+  "Hayden Price",
+  "Emery Brown",
+  "Sage Carter",
+  "Dakota Ross",
+  "Rowan Bell",
 ];
 const base = (id: string, fields: any) => ({
   id,
@@ -39,20 +53,20 @@ const base = (id: string, fields: any) => ({
   createdBy: "seed",
   ...fields,
 });
-for (let i = 0; i < 20; i++) {
+for (let i = 0; i < 28; i++) {
   const uid =
-    i < 16
+    i < 24
       ? `player${i + 1}`
-      : ["admin", "event-admin", "support", "other-admin"][i - 16];
+      : ["admin", "event-admin", "support", "other-admin"][i - 24];
   const displayName =
-    i < 16
+    i < 24
       ? names[i]
       : [
           "Club Administrator",
           "Tournament Director",
           "Platform Support",
           "Unassigned Admin",
-        ][i - 16];
+        ][i - 24];
   try {
     await auth.createUser({
       uid,
@@ -76,6 +90,8 @@ for (let i = 0; i < 20; i++) {
         preferredSport: "Tennis",
         tennisLevel: "Club competitive",
         externalRating: 4 + i * 0.15,
+        singlesUtr: i < 24 ? 4.2 + (i % 3) * 0.2 : 5,
+        doublesUtr: i < 24 ? 4.5 + (i % 3) * 0.2 : 5,
         ratingSource: "Player provided",
         ratingVerifiedAt: null,
         handedness: "Right",
@@ -87,8 +103,19 @@ for (let i = 0; i < 20; i++) {
         gender: i % 2 ? "Female" : "Male",
       }),
     );
-  const current=(await db.doc(`users/${uid}`).get()).data()!;
-  if(current.visibility==='public')await db.doc(`publicProfiles/${uid}`).set(base(uid,{displayName:current.displayName,city:current.city,tennisLevel:current.tennisLevel,externalRating:current.externalRating??null}));else await db.doc(`publicProfiles/${uid}`).delete();
+  const current = (await db.doc(`users/${uid}`).get()).data()!;
+  if (current.visibility === "public")
+    await db
+      .doc(`publicProfiles/${uid}`)
+      .set(
+        base(uid, {
+          displayName: current.displayName,
+          city: current.city,
+          tennisLevel: current.tennisLevel,
+          externalRating: current.externalRating ?? null,
+        }),
+      );
+  else await db.doc(`publicProfiles/${uid}`).delete();
   if (!(await db.doc(`memberships/${uid}`).get()).exists)
     await db.doc(`memberships/${uid}`).set(
       base(uid, {
@@ -289,7 +316,64 @@ for (const [id, name, status, format, offset, fee] of [
       );
   }
 }
+if (!(await db.doc("events/triace-cup").get()).exists) {
+  const start = new Date(Date.now() + 21 * 86400000);
+  start.setUTCHours(14, 0, 0, 0);
+  const e = eventSchema.parse({
+    name: "TRIACE 2.0 Champions Cup",
+    description:
+      "Three players. Five rubbers. One champion. Captain your squad through group play, semifinals and a championship final.",
+    venue: "Prosper Premier Racquet Club",
+    location: "Prosper, TX",
+    startDate: start.toISOString(),
+    endDate: new Date(start.getTime() + 3 * 86400000).toISOString(),
+    timezone: "America/Chicago",
+    visibility: "public",
+    fee: 0,
+    capacity: 8,
+    waitlist: true,
+    registrationOpen: new Date(Date.now() - 86400000).toISOString(),
+    registrationClose: new Date(Date.now() + 19 * 86400000).toISOString(),
+    waiverRequired: true,
+    refundPolicy:
+      "Each player acknowledges participation and sporting conduct. Withdrawal before fixtures opens a place; later withdrawals require organizer review.",
+    sport: "Tennis",
+    organizer: "PPRC Sports",
+    questions: [],
+    assignedAdmins: ["admin", "event-admin"],
+    duration: 120,
+    buffer: 15,
+    courtIds: ["court-1", "court-2", "court-3", "court-4"],
+    competition: "triace",
+    triaceRules: defaultTriaceRules,
+  });
+  await db
+    .doc("events/triace-cup")
+    .set(
+      base("triace-cup", {
+        ...e,
+        status: "Registration Open",
+        registeredCount: 0,
+        waitlistCount: 0,
+        waiverVersion: 1,
+        schemaVersion: 2,
+        divisionFilters: [{ minRating: 0, maxRating: 20 }],
+      }),
+    );
+  await db
+    .doc("divisions/triace-cup-teams")
+    .set(
+      base("triace-cup-teams", {
+        ...divisionSchema.parse({
+          name: "TRIACE teams",
+          format: "round-robin-playoffs",
+          capacity: 8,
+        }),
+        eventId: "triace-cup",
+      }),
+    );
+}
 console.log(
-  "PPRC demo seed ready: 16 players, 4 courts, 3 events. Existing event data preserved.",
+  "PPRC demo seed ready: 24 players, 4 courts, 4 events including TRIACE. Existing event data preserved.",
 );
 await db.terminate();

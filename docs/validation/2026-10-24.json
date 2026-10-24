@@ -1,0 +1,61 @@
+{
+  "date": "2026-10-24",
+  "baseline_commit": "2b062c6",
+  "runtime": {
+    "node": "22.23.3",
+    "pnpm": "11.25.0",
+    "java": 21,
+    "browser": "Chromium"
+  },
+  "full_gate": {
+    "command": "./pprc.sh test-all",
+    "exit_code": 0,
+    "integration_last": true
+  },
+  "suites": {
+    "shared_unit": {
+      "passed": 48,
+      "skipped": 0
+    },
+    "firebase_integration": {
+      "passed": 35,
+      "skipped": 0
+    },
+    "browser_flows": {
+      "passed": 5
+    },
+    "browser_shell": {
+      "passed": 3
+    },
+    "production_pwa": {
+      "passed": 1
+    },
+    "legacy": {
+      "passed": 4,
+      "skipped": 0
+    }
+  },
+  "functional_checks": {
+    "emulator_auth_firestore_restore": "passed",
+    "migration_dry_run": 3,
+    "migration_apply": 3,
+    "migration_repeat_apply": 0,
+    "test_environment_isolation": "passed",
+    "mobile_overflow": false
+  },
+  "staging": {
+    "proposed_project": "multiclub-890ea",
+    "deployed": false,
+    "client_config_present": false,
+    "approval_guard": "refused unapproved command"
+  },
+  "unverified_external": [
+    "Google Auth configuration",
+    "Stripe API/refunds",
+    "FCM delivery",
+    "deployed Scheduler",
+    "cloud recovery",
+    "physical iPhone/Safari",
+    "remote CI"
+  ]
+}

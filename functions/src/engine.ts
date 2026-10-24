@@ -6,6 +6,7 @@ import {
 } from "firebase-admin/firestore";
 import { HttpsError } from "firebase-functions/v2/https";
 import { z } from "zod";
+import { executeTriace, triaceCollections } from "./triace.js";
 import {
   eventSchema,
   divisionSchema,
@@ -26,6 +27,7 @@ import {
   type Division,
   type Match,
   type Role,
+  triaceRulesSchema,
 } from "@pprc/shared";
 export const eventCollections = [
   "divisions",
@@ -36,6 +38,7 @@ export const eventCollections = [
   "matches",
   "matchResults",
   "notifications",
+  ...triaceCollections,
 ] as const;
 const idSchema = z.string().regex(/^[a-zA-Z0-9_-]{1,120}$/);
 const active = ["Pending Payment", "Registered", "Approved"];
@@ -94,6 +97,10 @@ export async function execute(
     const rateRef = db.doc(`registrationLimits/${uid}`);
     const rateSnap =
       operation === "registerForDivision" ? await tx.get(rateRef) : null;
+    const operationLimit =
+      operation === "triace"
+        ? await tx.get(db.doc(`operationLimits/${uid}`))
+        : null;
     const buckets: Record<string, Entity[]> = {};
     if (eventId) {
       const snapshots = await Promise.all(
@@ -165,6 +172,8 @@ export async function execute(
       )
         return;
       const regs = list("registrations");
+      if (event.competition === "triace" && list("teamEncounters").length)
+        return;
       for (const waiting of regs
         .filter((r) => r.state === "Waitlisted")
         .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id))) {
@@ -284,6 +293,21 @@ export async function execute(
       }
     };
     if (
+      event?.competition === "triace" &&
+      [
+        "registerForDivision",
+        "generateDraw",
+        "publishDraw",
+        "generateSchedule",
+        "rescheduleMatch",
+        "submitScore",
+        "finalizeScore",
+        "approveRegistration",
+        "updateRoundRobinStandings",
+      ].includes(operation)
+    )
+      fail("Use the TRIACE team workspace for this operation");
+    if (
       ![
         "createEvent",
         "saveProfile",
@@ -296,6 +320,51 @@ export async function execute(
     )
       fail("Event not found", "not-found");
     switch (operation) {
+      case "triace": {
+        const recent =
+          Date.now() - (operationLimit?.get("window") ?? 0) < 60000;
+        const count = recent ? (operationLimit?.get("count") ?? 0) : 0;
+        if (count >= (manager ? 240 : 120))
+          fail(
+            "Too many team operations; retry in a minute",
+            "resource-exhausted",
+          );
+        make(
+          "operationLimits",
+          {
+            window: recent ? operationLimit!.get("window") : Date.now(),
+            count: count + 1,
+          },
+          uid,
+        );
+        result = await executeTriace({
+          uid,
+          role,
+          data,
+          event: event!,
+          profile,
+          manager,
+          clubMember:
+            memberSnap.get("clubId") === "pprc" &&
+            memberSnap.get("member") === true,
+          list,
+          find,
+          make,
+          edit,
+          notify,
+          reason: () => requiredReason(data),
+          readPlayer: async (playerId) => {
+            const s = await tx.get(db.doc(`users/${idSchema.parse(playerId)}`));
+            return s.exists ? ({ id: s.id, ...s.data() } as Entity) : undefined;
+          },
+          readCourt: async (courtId) => {
+            const s = await tx.get(db.doc(`courts/${idSchema.parse(courtId)}`));
+            return s.exists ? ({ id: s.id, ...s.data() } as Entity) : undefined;
+          },
+        });
+        if (data.action === "withdrawTeam") promote();
+        break;
+      }
       case "saveProfile": {
         const p = z
           .object({
@@ -304,6 +373,8 @@ export async function execute(
             preferredSport: z.enum(["Tennis", "Pickleball"]),
             tennisLevel: z.string().max(100),
             externalRating: z.number().min(0).max(20).optional(),
+            singlesUtr: z.number().min(0).max(20).optional(),
+            doublesUtr: z.number().min(0).max(20).optional(),
             ratingSource: z.string().max(100).default("Player provided"),
             handedness: z.enum(["Right", "Left", "Ambidextrous"]),
             availability: z.string().max(500),
@@ -333,12 +404,18 @@ export async function execute(
           ...p,
           ratingSource:
             profile?.ratingSource === "Admin verified" &&
-            profile.externalRating === p.externalRating
+            profile.externalRating === p.externalRating &&
+            (p.singlesUtr === undefined ||
+              profile.singlesUtr === p.singlesUtr) &&
+            (p.doublesUtr === undefined || profile.doublesUtr === p.doublesUtr)
               ? "Admin verified"
               : "Player provided",
           ratingVerifiedAt:
             profile?.ratingSource === "Admin verified" &&
-            profile.externalRating === p.externalRating
+            profile.externalRating === p.externalRating &&
+            (p.singlesUtr === undefined ||
+              profile.singlesUtr === p.singlesUtr) &&
+            (p.doublesUtr === undefined || profile.doublesUtr === p.doublesUtr)
               ? profile.ratingVerifiedAt
               : null,
           id: uid,
@@ -356,6 +433,8 @@ export async function execute(
             city: p.city,
             tennisLevel: p.tennisLevel,
             externalRating: p.externalRating ?? null,
+            singlesUtr: p.singlesUtr ?? profile?.singlesUtr ?? null,
+            doublesUtr: p.doublesUtr ?? profile?.doublesUtr ?? null,
             updatedAt: now,
             createdAt: now,
           });
@@ -386,8 +465,26 @@ export async function execute(
         requireClub();
         requiredReason(data);
         const target = z
-          .enum(["court", "membership", "template", "rating", "venue"])
+          .enum(["court", "membership", "template", "rating", "venue", "club"])
           .parse(data.target);
+        if (target === "club") {
+          const value = z
+            .object({
+              name: z.string().min(2).max(160),
+              timezone: z.string().refine((v) => {
+                try {
+                  new Intl.DateTimeFormat("en", { timeZone: v });
+                  return true;
+                } catch {
+                  return false;
+                }
+              }),
+              location: z.string().max(200),
+              contactEmail: z.string().email(),
+            })
+            .parse(data.value);
+          make("clubs", value, "pprc");
+        }
         if (target === "membership") {
           const id = idSchema.parse(data.id);
           const memberRole = z
@@ -406,9 +503,21 @@ export async function execute(
           const snap = await tx.get(db.doc(`users/${id}`));
           if (!snap.exists) fail("Player not found");
           const rating = z.number().min(0).max(20).parse(data.rating);
+          const singlesUtr = z
+            .number()
+            .min(0)
+            .max(20)
+            .parse(data.singlesUtr ?? rating);
+          const doublesUtr = z
+            .number()
+            .min(0)
+            .max(20)
+            .parse(data.doublesUtr ?? rating);
           const current = { id, ...snap.data() } as Entity;
           edit("users", current, {
             externalRating: rating,
+            singlesUtr,
+            doublesUtr,
             ratingSource: "Admin verified",
             ratingVerifiedAt: now,
           });
@@ -420,6 +529,8 @@ export async function execute(
                 city: current.city,
                 tennisLevel: current.tennisLevel,
                 externalRating: rating,
+                singlesUtr,
+                doublesUtr,
                 ratingSource: "Admin verified",
                 ratingVerifiedAt: now,
               },
@@ -469,10 +580,23 @@ export async function execute(
             .parse(data.divisions);
         if (divisions.reduce((n, d) => n + d.capacity, 0) > 128)
           fail("Maximum 128 entries per event");
+        if (
+          e.competition === "triace" &&
+          (divisions.length !== 1 ||
+            e.capacity > 16 ||
+            divisions[0].capacity > 16)
+        )
+          fail("TRIACE uses one division and at most 16 teams");
         make(
           "events",
           {
             ...e,
+            ...(e.competition === "triace"
+              ? {
+                  triaceRules: triaceRulesSchema.parse(e.triaceRules ?? {}),
+                  schemaVersion: 2,
+                }
+              : {}),
             divisionFilters: divisions.map((d) => ({
               minRating: d.minRating,
               maxRating: d.maxRating,
@@ -499,6 +623,24 @@ export async function execute(
         )
           fail("Divisions cannot be replaced after registration");
         const patch = eventSchema.parse({ ...event, ...data.event });
+        if (patch.competition !== (event!.competition ?? "individual"))
+          fail("Competition format cannot be changed; create a separate event");
+        if (patch.competition === "triace") {
+          if (patch.capacity > 16) fail("TRIACE capacity is at most 16 teams");
+          if (data.event?.triaceRules)
+            fail("Change TRIACE rules through the audited team workspace");
+          if (
+            data.divisions &&
+            (data.divisions.length !== 1 || data.divisions[0].capacity > 16)
+          )
+            fail("TRIACE uses one division and at most 16 teams");
+          if (
+            list("teams").length &&
+            (patch.waiverRequired !== event!.waiverRequired ||
+              patch.refundPolicy !== event!.refundPolicy)
+          )
+            fail("Waiver policy is locked after team creation");
+        }
         if (
           patch.capacity <
           list("registrations").filter((r) => active.includes(r.state)).length
@@ -675,6 +817,8 @@ export async function execute(
       case "cancelRegistration":
       case "rejectRegistration": {
         const reg = regFor(data.registrationId);
+        if (reg.teamId && list("teamEncounters").length)
+          fail("Team fixtures are locked; use encounter forfeits and disputes");
         if (reg.playerId !== uid) requireAdmin();
         if (operation === "rejectRegistration") requireAdmin();
         requiredReason(data);
@@ -834,6 +978,33 @@ export async function execute(
           `Registration confirmed for ${event!.name}.`,
           "payment-completed",
         );
+        result = { paymentId: payment.id };
+        break;
+      }
+      case "recordStripeFailure": {
+        if (!system) fail("Verified webhook only", "permission-denied");
+        const payment = find("payments", data.paymentId),
+          reg = regFor(payment.registrationId);
+        if (payment.playerId !== uid)
+          fail("Payment owner mismatch", "permission-denied");
+        if (payment.state === "Pending") {
+          edit("payments", payment, {
+            state: "Failed",
+            failureReason: data.reason,
+          });
+          if (reg.state === "Pending Payment")
+            edit("registrations", reg, {
+              state: "Cancelled",
+              reason: "Payment failed or checkout expired",
+            });
+          notify(
+            reg.playerId,
+            "Payment could not be completed",
+            event!.name,
+            "payment-failed",
+          );
+          promote();
+        }
         result = { paymentId: payment.id };
         break;
       }
@@ -1266,6 +1437,12 @@ export async function execute(
             ])
             .parse(data.status);
           if (
+            event!.competition === "triace" &&
+            status === "Completed" &&
+            !event!.championTeamId
+          )
+            fail("Complete the TRIACE final to declare the champion");
+          if (
             status === "Completed" &&
             list("matches").some((m) => !["Final", "Bye"].includes(m.status))
           )
@@ -1407,6 +1584,17 @@ export async function execute(
       event
     ) {
       const current = (updates.get(`events/${eventId}`) ?? event) as Entity;
+      if (event.competition === "triace")
+        for (const r of list("registrations").filter(
+          (r) =>
+            r.teamId &&
+            ["Withdrawn", "Rejected", "Refunded", "Cancelled"].includes(
+              r.state,
+            ),
+        )) {
+          const t = list("teams").find((t) => t.id === r.teamId);
+          if (t && !t.withdrawn) edit("teams", t, { withdrawn: true });
+        }
       put("events", {
         ...current,
         registeredCount: list("registrations").filter((r) =>
@@ -1448,7 +1636,7 @@ export async function execute(
         clubId: "pprc",
         eventId,
         actor: uid,
-        action: operation,
+        action: operation === "triace" ? `triace.${data.action}` : operation,
         entityType: eventId ? "event" : "club",
         entityId: eventId || uid,
         before: auditBefore,

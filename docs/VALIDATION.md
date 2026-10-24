@@ -1,28 +1,41 @@
-# PPRC Events validation
+# PPRC Sports validation — October 24, 2026
 
-Validated in the current cloud workspace on October 19, 2026. Node 22.23.3 (official distribution, SHA-256 verified), pnpm 11.25, Java 21 and system Chromium. The application uses actual Firebase Auth, Firestore, Functions and Storage emulators; no client-side fake backend replaces tournament logic.
+Executed on this cloud workspace with Node 22.23.3, pnpm 11.25.0, Java 21 and Chromium. Tests use actual local Firebase Auth, Firestore, Gen 2 Functions and Storage emulators for `demo-pprc-events`. No production or actual-player data was used.
 
-| Check | Result | Evidence |
-| --- | --- | --- |
-| Shared unit tests | 26 passed | Capacity, eligibility, assigned roles, deterministic brackets/byes, all-pairs round robin, percentages/ties, legal scores, conflicts, DST windows, CSV injection escaping |
-| Firebase emulator integration | 15 passed | Contended registration, exact capacity, promotion, payment ownership, idempotent request receipts, approvals, score finalization, role checks, immutable-audit/direct-write denial, playoff qualification, unpublication, private profiles, admin verification, Storage ownership and waiver access, venues/courts, disputed-score corrections |
-| Full browser tournament tests | 3 passed | Four-player registration/payment → approvals/seeds/check-in → draw/publish → schedule → three scores with winner advancement → completed event → CSV download; waitlist promotion; five-step create/publish wizard |
-| Browser shell checks | 3 passed | Discovery/navigation, mobile overflow checks, unauthorized route gates, labeled sign-in controls and native email validation |
-| TypeScript / lint | Passed | All three new workspaces; source ESLint checks |
-| Production build | Passed | Standalone Functions runtime package; Vite application, manifest, icons and Workbox worker |
-| PWA runtime smoke | Passed | Manifest/icons fetched, active worker confirmed, offline shell reload succeeded |
-| Seed/start repeatability | Passed | Seed executed twice, three real event cards loaded, emulator export persisted |
-| Legacy tests | 4 passed | Existing rating/parser tests retained, unchanged |
-| Legacy data isolation | Passed | Read-only inspection found original 160-player SQLite database; no Events operation accesses that file |
+| Check                        | Actual result              | Coverage/evidence                                                                                                                                                               |
+| ---------------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `./pprc.sh test-all`         | Exit 0                     | Full command ran lint → types → unit → builds → UI → PWA → persistence → full browser → Firebase integration last                                                               |
+| Shared domain                | 48 passed, 0 skipped       | Original 26 plus TRIACE references/bounds, roster combinations, score legality, participation and standings                                                                     |
+| Firebase integration         | 35 passed, 0 skipped       | Original 15; complete TRIACE lifecycle 6; operations/concurrency/reminders 7; signed payments/refunds 7                                                                         |
+| Full browser workflows       | 5 passed                   | Original registration/payment/draw/score, waitlist and wizard; TRIACE invitations/registration/groups/lineups/confirmed rubbers/semifinals/final/champion; mobile/access checks |
+| Browser shell                | 3 passed                   | Discovery/mobile navigation, authorization gates, labeled sign-in; explicit demo configuration assertion                                                                        |
+| Production PWA               | 1 passed                   | Standalone manifest, icons, active worker, offline shell reload and mobile overflow                                                                                             |
+| Types/lint/production build  | Passed                     | Existing three Events workspaces; standalone Functions and Vite PWA                                                                                                             |
+| Persistence                  | Passed                     | Actual callable team creation → Firestore/Auth export → graceful stop → import → re-authentication → private roster restored                                                    |
+| Setup/start/stop/seed/doctor | Passed on this Linux cloud | Frozen install/build, managed readiness, repeated seed, owned process shutdown and restored state; macOS-specific installation not physically executed                          |
+| Migration                    | Passed                     | Dry run found three original demo events; apply migrated three; repeat applied zero; sporting records unchanged                                                                 |
+| Legacy                       | 4 tests passed             | Git diff confirms no changes to `app`, `lib`, `data` or legacy seed source                                                                                                      |
+| Test configuration isolation | Passed                     | UI and PWA commands passed with deliberately conflicting remote/emulator environment variables; test servers force local demo config and do not reuse foreign servers           |
+| Staging config               | Blocked, not deployed      | Local check correctly reports absent Firebase web config/HTTPS server origin; approval guard refuses an unapproved deployment without calling Firebase                          |
 
-The emulator suite initially exposed two Firestore serialization errors (timestamp transforms inside audit arrays and directly nested round-robin arrays). Both were fixed and the affected real emulator workflows passed. The browser suite exposed ambiguous wrapped-select labels and an asynchronous waitlist assertion; explicit label associations and server-confirmed transition waits fixed them. Final successful browser runs used fresh emulator data and no source edits during execution.
+The integration suites cover transactional invitation races, exact team capacity and automatic waitlist promotion, idempotent receipts, reference eligibility, 40% participation denial, early clinch cancellation, forfeits, opponent-only confirmation, corrected/superseded records, playoff locks, immutable audit/direct-write denial, private lineup/media access, foreign-club Storage denial, and scheduled reminder deduplication. Signed webhook tests use Stripe's actual signature verifier with synthetic payloads and real Firestore reconciliation; no Stripe API calls or live charges occur.
 
-## Configured versus environment-dependent
+Final raw runner excerpts:
 
-Implemented and validated locally: Firebase-backed registration/payment simulation, permissions, seeding, knockout and group-to-playoff logic, scores, corrections, audits, private/public profile projection, media rules, event wizard, schedules, check-in and CSV reports.
+```text
+Shared:       Test Files 2 passed; Tests 48 passed
+UI:           3 passed
+PWA:          1 passed
+Persistence:  PASS: real callable team write, Firestore/Auth export, graceful stop,
+              import, re-authentication and private roster restoration.
+Browser flow: 5 passed
+Integration:  Test Files 4 passed; Tests 35 passed
+Legacy:       tests 4; pass 4; fail 0; skipped 0
+Migration:    Applied: 3 event(s). Repeat: Applied: 0 event(s).
+```
 
-Implemented but requiring real project configuration and staging validation: Google sign-in, Stripe Checkout/signed webhooks/full refunds, FCM delivery, Cloud Scheduler deadline/reminder invocation, Hosting deployment, bucket CORS and production IAM. The Functions emulator initializes the scheduled handler but does not run Cloud Scheduler on a real schedule. The maintenance domain operations are present; timed production invocation has not been verified. The service worker caches the app shell, not authenticated tournament writes.
+Local evidence logs are ignored under `.local/validation/`: `release-gate.log` (full command exit 0), `final-integration-isolated.log` (last integration run), `test-isolation-ui.log`, `test-isolation-pwa.log`, `setup-final.log`, and the three migration logs. Reproducible commands are in README. Public synthetic UI captures are [desktop](screenshots/pprc-sports-desktop.png) and [mobile](screenshots/pprc-sports-mobile.png). No secret-bearing traces or emulator exports are committed.
 
-No live payments, real push delivery, production deployment or new-task snapshot restoration are claimed. Account deletion is an audited club review request; final erasure/retention is an operational club responsibility. Large events and multi-division unknown-player scheduling need staging load and conflict review before live competition.
+Earlier runs exposed and fixed profile verification compatibility, inaccessible input labeling, permission-incompatible invitation/schedule query scopes, stale HTTP connections after emulator restart in the persistence harness, and fixture date/assertion errors. Failed intermediate runs are not counted as successful checks. Final integration has no disabled or skipped cases. Browser test servers now force demo bindings even when a workstation has staging settings.
 
-The environment draft includes Firebase binary download domains and reusable startup/install instructions. Draft persistence is distinct from publishing the environment or deploying the application.
+Not executed: Firebase staging/Hosting deployment, real Google provider configuration, Stripe API Checkout/refunds and merchant webhook delivery, FCM device delivery, managed Scheduler IAM/timed invocation, managed cloud export/recovery, physical iPhone/Safari certification, or remote GitHub Actions execution. The Scheduler handler was directly exercised against Firestore; its deployed job was not. CI configuration is authored, not claimed remotely green. See STAGING.md and PRODUCTION_READINESS.md before live use.

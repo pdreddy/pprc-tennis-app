@@ -20,6 +20,15 @@ service cloud.firestore {
   match /matches/{id} { allow read: if operator(resource.data.eventId) || (resource.data.published && readable(resource.data.eventId)); allow write: if false; }
   match /matchResults/{id} { allow read: if operator(resource.data.eventId) || (resource.data.state == 'Final' && resource.data.published && readable(resource.data.eventId)) || (signed() && request.auth.uid in resource.data.participants); allow write: if false; }
   match /registrations/{id} { allow read: if (signed() && resource.data.playerId == request.auth.uid) || operator(resource.data.eventId); allow write: if false; }
+  match /teams/{id} { allow read: if operator(resource.data.eventId) || (signed() && request.auth.uid in resource.data.memberIds) || (resource.data.published && readable(resource.data.eventId)); allow write: if false; }
+  match /invitations/{id} { allow read: if operator(resource.data.eventId) || (signed() && request.auth.uid in resource.data.participantIds); allow write: if false; }
+  match /teamGroups/{id} { allow read: if operator(resource.data.eventId) || (resource.data.published && readable(resource.data.eventId)); allow write: if false; }
+  match /teamEncounters/{id} { allow read: if operator(resource.data.eventId) || (resource.data.published && readable(resource.data.eventId)); allow write: if false; }
+  match /lineups/{id} { allow read: if operator(resource.data.eventId) || (signed() && request.auth.uid in resource.data.memberIds) || (resource.data.published && readable(resource.data.eventId)); allow write: if false; }
+  match /rubbers/{id} { allow read: if operator(resource.data.eventId) || (resource.data.published && readable(resource.data.eventId)); allow write: if false; }
+  match /rubberResults/{id} { allow read: if operator(resource.data.eventId) || (signed() && request.auth.uid in resource.data.participantIds) || (resource.data.state == 'Final' && resource.data.published && readable(resource.data.eventId)); allow write: if false; }
+  match /disputes/{id} { allow read: if operator(resource.data.eventId) || (signed() && request.auth.uid in resource.data.participantIds); allow write: if false; }
+  match /ratingSnapshots/{id} { allow read: if operator(resource.data.eventId) || (signed() && resource.data.playerId == request.auth.uid); allow write: if false; }
   match /payments/{id} { allow read: if (signed() && resource.data.playerId == request.auth.uid) || operator(resource.data.eventId); allow write: if false; }
   match /users/{uid} {
    allow read: if (signed() && request.auth.uid == uid) || clubAdmin() || support();

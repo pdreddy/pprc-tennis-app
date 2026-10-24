@@ -1,4 +1,5 @@
 import { ScoreForm } from "./scoring";
+import { TriaceTournament } from "./teams";
 import { useState } from "react";
 import {
   Link,
@@ -23,6 +24,7 @@ import { ref, uploadBytes, getBlob } from "firebase/storage";
 import { storage } from "./firebase";
 import {
   canManage,
+  defaultTriaceRules,
   formats,
   statuses,
   type Entity,
@@ -82,6 +84,7 @@ export function Admin() {
         {[
           ["", "Overview", Activity],
           ["events", "Events", CalendarDays],
+          ["club", "Club settings", Shield],
           ["courts", "Courts & venues", MapPin],
           ["members", "Members & roles", Users],
           ["audit", "Audit history", Shield],
@@ -116,6 +119,8 @@ export function Admin() {
             eventId={eventId}
             tab={(parts[3] ?? "overview").toLowerCase()}
           />
+        ) : section === "club" ? (
+          <ClubSettings />
         ) : section === "courts" ? (
           <Courts />
         ) : section === "members" ? (
@@ -143,6 +148,56 @@ export function Admin() {
         )}
       </div>
     </div>
+  );
+}
+function ClubSettings() {
+  const { member } = useSession(),
+    action = useAction(),
+    clubs = useList("clubs");
+  const club = clubs.data?.find((c) => c.id === "pprc");
+  return (
+    <Panel title="Club settings">
+      <p>Club identity and contact details for the PPRC workspace.</p>
+      <fieldset disabled={member?.role !== "clubAdmin"} className="operations">
+        <Form
+          key={club?.updatedAt?.seconds ?? "club"}
+          label="Save club settings"
+          onSubmit={(f) =>
+            action("manageClub", {
+              target: "club",
+              value: {
+                name: text(f, "name"),
+                timezone: text(f, "timezone"),
+                location: text(f, "location"),
+                contactEmail: text(f, "contactEmail"),
+              },
+              reason: text(f, "reason"),
+            })
+          }
+        >
+          {[
+            ["name", "Club name"],
+            ["timezone", "Club timezone"],
+            ["location", "Club location"],
+            ["contactEmail", "Club contact email"],
+          ].map(([k, l]) => (
+            <Field key={k} label={l}>
+              <input
+                name={k}
+                required
+                type={k === "contactEmail" ? "email" : "text"}
+                defaultValue={
+                  club?.[k] ?? (k === "timezone" ? "America/Chicago" : "")
+                }
+              />
+            </Field>
+          ))}
+          <Field label="Club update audit reason">
+            <input name="reason" minLength={5} required />
+          </Field>
+        </Form>
+      </fieldset>
+    </Panel>
   );
 }
 function Dashboard({ events }: { events: Entity[] }) {
@@ -331,6 +386,8 @@ function EventAdmin({ eventId, tab }: { eventId: string; tab: string }) {
       </p>
     );
   if (!event) return <Empty title="Event not found" />;
+  if (event.competition === "triace")
+    return <TriaceTournament eventId={eventId} adminMode />;
   const readOnly = !canManage(member?.role, user!.uid, event as Event);
   const common = { eventId };
   const run = (name: string, p: Record<string, unknown> = {}) =>
@@ -1201,6 +1258,12 @@ function Members() {
                 target: "rating",
                 id: text(f, "id"),
                 rating: number(f, "rating"),
+                ...(text(f, "singlesUtr")
+                  ? { singlesUtr: number(f, "singlesUtr") }
+                  : {}),
+                ...(text(f, "doublesUtr")
+                  ? { doublesUtr: number(f, "doublesUtr") }
+                  : {}),
                 reason: text(f, "reason"),
               })
             }
@@ -1218,6 +1281,19 @@ function Members() {
                 required
               />
             </Field>
+            {["singlesUtr", "doublesUtr"].map((k) => (
+              <Field
+                key={k}
+                label={
+                  k === "singlesUtr"
+                    ? "Verified singles UTR"
+                    : "Verified doubles UTR"
+                }
+                hint="Optional; defaults to the external reference above when omitted."
+              >
+                <input name={k} type="number" min="0" max="20" step="0.01" />
+              </Field>
+            ))}
             <Field label="Verification source / audit reason">
               <input name="reason" minLength={5} required />
             </Field>
@@ -1293,12 +1369,14 @@ export function EventWizard() {
     useList("eventTemplates", [], member?.role === "clubAdmin").data ?? [];
   const courts = useList("courts").data ?? [];
   const [cover, setCover] = useState<File | null>(null);
+  const [competition, setCompetition] = useState("individual");
   const [step, setStep] = useState(0),
     [divisions, setDivisions] = useState<any[]>([{ ...defaultDivision }]),
     [template, setTemplate] = useState<Entity | undefined>();
   const [loaded, setLoaded] = useState(false);
   const source = template?.event ?? existing.event;
   if (source && !loaded) {
+    setCompetition(source.competition ?? "individual");
     setLoaded(true);
     setDivisions(
       (template?.divisions ?? existing.divisions).map((d: Entity) => ({
@@ -1375,6 +1453,10 @@ export function EventWizard() {
               });
             }
             const event = {
+              competition,
+              ...(competition === "triace"
+                ? { triaceRules: source?.triaceRules ?? defaultTriaceRules }
+                : {}),
               ...(coverPath ? { coverPath } : {}),
               name: text(f, "name"),
               description: text(f, "description"),
@@ -1418,6 +1500,36 @@ export function EventWizard() {
         >
           <section hidden={step !== 0}>
             <h2>01 · The basics</h2>
+            <Field label="Competition format">
+              <select
+                value={competition}
+                onChange={(e) => {
+                  setCompetition(e.target.value);
+                  setDivisions([
+                    {
+                      ...defaultDivision,
+                      ...(e.target.value === "triace"
+                        ? {
+                            name: "TRIACE teams",
+                            format: "round-robin-playoffs",
+                            capacity: 8,
+                          }
+                        : {}),
+                    },
+                  ]);
+                }}
+              >
+                <option value="individual">Individual tournament</option>
+                <option value="triace">TRIACE 2.0 team tournament</option>
+              </select>
+            </Field>
+            {competition === "triace" && (
+              <p className="notice">
+                Three players per team. Configure lineup, reference and
+                participation policies in the draft tournament’s Rules tab
+                before publishing.
+              </p>
+            )}
             <div className="form-grid">
               {[
                 ["name", "Event name", "Prosper Open Weekend"],
@@ -1562,7 +1674,7 @@ export function EventWizard() {
                   name="capacity"
                   type="number"
                   min="2"
-                  max="128"
+                  max={competition === "triace" ? 16 : 128}
                   defaultValue={source?.capacity ?? 16}
                 />
               </Field>
@@ -1725,6 +1837,7 @@ export function EventWizard() {
             <button
               type="button"
               className="button secondary"
+              disabled={competition === "triace"}
               onClick={() =>
                 setDivisions((ds) => [
                   ...ds,
@@ -1761,13 +1874,22 @@ export function EventWizard() {
                   defaultValue={source?.dailyEndHour ?? 21}
                 />
               </Field>
-              <Field label="Match duration (minutes)">
+              <Field
+                label={
+                  competition === "triace"
+                    ? "Encounter block duration (minutes)"
+                    : "Match duration (minutes)"
+                }
+              >
                 <input
+                  key={competition}
                   name="duration"
                   type="number"
                   min="15"
                   max="240"
-                  defaultValue={source?.duration ?? 75}
+                  defaultValue={
+                    source?.duration ?? (competition === "triace" ? 180 : 75)
+                  }
                 />
               </Field>
               <Field label="Buffer (minutes)">

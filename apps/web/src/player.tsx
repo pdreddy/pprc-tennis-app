@@ -27,6 +27,7 @@ import {
   text,
 } from "./ui";
 import type { Entity } from "@pprc/shared";
+import { TriaceTournament, TeamSchedule, TeamHistory } from "./teams";
 export function EventDetail() {
   const { eventId = "" } = useParams();
   const data = useEvent(eventId);
@@ -49,6 +50,8 @@ export function EventDetail() {
       </div>
     );
   if (!event) return <Empty title="Event not found" />;
+  if (event.competition === "triace")
+    return <TriaceTournament eventId={eventId} />;
   return (
     <div className="page">
       <Link className="text-link" to="/events">
@@ -617,6 +620,7 @@ export function Schedule() {
       <p className="eyebrow">PLAN YOUR PLAY</p>
       <h1>My match schedule</h1>
       <p className="lead">Times are shown in the event’s local timezone.</p>
+      <TeamSchedule />
       <MatchList matches={[...(a.data ?? []), ...(b.data ?? [])]} />
       <Panel title="Submit a match score">
         {[...(a.data ?? []), ...(b.data ?? [])]
@@ -744,6 +748,7 @@ export function Results() {
         </Panel>
       )}
       <h2>Completed events</h2>
+      {user && <TeamHistory />}
       <div className="event-grid">
         {events.data?.map((e) => (
           <Panel key={e.id} title={e.name}>
@@ -771,6 +776,10 @@ export function Profile() {
       <p className="lead">A little about you. A better match for everyone.</p>
       <Panel>
         {profile?.photoPath && <OwnPhoto path={profile.photoPath} />}
+        <p className="muted">
+          Your player UID: <code>{user?.uid}</code>. Share it with a captain to
+          receive a team invitation.
+        </p>
         <Form
           key={profile?.updatedAt?.seconds ?? "new"}
           label="Save player profile"
@@ -790,6 +799,12 @@ export function Profile() {
                 preferredSport: text(f, "preferredSport"),
                 tennisLevel: text(f, "tennisLevel"),
                 ...(external ? { externalRating: Number(external) } : {}),
+                ...(text(f, "singlesUtr")
+                  ? { singlesUtr: Number(text(f, "singlesUtr")) }
+                  : {}),
+                ...(text(f, "doublesUtr")
+                  ? { doublesUtr: Number(text(f, "doublesUtr")) }
+                  : {}),
                 ratingSource: "Player provided",
                 handedness: text(f, "handedness"),
                 availability: text(f, "availability"),
@@ -871,6 +886,26 @@ export function Profile() {
                 defaultValue={profile?.externalRating}
               />
             </Field>
+            {["singlesUtr", "doublesUtr"].map((k) => (
+              <Field
+                key={k}
+                label={
+                  k === "singlesUtr"
+                    ? "Singles UTR reference"
+                    : "Doubles UTR reference"
+                }
+                hint="TRIACE uses the higher reference per player; existing external reference is the fallback."
+              >
+                <input
+                  name={k}
+                  type="number"
+                  min="0"
+                  max="20"
+                  step="0.01"
+                  defaultValue={profile?.[k]}
+                />
+              </Field>
+            ))}
             <Field label="Profile visibility">
               <select
                 name="visibility"

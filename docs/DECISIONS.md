@@ -1,5 +1,11 @@
 # Engineering decisions
 
+- TRIACE is an additive event competition, sharing all trusted infrastructure. One deployed PPRC club remains the tenancy boundary; a Firebase project called multiclub does not silently introduce multi-club access rules.
+- Combined UTR reference maximum defaults to 18.5 with an explicit unconfirmed-policy flag. Default participation uses completed group encounters as denominator; alternative policies are configurable and must be reviewed for feasibility. References are snapshots, never calculated ratings.
+- Team approval/group assignment/qualification remain supervised organizer actions. Lineups lock on submission; one rubber's pending confirmation/dispute must resolve before another score. Champion completion is automatic after the final, rather than an arbitrary status override.
+- Live Stripe keys/webhook events are rejected. Test signatures and trusted reconciliation can run with synthetic emulator records; real Stripe API, FCM and Scheduler verification requires an approved staging project.
+- Local automation installs missing pnpm into ignored project tooling, uses managed Playwright Chromium when needed, and preserves development exports while testing isolated data. No Docker dependency was introduced.
+
 - Preserve the legacy app instead of replacing or migrating its database. Root `dev`, `build`, `test` remain legacy commands. All new workflow commands use `events:`.
 - Use React 18, Vite, Router and TanStack Query. UI components use native labeled form controls, semantic tables, visible focus and reusable card/form/button patterns in the style of accessible shadcn components; no copied product UI or branding.
 - Use original CSS court illustrations as default event art. Admins may upload public event cover images. Profile photos and waivers have separate Storage rules.
