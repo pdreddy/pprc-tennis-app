@@ -60,3 +60,20 @@ test("sign-in has labeled controls, validation, and an accessible mobile layout"
     fullPage: true,
   });
 });
+test("mobile bottom navigation is shown on phones and hidden on desktop", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+  const nav = page.getByRole("navigation", { name: "Mobile navigation" });
+  await expect(nav).toBeVisible();
+  await nav.getByRole("link", { name: "Results" }).click();
+  await expect(page).toHaveURL(/\/results/);
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await expect(nav).toBeHidden();
+});

@@ -1,0 +1,26 @@
+/* PPRC Sports Elite: midnight navy + champagne gold */
+.club-strip { background: var(--navy); color: var(--champagne); }
+.brand-mark { background: linear-gradient(145deg, #0b1d33, #14304f); color: var(--gold); border: 1px solid var(--gold); }
+.button.primary { background: var(--navy); color: var(--champagne); border-color: var(--gold); }
+.button.primary:hover { background: #14304f; color: #fff; }
+.state { display: grid; place-items: center; gap: 8px; padding: 40px 16px; text-align: center; color: var(--muted); }
+.state strong { color: var(--navy); }
+.state.error strong { color: #a12a2a; }
+.state .spinner { width: 28px; height: 28px; border: 3px solid var(--line); border-top-color: var(--gold); border-radius: 50%; animation: spin 0.9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.card { border: 1px solid var(--line); border-radius: 14px; background: #fff; box-shadow: 0 2px 10px #0b1d3310; }
+.scoreboard { background: var(--navy); color: var(--champagne); border-radius: 14px; padding: 12px 16px; display: grid; gap: 6px; }
+.scoreboard .row { display: grid; grid-template-columns: 1fr repeat(5, 28px); align-items: center; gap: 4px; }
+.scoreboard .row.win { color: var(--gold); font-weight: 700; }
+.scoreboard .set { text-align: center; font-variant-numeric: tabular-nums; }
+.bottom-nav { display: none; }
+@media (max-width: 800px) {
+  body { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
+  .bottom-nav {
+    display: grid; grid-template-columns: repeat(5, 1fr); position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
+    background: var(--navy); border-top: 1px solid var(--gold); padding-bottom: env(safe-area-inset-bottom);
+  }
+  .bottom-nav a { display: grid; justify-items: center; gap: 2px; padding: 8px 2px; min-height: 56px; color: #b9c4d2; font-size: 11px; }
+  .bottom-nav a.active { color: var(--gold); }
+  .bottom-nav a:hover { color: var(--gold); }
+}

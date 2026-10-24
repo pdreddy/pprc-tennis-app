@@ -15,8 +15,10 @@
   font-synthesis: none;
   font-size: 15px;
   line-height: 1.6;
-  --navy: #102c43;
-  --teal: #087f80;
+  --navy: #0b1d33;
+  --gold: #c9a84c;
+  --champagne: #f6efdc;
+  --teal: #8a6616;
   --blue: #245bca;
   --line: #e1e7eb;
   --muted: #637586;
@@ -32,7 +34,7 @@ a {
   text-decoration: none;
 }
 a:hover {
-  color: #087f80;
+  color: #8a6616;
 }
 button,
 input,
@@ -105,7 +107,7 @@ svg {
   letter-spacing: 0.03em;
 }
 .strip-dot {
-  color: #80beb9;
+  color: #d9bd7d;
 }
 .site-header {
   background: #fff;
@@ -127,7 +129,7 @@ svg {
   line-height: 1.2;
 }
 .brand-mark {
-  background: #0a7278;
+  background: #0b1d33;
   color: #fff;
   width: 42px;
   height: 48px;
@@ -140,7 +142,7 @@ svg {
   padding-right: 12px;
 }
 .brand-mark span {
-  color: #b7d0a7;
+  color: #d9bd7d;
   font-size: 27px;
 }
 .brand-sub {
@@ -186,8 +188,8 @@ svg {
 .avatar {
   width: 36px;
   height: 36px;
-  background: #e8f2f0;
-  border: 1px solid #cfdfdb;
+  background: #f6efdc;
+  border: 1px solid #e6d6ab;
   border-radius: 50%;
   display: grid;
   place-items: center;
@@ -258,7 +260,7 @@ svg {
 .hero {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  background: #102c43;
+  background: #0b1d33;
   min-height: 460px;
   color: #e6edf2;
   overflow: hidden;
@@ -348,7 +350,7 @@ svg {
   inset: 0;
   background:
     linear-gradient(0deg, #082833c9, transparent 70%),
-    linear-gradient(90deg, #102c4344, transparent);
+    linear-gradient(90deg, #0b1d3344, transparent);
   z-index: -1;
 }
 .hero-court {
@@ -537,7 +539,7 @@ svg {
   border-radius: 8px;
   background: #fff;
   gap: 10px;
-  box-shadow: 0 4px 16px #102c4303;
+  box-shadow: 0 4px 16px #0b1d3303;
 }
 .filter-bar input,
 .filter-bar select {
@@ -606,7 +608,7 @@ svg {
 }
 .event-card:hover {
   transform: translateY(-3px);
-  box-shadow: 0 9px 25px #102c430c;
+  box-shadow: 0 9px 25px #0b1d330c;
 }
 .event-image {
   display: block;
@@ -692,7 +694,7 @@ svg {
 .court-shadow {
   position: absolute;
   inset: 0;
-  background: linear-gradient(0deg, #102c4377, transparent 75%);
+  background: linear-gradient(0deg, #0b1d3377, transparent 75%);
 }
 .date-tile {
   position: absolute;
@@ -1554,7 +1556,7 @@ footer p {
     background: white;
     z-index: 20;
     height: auto;
-    box-shadow: 0 20px 25px #102c4322;
+    box-shadow: 0 20px 25px #0b1d3322;
     padding: 15px 5%;
     flex-direction: column;
     align-items: stretch;
@@ -1743,7 +1745,7 @@ footer p {
   .hero-copy {
     position: relative;
     z-index: 2;
-    background: linear-gradient(90deg, #102c43f5, #102c43cd 75%, #102c4366);
+    background: linear-gradient(90deg, #0b1d33f5, #0b1d33cd 75%, #0b1d3366);
     padding: 40px 6% 35px;
   }
   .hero-visual {

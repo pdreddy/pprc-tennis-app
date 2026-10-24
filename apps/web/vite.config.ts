@@ -11,8 +11,8 @@ export default defineConfig({
         name: "Prosper Premier Racquet Club Events",
         short_name: "PPRC Events",
         description: "Your court. Your competition. Your community.",
-        theme_color: "#102c43",
-        background_color: "#f5f7f9",
+        theme_color: "#0b1d33",
+        background_color: "#0b1d33",
         display: "standalone",
         start_url: "/",
         icons: [

@@ -48,6 +48,28 @@ const Admin = lazy(() => import("./admin").then((m) => ({ default: m.Admin })));
 const EventWizard = lazy(() =>
   import("./admin").then((m) => ({ default: m.EventWizard })),
 );
+function BottomNav() {
+  const { user } = useSession();
+  const items = [
+    { to: "/events", label: "Events", icon: Search },
+    { to: "/my-events", label: "My events", icon: Trophy },
+    { to: "/schedule", label: "Schedule", icon: CalendarDays },
+    { to: "/results", label: "Results", icon: ArrowUpRight },
+    user
+      ? { to: "/profile", label: "Profile", icon: ShieldCheck }
+      : { to: "/signin", label: "Sign in", icon: ShieldCheck },
+  ];
+  return (
+    <nav className="bottom-nav" aria-label="Mobile navigation">
+      {items.map(({ to, label, icon: Icon }) => (
+        <NavLink key={to} to={to}>
+          <Icon size={20} />
+          {label}
+        </NavLink>
+      ))}
+    </nav>
+  );
+}
 function Layout() {
   const { user, member } = useSession();
   const [menu, setMenu] = useState(false);
@@ -112,6 +134,7 @@ function Layout() {
           </button>
         </div>
       </header>
+      <BottomNav />
       <main>
         <Suspense
           fallback={

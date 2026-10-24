@@ -330,3 +330,60 @@ export function Dialog({
     </dialog>
   );
 }
+export function Loading({ label = "Loading…" }: { label?: string }) {
+  return (
+    <div className="state" role="status">
+      <span className="spinner" aria-hidden="true" />
+      <span>{label}</span>
+    </div>
+  );
+}
+export function ErrorState({
+  title = "Something went wrong",
+  children,
+  retry,
+}: {
+  title?: string;
+  children?: ReactNode;
+  retry?: () => void;
+}) {
+  return (
+    <div className="state error" role="alert">
+      <strong>{title}</strong>
+      {children && <span>{children}</span>}
+      {retry && (
+        <button className="button small" onClick={retry}>
+          Try again
+        </button>
+      )}
+    </div>
+  );
+}
+export function Scoreboard({
+  players,
+  sets,
+  winner,
+}: {
+  players: [string, string];
+  sets: { a: number; b: number }[];
+  winner?: 0 | 1;
+}) {
+  return (
+    <div className="scoreboard" role="table" aria-label="Match score">
+      {players.map((name, i) => (
+        <div
+          key={i}
+          role="row"
+          className={`row${winner === i ? " win" : ""}`}
+        >
+          <span role="cell">{name}</span>
+          {sets.map((s, j) => (
+            <span key={j} role="cell" className="set">
+              {i === 0 ? s.a : s.b}
+            </span>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
