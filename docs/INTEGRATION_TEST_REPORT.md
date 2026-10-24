@@ -4,7 +4,7 @@ Date: October 24, 2026. Feature branch: `feat/pprc-sports-triace`. Completed fou
 
 ## Milestone 2 completed gate
 
-`./pprc.sh test-all` exited **0** on October 24, 2026. The tested source was based on foundation `4faa90a`; its committed source revision is recorded below after the implementation commit. Actual results: **58 shared unit, 54 Firebase integration, seven full browser, three browser-shell, one production PWA and four legacy tests passed**, with no skipped cases. Migration dry-run/apply/reapply and complete Firestore/Auth backup/restore passed. Log: `.local/validation/milestone2-final-full-rerun.log`.
+`./pprc.sh test-all` exited **0** on October 24, 2026. Tested implementation commit: `9077c2a237fb2186eddaad22c852402c741d78cf` (based on foundation `4faa90a`). Actual results: **58 shared unit, 54 Firebase integration, seven full browser, three browser-shell, one production PWA and four legacy tests passed**, with no skipped cases. Migration dry-run/apply/reapply and complete Firestore/Auth backup/restore passed. Log: `.local/validation/milestone2-final-full-rerun.log`.
 
 The added vertical slice covers Auth signup/profile → membership request → trusted review → private-event discovery/registration/development payment → linked notification → privacy opt-out. Public player search/profiles and a clearly labeled supplied-reference leaderboard use whitelist projections. The owner-only dashboard derives confirmed individual results and actually assigned team rubbers, excludes pending/superseded scores, reports corrections once, and shows immutable reference snapshots without inventing rating history. Mobile bottom navigation preserves existing guarded routes.
 

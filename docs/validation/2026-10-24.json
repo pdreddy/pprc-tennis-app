@@ -60,5 +60,6 @@
     "remote CI"
   ],
   "foundation_commit": "4faa90a53a52cbeb52da5a41f1e922dd2267a77e",
-  "log": ".local/validation/milestone2-final-full-rerun.log"
+  "log": ".local/validation/milestone2-final-full-rerun.log",
+  "tested_source_commit": "9077c2a237fb2186eddaad22c852402c741d78cf"
 }
