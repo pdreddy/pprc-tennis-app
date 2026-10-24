@@ -19,6 +19,7 @@ if [ ! -e "$pprc_node_dir/bin/pnpm" ]; then
 fi
 export PATH="$pprc_node_dir/bin:$PATH"
 export npm_config_devdir=/workspace/.cache/node-gyp
+export pnpm_config_store_dir=/workspace/.cache/pnpm
 pnpm install --frozen-lockfile --store-dir /workspace/.cache/pnpm
 pnpm events:typecheck
 pnpm events:lint

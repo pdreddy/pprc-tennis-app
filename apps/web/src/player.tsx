@@ -28,6 +28,7 @@ import {
 } from "./ui";
 import type { Entity } from "@pprc/shared";
 import { TriaceTournament, TeamSchedule, TeamHistory } from "./teams";
+import { OnboardingSteps } from "./club";
 export function EventDetail() {
   const { eventId = "" } = useParams();
   const data = useEvent(eventId);
@@ -721,6 +722,11 @@ export function Results() {
     <div className="page">
       <p className="eyebrow">THE GAME, RECORDED</p>
       <h1>Results & player history</h1>
+      {user && (
+        <Link className="button secondary" to="/dashboard">
+          My performance dashboard
+        </Link>
+      )}
       <p className="lead">
         Every match is part of your story. PPRC results stand on their own.
       </p>
@@ -773,7 +779,11 @@ export function Profile() {
     <div className="page narrow">
       <p className="eyebrow">PART OF THE CLUB</p>
       <h1>My player profile</h1>
+      <Link className="button secondary" to="/dashboard">
+        View my performance
+      </Link>
       <p className="lead">A little about you. A better match for everyone.</p>
+      <OnboardingSteps />
       <Panel>
         {profile?.photoPath && <OwnPhoto path={profile.photoPath} />}
         <p className="muted">
@@ -976,7 +986,14 @@ export function Notifications() {
             <Panel key={n.id} title={n.title}>
               <p>{n.body}</p>
               <div className="row">
-                <Link to={`/events/${n.eventId}`}>View event</Link>
+                <Link
+                  to={
+                    n.href ||
+                    (n.eventId ? `/events/${n.eventId}` : "/clubs/pprc")
+                  }
+                >
+                  {n.href ? "View update" : "View event"}
+                </Link>
                 {!n.read && (
                   <Action
                     onClick={async () => {

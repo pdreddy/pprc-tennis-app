@@ -1,5 +1,6 @@
 import { ScoreForm } from "./scoring";
 import { TriaceTournament } from "./teams";
+import { ClubMembershipRequests } from "./club";
 import { useState } from "react";
 import {
   Link,
@@ -170,6 +171,8 @@ function ClubSettings() {
                 timezone: text(f, "timezone"),
                 location: text(f, "location"),
                 contactEmail: text(f, "contactEmail"),
+                acceptingMembershipRequests:
+                  f.get("acceptingMembershipRequests") === "on",
               },
               reason: text(f, "reason"),
             })
@@ -192,6 +195,14 @@ function ClubSettings() {
               />
             </Field>
           ))}
+          <label className="check">
+            <input
+              name="acceptingMembershipRequests"
+              type="checkbox"
+              defaultChecked={club?.acceptingMembershipRequests !== false}
+            />
+            Accept player membership requests
+          </label>
           <Field label="Club update audit reason">
             <input name="reason" minLength={5} required />
           </Field>
@@ -1179,6 +1190,7 @@ function Members() {
   return (
     <>
       <h1>Members & roles</h1>
+      <ClubMembershipRequests />
       {!["clubAdmin", "platformAdmin"].includes(member?.role) ? (
         <Empty title="Club administrator access required" />
       ) : (

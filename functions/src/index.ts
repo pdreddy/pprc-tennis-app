@@ -12,17 +12,18 @@ import { z, ZodError } from "zod";
 import { execute, assertEventAdmin, requiredReason } from "./engine.js";
 import { verifyStripeWebhook, reconcileStripeCheckout } from "./payments.js";
 import { runEventMaintenance } from "./maintenance.js";
+import { getMyPerformance as ownPerformance } from "./players.js";
 initializeApp();
 setGlobalOptions({ region: "us-central1", maxInstances: 10 });
 const inEmulator = process.env.FUNCTIONS_EMULATOR === "true";
 const stripeKey = defineSecret("STRIPE_SECRET_KEY");
 const webhookKey = defineSecret("STRIPE_WEBHOOK_SECRET");
-function callable(name: string) {
+function callable(name: string, handler: typeof execute = execute) {
   return onCall({ cors: true }, async (request) => {
     if (!request.auth)
       throw new HttpsError("unauthenticated", "Sign in required");
     try {
-      return await execute(name, request.auth.uid, request.data);
+      return await handler(name, request.auth.uid, request.data);
     } catch (error) {
       if (error instanceof HttpsError) throw error;
       if (error instanceof ZodError)
@@ -65,6 +66,15 @@ export const requestAccountDeletion = callable("requestAccountDeletion");
 export const manageClub = callable("manageClub");
 export const registerPushToken = callable("registerPushToken");
 export const triace = callable("triace");
+export const getMyPerformance = callable(
+  "getMyPerformance",
+  (_operation, uid, data) => ownPerformance(uid, data),
+);
+export const requestClubMembership = callable("requestClubMembership");
+export const reviewClubMembership = callable("reviewClubMembership");
+export const withdrawClubMembershipRequest = callable(
+  "withdrawClubMembershipRequest",
+);
 interface PaymentProvider {
   checkout(input: {
     paymentId: string;

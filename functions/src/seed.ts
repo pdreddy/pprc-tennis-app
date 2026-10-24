@@ -7,6 +7,8 @@ import {
   defaultTriaceRules,
   eventSchema,
   divisionSchema,
+  publicPlayerProfile,
+  type Entity,
 } from "@pprc/shared";
 if (
   process.env.GCLOUD_PROJECT &&
@@ -103,19 +105,6 @@ for (let i = 0; i < 28; i++) {
         gender: i % 2 ? "Female" : "Male",
       }),
     );
-  const current = (await db.doc(`users/${uid}`).get()).data()!;
-  if (current.visibility === "public")
-    await db
-      .doc(`publicProfiles/${uid}`)
-      .set(
-        base(uid, {
-          displayName: current.displayName,
-          city: current.city,
-          tennisLevel: current.tennisLevel,
-          externalRating: current.externalRating ?? null,
-        }),
-      );
-  else await db.doc(`publicProfiles/${uid}`).delete();
   if (!(await db.doc(`memberships/${uid}`).get()).exists)
     await db.doc(`memberships/${uid}`).set(
       base(uid, {
@@ -131,27 +120,39 @@ for (let i = 0; i < 28; i++) {
         member: true,
       }),
     );
-}
-await db.doc("clubs/pprc").set(
-  base("pprc", {
-    name: "Prosper Premier Racquet Club",
-    timezone: "America/Chicago",
-  }),
-);
-await db
-  .doc("venues/pprc-main")
-  .set(
-    base("pprc-main", { name: "PPRC Main Courts", location: "Prosper, TX" }),
+  const current = (await db.doc(`users/${uid}`).get()).data()!;
+  const membership = (await db.doc(`memberships/${uid}`).get()).data();
+  const projection = publicPlayerProfile(
+    { id: uid, ...current } as Entity,
+    membership,
   );
-for (let i = 1; i <= 4; i++)
-  await db.doc(`courts/court-${i}`).set(
-    base(`court-${i}`, {
-      name: `Court ${i}`,
-      venueId: "pprc-main",
-      surface: "Hard",
-      active: true,
+  if (projection)
+    await db.doc(`publicProfiles/${uid}`).set(base(uid, projection));
+  else await db.doc(`publicProfiles/${uid}`).delete();
+}
+if (!(await db.doc("clubs/pprc").get()).exists)
+  await db.doc("clubs/pprc").set(
+    base("pprc", {
+      name: "Prosper Premier Racquet Club",
+      timezone: "America/Chicago",
     }),
   );
+if (!(await db.doc("venues/pprc-main").get()).exists)
+  await db
+    .doc("venues/pprc-main")
+    .set(
+      base("pprc-main", { name: "PPRC Main Courts", location: "Prosper, TX" }),
+    );
+for (let i = 1; i <= 4; i++)
+  if (!(await db.doc(`courts/court-${i}`).get()).exists)
+    await db.doc(`courts/court-${i}`).set(
+      base(`court-${i}`, {
+        name: `Court ${i}`,
+        venueId: "pprc-main",
+        surface: "Hard",
+        active: true,
+      }),
+    );
 for (const [id, name, status, format, offset, fee] of [
   [
     "prosper-open",
@@ -347,31 +348,27 @@ if (!(await db.doc("events/triace-cup").get()).exists) {
     competition: "triace",
     triaceRules: defaultTriaceRules,
   });
-  await db
-    .doc("events/triace-cup")
-    .set(
-      base("triace-cup", {
-        ...e,
-        status: "Registration Open",
-        registeredCount: 0,
-        waitlistCount: 0,
-        waiverVersion: 1,
-        schemaVersion: 2,
-        divisionFilters: [{ minRating: 0, maxRating: 20 }],
+  await db.doc("events/triace-cup").set(
+    base("triace-cup", {
+      ...e,
+      status: "Registration Open",
+      registeredCount: 0,
+      waitlistCount: 0,
+      waiverVersion: 1,
+      schemaVersion: 2,
+      divisionFilters: [{ minRating: 0, maxRating: 20 }],
+    }),
+  );
+  await db.doc("divisions/triace-cup-teams").set(
+    base("triace-cup-teams", {
+      ...divisionSchema.parse({
+        name: "TRIACE teams",
+        format: "round-robin-playoffs",
+        capacity: 8,
       }),
-    );
-  await db
-    .doc("divisions/triace-cup-teams")
-    .set(
-      base("triace-cup-teams", {
-        ...divisionSchema.parse({
-          name: "TRIACE teams",
-          format: "round-robin-playoffs",
-          capacity: 8,
-        }),
-        eventId: "triace-cup",
-      }),
-    );
+      eventId: "triace-cup",
+    }),
+  );
 }
 console.log(
   "PPRC demo seed ready: 24 players, 4 courts, 4 events including TRIACE. Existing event data preserved.",

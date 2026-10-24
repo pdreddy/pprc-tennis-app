@@ -213,6 +213,8 @@ export function CourtArt({ variant = 0 }: { variant?: number }) {
     </div>
   );
 }
+export const reference = (value: unknown) =>
+  typeof value === "number" && Number.isFinite(value) ? value.toFixed(2) : "—";
 export function EventCard({ event }: { event: Entity }) {
   const d = new Date(event.startDate);
   return (

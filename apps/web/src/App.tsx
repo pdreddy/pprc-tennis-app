@@ -19,6 +19,9 @@ import {
   ChevronRight,
   Search,
   Trophy,
+  Users,
+  Building2,
+  UserRound,
 } from "lucide-react";
 import { auth, login, signup, googleLogin, emulator } from "./firebase";
 import { SessionProvider, useSession, useList } from "./context";
@@ -50,6 +53,21 @@ const EventWizard = lazy(() =>
 );
 const TeamsHub = lazy(() =>
   import("./teams").then((m) => ({ default: m.TeamsHub })),
+);
+const ClubPage = lazy(() =>
+  import("./club").then((m) => ({ default: m.ClubPage })),
+);
+const PlayersPage = lazy(() =>
+  import("./club").then((m) => ({ default: m.PlayersPage })),
+);
+const PublicPlayer = lazy(() =>
+  import("./club").then((m) => ({ default: m.PublicPlayer })),
+);
+const PerformanceDashboard = lazy(() =>
+  import("./players").then((m) => ({ default: m.PerformanceDashboard })),
+);
+const Rankings = lazy(() =>
+  import("./players").then((m) => ({ default: m.Rankings })),
 );
 function Layout() {
   const { user, member } = useSession();
@@ -85,6 +103,8 @@ function Layout() {
           <NavLink to="/teams">My teams</NavLink>
           <NavLink to="/schedule">Schedule</NavLink>
           <NavLink to="/results">Results</NavLink>
+          <NavLink to="/clubs/pprc">Club</NavLink>
+          <NavLink to="/players">Players</NavLink>
           {admin && <NavLink to="/admin">Admin portal</NavLink>}
         </nav>
         <div className="header-actions">
@@ -162,6 +182,18 @@ function Layout() {
               }
             />
             <Route path="/results" element={<Results />} />
+            <Route path="/clubs/:clubId" element={<ClubPage />} />
+            <Route path="/players" element={<PlayersPage />} />
+            <Route path="/players/:playerId" element={<PublicPlayer />} />
+            <Route
+              path="/dashboard"
+              element={
+                <RequireUser>
+                  <PerformanceDashboard />
+                </RequireUser>
+              }
+            />
+            <Route path="/rankings" element={<Rankings />} />
             <Route
               path="/profile"
               element={
@@ -206,6 +238,27 @@ function Layout() {
           </Routes>
         </Suspense>
       </main>
+      <nav
+        className="mobile-nav"
+        aria-label="Mobile navigation"
+        onClick={() => setMenu(false)}
+      >
+        {[
+          ["/events", "Events", CalendarDays],
+          ["/schedule", "Schedule", Trophy],
+          ["/teams", "Teams", Users],
+          ["/clubs/pprc", "Club", Building2],
+          ["/profile", "Me", UserRound],
+        ].map(([to, label, Icon]) => {
+          const I = Icon as typeof CalendarDays;
+          return (
+            <NavLink key={String(to)} to={String(to)}>
+              <I size={21} />
+              <span>{String(label)}</span>
+            </NavLink>
+          );
+        })}
+      </nav>
       <footer>
         <Link className="brand footer-brand" to="/">
           PPRC <span>Events</span>

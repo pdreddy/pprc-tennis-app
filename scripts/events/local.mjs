@@ -11,6 +11,7 @@ import {
 import path from "node:path";
 import net from "node:net";
 import { randomUUID } from "node:crypto";
+import { runtimeEnv } from "./runtime-env.mjs";
 const root = process.cwd(),
   local = path.join(root, ".local"),
   stateFile = path.join(local, "runtime.json"),
@@ -20,12 +21,12 @@ const root = process.cwd(),
 if (!stateDir.startsWith(local + path.sep))
   throw Error("Emulator state must stay inside the ignored .local directory");
 mkdirSync(local, { recursive: true });
-const env = {
+const env = runtimeEnv({
   ...process.env,
   VITE_USE_EMULATORS: "true",
   VITE_FIREBASE_PROJECT_ID: "demo-pprc-events",
   VITE_EMULATOR_HOST: "127.0.0.1",
-};
+});
 const tooling = path.join(local, "tooling", "node_modules", ".bin");
 env.PATH = tooling + path.delimiter + env.PATH;
 const pnpm = "pnpm",
@@ -74,9 +75,13 @@ const alive = (pid) => {
 };
 function owned(service) {
   if (!service || !alive(service.pid)) return false;
-  const check = spawnSync("ps", ["-ww", "-p", String(service.pid), "-o", "command="], {
-    encoding: "utf8",
-  });
+  const check = spawnSync(
+    "ps",
+    ["-ww", "-p", String(service.pid), "-o", "command="],
+    {
+      encoding: "utf8",
+    },
+  );
   return (
     check.status === 0 &&
     check.stdout.includes(script) &&
@@ -122,6 +127,7 @@ async function setup() {
   const args = ["install", "--frozen-lockfile"];
   if (cloudCache) {
     args.push("--store-dir", "/workspace/.cache/pnpm");
+    env.pnpm_config_store_dir = "/workspace/.cache/pnpm";
     env.npm_config_devdir = "/workspace/.cache/node-gyp";
   }
   run(pnpm, args);
@@ -342,6 +348,7 @@ async function tests(kind) {
               "events:lint",
               "events:typecheck",
               "events:test",
+              "test",
               "events:build",
               "events:ui",
               "events:pwa",

@@ -1,10 +1,32 @@
 # PPRC Sports Elite integration test report
 
-Date: October 24, 2026. Feature branch: `feat/pprc-sports-triace`. Baseline: `2b062c6`.
+Date: October 24, 2026. Feature branch: `feat/pprc-sports-triace`. Completed foundation commit: `4faa90a`; original baseline: `2b062c6`.
 
-## Final branch gate
+## Milestone 2 completed gate
 
-Command: `./pprc.sh test-all`. **Exit 0** on the current feature branch: 48 shared unit, 35 Firebase integration, five full-flow browser, three browser-shell and one production PWA test passed. Persistence passed. Managed development services were exported/stopped before the suite and restored afterwards. No integration tests were skipped. This completed run re-establishes the baseline for the next onboarding/membership cycle.
+`./pprc.sh test-all` exited **0** on October 24, 2026. The tested source was based on foundation `4faa90a`; its committed source revision is recorded below after the implementation commit. Actual results: **58 shared unit, 54 Firebase integration, seven full browser, three browser-shell, one production PWA and four legacy tests passed**, with no skipped cases. Migration dry-run/apply/reapply and complete Firestore/Auth backup/restore passed. Log: `.local/validation/milestone2-final-full-rerun.log`.
+
+The added vertical slice covers Auth signup/profile → membership request → trusted review → private-event discovery/registration/development payment → linked notification → privacy opt-out. Public player search/profiles and a clearly labeled supplied-reference leaderboard use whitelist projections. The owner-only dashboard derives confirmed individual results and actually assigned team rubbers, excludes pending/superseded scores, reports corrections once, and shows immutable reference snapshots without inventing rating history. Mobile bottom navigation preserves existing guarded routes.
+
+New Firebase cases comprise nine membership, seven performance and three actual CLI projection-migration tests, added to the original 35. Compound indexes are declared for the new queries. The full gate now runs the four legacy tests and actual migration dry-run/apply/idempotence inside the isolated backup/restore rehearsal.
+
+### Failures found and corrected in this cycle
+
+- The first full baseline had 53 Firebase tests passed and one failed because a notification assertion assumed only its two fixture administrators existed. It now compares the exact trusted recipient set, still detecting missing, extra and duplicated notices; the complete rerun passed all 54.
+- Browser coverage exposed raw Firestore permission errors and React Query's rejection of `undefined` for missing documents. Reads retain authorization denial while showing an actionable message; absent documents return `null`, and opted-out profiles show a deliberate empty state.
+- A complete run stopped after six flow tests passed and the Club mobile-width assertion failed. The diagnostic identified `6.699999999999999` in a reference card: document width 432 versus viewport 390. Reference displays now use two decimals and flexible grid tracks. The unchanged width requirement includes loaded-directory readiness and diagnostic details; all seven browser flows passed both the focused rerun and final full gate. No test was disabled or weakened.
+- Child tooling tried the read-only home dependency store. Helpers now use pnpm 11's supported `pnpm_config_store_dir` and the existing writable install store. The cloud install helper passed frozen installation, types, lint, all 58 shared tests and both builds after the fix.
+- The cloud workspace disconnected during mobile diagnosis, then reconnected with the working tree intact. Failed/interrupted runs are retained as failures, not counted as completed validation.
+
+### Milestones 3 and 4
+
+TRIACE's foundation remains validated. Explicit runner-up declaration, configurable KOC/doubles extensions and the sporting ladder are still pending; requesting a milestone does not establish its implementation. The UTR reference audit remains R0: no authorized local APK/XAPK or direct observation evidence is available.
+
+The supplied ladder rules are recorded in LADDER.md. Confirmed decisions: acceptance closes five days before the final Sunday freeze; doubles use fixed, consenting season pairs; playoffs default off unless configured by the organizer. Existing supplied-reference leaderboards are not a sporting ladder.
+
+## Foundation gate (historical)
+
+Completed foundation command: `./pprc.sh test-all`. **Exit 0** for the tested implementation committed as `4faa90a`: 48 shared unit, 35 Firebase integration, five full-flow browser, three browser-shell and one production PWA test passed. Persistence passed. Managed development services were exported/stopped before the suite and restored afterwards. No integration tests were skipped. This completed run re-establishes the baseline for the next onboarding/membership cycle.
 
 ## Executed focused results
 

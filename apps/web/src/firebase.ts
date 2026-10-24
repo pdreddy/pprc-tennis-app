@@ -54,6 +54,16 @@ export const signup = (email: string, password: string) =>
   createUserWithEmailAndPassword(auth, email, password);
 export const googleLogin = () =>
   signInWithPopup(auth, new GoogleAuthProvider());
+function readError(error: unknown) {
+  if ((error as { code?: string })?.code === "permission-denied")
+    return Object.assign(
+      new Error(
+        "You do not have permission to view this content. Sign in with an authorized account or ask the club team about access.",
+      ),
+      { code: "permission-denied" },
+    );
+  return error;
+}
 export async function call(
   name: string,
   data: Record<string, unknown> = {},
@@ -64,12 +74,11 @@ export async function call(
   )(JSON.parse(JSON.stringify({ requestId: crypto.randomUUID(), ...data })));
   return result.data;
 }
-export async function getOne(
-  c: string,
-  id: string,
-): Promise<Entity | undefined> {
-  const s = await getDoc(doc(db, c, id));
-  return s.exists() ? ({ id: s.id, ...s.data() } as Entity) : undefined;
+export async function getOne(c: string, id: string): Promise<Entity | null> {
+  const s = await getDoc(doc(db, c, id)).catch((error) => {
+    throw readError(error);
+  });
+  return s.exists() ? ({ id: s.id, ...s.data() } as Entity) : null;
 }
 export async function getList(
   c: string,
@@ -94,7 +103,9 @@ export async function getList(
   }
   const s = await getDocs(
     query(collection(db, c), ...filters.map(([f, op, v]) => where(f, op, v))),
-  );
+  ).catch((error) => {
+    throw readError(error);
+  });
   return s.docs.map((d) => ({ id: d.id, ...d.data() }) as Entity);
 }
 export async function enablePush() {

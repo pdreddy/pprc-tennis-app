@@ -14,15 +14,15 @@
   },
   "suites": {
     "shared_unit": {
-      "passed": 48,
+      "passed": 58,
       "skipped": 0
     },
     "firebase_integration": {
-      "passed": 35,
+      "passed": 54,
       "skipped": 0
     },
     "browser_flows": {
-      "passed": 5
+      "passed": 7
     },
     "browser_shell": {
       "passed": 3
@@ -41,7 +41,8 @@
     "migration_apply": 3,
     "migration_repeat_apply": 0,
     "test_environment_isolation": "passed",
-    "mobile_overflow": false
+    "mobile_overflow": false,
+    "projection_migration_cli": "3 Firebase tests passed"
   },
   "staging": {
     "proposed_project": "multiclub-890ea",
@@ -57,5 +58,7 @@
     "cloud recovery",
     "physical iPhone/Safari",
     "remote CI"
-  ]
+  ],
+  "foundation_commit": "4faa90a53a52cbeb52da5a41f1e922dd2267a77e",
+  "log": ".local/validation/milestone2-final-full-rerun.log"
 }

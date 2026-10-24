@@ -42,8 +42,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     <Session.Provider
       value={{
         user,
-        profile: profile.data,
-        member: member.data,
+        profile: profile.data ?? undefined,
+        member: member.data ?? undefined,
         loading: loading || profile.isLoading || member.isLoading,
       }}
     >
@@ -127,7 +127,7 @@ export function useEvent(id: string) {
     !!e.data,
   );
   return {
-    event: e.data,
+    event: e.data ?? undefined,
     divisions: divisions.data ?? [],
     draws: draws.data ?? [],
     matches: matches.data ?? [],

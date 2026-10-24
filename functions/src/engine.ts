@@ -28,6 +28,10 @@ import {
   type Match,
   type Role,
   triaceRulesSchema,
+  membershipRequestInput,
+  membershipReviewInput,
+  membershipWithdrawalInput,
+  publicPlayerProfile,
 } from "@pprc/shared";
 export const eventCollections = [
   "divisions",
@@ -97,9 +101,15 @@ export async function execute(
     const rateRef = db.doc(`registrationLimits/${uid}`);
     const rateSnap =
       operation === "registerForDivision" ? await tx.get(rateRef) : null;
+    const clubOperation = [
+      "requestClubMembership",
+      "reviewClubMembership",
+      "withdrawClubMembershipRequest",
+    ].includes(operation);
+    const operationLimitId = clubOperation ? `club-${uid}` : uid;
     const operationLimit =
-      operation === "triace"
-        ? await tx.get(db.doc(`operationLimits/${uid}`))
+      operation === "triace" || clubOperation
+        ? await tx.get(db.doc(`operationLimits/${operationLimitId}`))
         : null;
     const buckets: Record<string, Entity[]> = {};
     if (eventId) {
@@ -153,7 +163,43 @@ export async function execute(
       title: string,
       body: string,
       type: string,
-    ) => make("notifications", { playerId, title, body, type, read: false });
+      href?: string,
+    ) =>
+      make("notifications", {
+        playerId,
+        title,
+        body,
+        type,
+        read: false,
+        ...(href ? { href } : {}),
+      });
+    const applyOperationLimit = (maximum: number) => {
+      const recent = Date.now() - (operationLimit?.get("window") ?? 0) < 60000;
+      const count = recent ? (operationLimit?.get("count") ?? 0) : 0;
+      if (count >= maximum)
+        fail("Too many operations; retry in a minute", "resource-exhausted");
+      make(
+        "operationLimits",
+        {
+          window: recent ? operationLimit!.get("window") : Date.now(),
+          count: count + 1,
+        },
+        operationLimitId,
+      );
+    };
+    const projectPlayer = (
+      player: Entity,
+      membership?: Entity | Record<string, any>,
+    ) => {
+      const projection = publicPlayerProfile(player, membership);
+      if (projection)
+        put("publicProfiles", {
+          ...projection,
+          createdAt: player.createdAt ?? now,
+          updatedAt: now,
+        });
+      else updates.set(`publicProfiles/${player.id}`, null);
+    };
     const requireAdmin = () => {
       if (!manager)
         fail("Event administrator access required", "permission-denied");
@@ -315,28 +361,149 @@ export async function execute(
         "manageClub",
         "registerPushToken",
         "createEventTemplate",
+        "requestClubMembership",
+        "reviewClubMembership",
+        "withdrawClubMembershipRequest",
       ].includes(operation) &&
       !event
     )
       fail("Event not found", "not-found");
     switch (operation) {
-      case "triace": {
-        const recent =
-          Date.now() - (operationLimit?.get("window") ?? 0) < 60000;
-        const count = recent ? (operationLimit?.get("count") ?? 0) : 0;
-        if (count >= (manager ? 240 : 120))
+      case "requestClubMembership": {
+        const input = membershipRequestInput.parse(data);
+        const applicant =
+          profile ?? fail("Complete your player profile before joining a club");
+        if (role === "platformAdmin")
+          fail("Support role is read only", "permission-denied");
+        if (memberSnap.exists && memberSnap.get("clubId") !== "pprc")
           fail(
-            "Too many team operations; retry in a minute",
-            "resource-exhausted",
+            "An existing foreign-club membership cannot be replaced",
+            "permission-denied",
           );
+        const [clubSnap, requestSnap, admins] = await Promise.all([
+          tx.get(db.doc("clubs/pprc")),
+          tx.get(db.doc(`membershipRequests/${uid}`)),
+          tx.get(
+            db
+              .collection("memberships")
+              .where("clubId", "==", "pprc")
+              .where("role", "==", "clubAdmin"),
+          ),
+        ]);
+        if (!clubSnap.exists) fail("Club not found", "not-found");
+        if (requestSnap.exists && requestSnap.get("clubId") !== "pprc")
+          fail("Foreign-club request cannot be replaced", "permission-denied");
+        applyOperationLimit(5);
+        if (memberSnap.get("member") === true) {
+          result = { status: "Member" };
+          break;
+        }
+        if (clubSnap.get("acceptingMembershipRequests") === false)
+          fail("This club is not accepting membership requests");
+        if (requestSnap.get("status") === "Pending") {
+          result = { status: "Pending" };
+          break;
+        }
         make(
-          "operationLimits",
+          "membershipRequests",
           {
-            window: recent ? operationLimit!.get("window") : Date.now(),
-            count: count + 1,
+            playerId: uid,
+            displayName: applicant.displayName,
+            city: applicant.city ?? "",
+            message: input.message,
+            status: "Pending",
+            attempt: (requestSnap.get("attempt") ?? 0) + 1,
           },
           uid,
         );
+        for (const admin of admins.docs)
+          notify(
+            admin.id,
+            "Club membership request",
+            `${applicant.displayName} would like to join PPRC.`,
+            "membership-request",
+            "/admin/members",
+          );
+        result = { status: "Pending" };
+        break;
+      }
+      case "withdrawClubMembershipRequest": {
+        membershipWithdrawalInput.parse(data);
+        if (role === "platformAdmin")
+          fail("Support role is read only", "permission-denied");
+        const request = await tx.get(db.doc(`membershipRequests/${uid}`));
+        if (
+          !request.exists ||
+          request.get("clubId") !== "pprc" ||
+          request.get("status") !== "Pending"
+        )
+          fail("No pending membership request");
+        applyOperationLimit(20);
+        edit("membershipRequests", { id: uid, ...request.data() } as Entity, {
+          status: "Withdrawn",
+        });
+        result = { status: "Withdrawn" };
+        break;
+      }
+      case "reviewClubMembership": {
+        requireClub();
+        const input = membershipReviewInput.parse(data);
+        const [request, player, membership] = await Promise.all([
+          tx.get(db.doc(`membershipRequests/${input.playerId}`)),
+          tx.get(db.doc(`users/${input.playerId}`)),
+          tx.get(db.doc(`memberships/${input.playerId}`)),
+        ]);
+        if (
+          !request.exists ||
+          request.get("clubId") !== "pprc" ||
+          request.get("status") !== "Pending"
+        )
+          fail("Membership request is not pending");
+        if (!player.exists || player.get("clubId") !== "pprc")
+          fail("Player profile not found", "not-found");
+        if (membership.exists && membership.get("clubId") !== "pprc")
+          fail(
+            "Foreign-club membership cannot be overwritten",
+            "permission-denied",
+          );
+        applyOperationLimit(240);
+        edit(
+          "membershipRequests",
+          { id: request.id, ...request.data() } as Entity,
+          {
+            status: input.decision,
+            reviewedBy: uid,
+            reviewedAt: now,
+            decisionReason: input.reason,
+          },
+        );
+        if (input.decision === "Approved") {
+          const m = make(
+            "memberships",
+            {
+              ...membership.data(),
+              role: membership.get("role") ?? "player",
+              member: true,
+              playerId: input.playerId,
+            },
+            input.playerId,
+          );
+          projectPlayer({ id: player.id, ...player.data() } as Entity, m);
+        }
+        notify(
+          input.playerId,
+          input.decision === "Approved"
+            ? "Club membership approved"
+            : "Club membership request reviewed",
+          input.reason,
+          "membership-decision",
+          "/clubs/pprc",
+        );
+        result = { status: input.decision };
+        break;
+      }
+      case "triace": {
+        applyOperationLimit(manager ? 240 : 120);
         result = await executeTriace({
           uid,
           role,
@@ -425,20 +592,7 @@ export async function execute(
           createdBy: uid,
         };
         put("users", entity);
-        if (p.visibility === "public")
-          put("publicProfiles", {
-            id: uid,
-            clubId: "pprc",
-            displayName: p.displayName,
-            city: p.city,
-            tennisLevel: p.tennisLevel,
-            externalRating: p.externalRating ?? null,
-            singlesUtr: p.singlesUtr ?? profile?.singlesUtr ?? null,
-            doublesUtr: p.doublesUtr ?? profile?.doublesUtr ?? null,
-            updatedAt: now,
-            createdAt: now,
-          });
-        else updates.set(`publicProfiles/${uid}`, null);
+        projectPlayer(entity, memberSnap.data());
         result = { id: uid };
         break;
       }
@@ -468,6 +622,7 @@ export async function execute(
           .enum(["court", "membership", "template", "rating", "venue", "club"])
           .parse(data.target);
         if (target === "club") {
+          const existingClub = await tx.get(db.doc("clubs/pprc"));
           const value = z
             .object({
               name: z.string().min(2).max(160),
@@ -481,6 +636,11 @@ export async function execute(
               }),
               location: z.string().max(200),
               contactEmail: z.string().email(),
+              acceptingMembershipRequests: z
+                .boolean()
+                .default(
+                  existingClub.get("acceptingMembershipRequests") !== false,
+                ),
             })
             .parse(data.value);
           make("clubs", value, "pprc");
@@ -492,11 +652,36 @@ export async function execute(
             .parse(data.role);
           if (id === uid && memberRole !== "clubAdmin")
             fail("Cannot remove your own club-admin role");
-          make(
+          const [player, request] = await Promise.all([
+            tx.get(db.doc(`users/${id}`)),
+            tx.get(db.doc(`membershipRequests/${id}`)),
+          ]);
+          const membership = make(
             "memberships",
             { role: memberRole, member: !!data.member, playerId: id },
             id,
           );
+          if (player.exists)
+            projectPlayer({ id, ...player.data() } as Entity, membership);
+          if (
+            data.member &&
+            request.get("status") === "Pending" &&
+            request.get("clubId") === "pprc"
+          ) {
+            edit("membershipRequests", { id, ...request.data() } as Entity, {
+              status: "Approved",
+              reviewedBy: uid,
+              reviewedAt: now,
+              decisionReason: data.reason,
+            });
+            notify(
+              id,
+              "Club membership approved",
+              data.reason,
+              "membership-decision",
+              "/clubs/pprc",
+            );
+          }
         }
         if (target === "rating") {
           const id = idSchema.parse(data.id);
@@ -514,28 +699,15 @@ export async function execute(
             .max(20)
             .parse(data.doublesUtr ?? rating);
           const current = { id, ...snap.data() } as Entity;
-          edit("users", current, {
+          const updated = edit("users", current, {
             externalRating: rating,
             singlesUtr,
             doublesUtr,
             ratingSource: "Admin verified",
             ratingVerifiedAt: now,
           });
-          if (current.visibility === "public")
-            make(
-              "publicProfiles",
-              {
-                displayName: current.displayName,
-                city: current.city,
-                tennisLevel: current.tennisLevel,
-                externalRating: rating,
-                singlesUtr,
-                doublesUtr,
-                ratingSource: "Admin verified",
-                ratingVerifiedAt: now,
-              },
-              id,
-            );
+          const membership = await tx.get(db.doc(`memberships/${id}`));
+          projectPlayer(updated, membership.data());
         }
         if (target === "venue") {
           const value = z

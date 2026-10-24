@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { triaceRulesSchema } from "./triace";
 export * from "./triace";
+export * from "./club";
+export * from "./players";
 export type Role = "player" | "eventAdmin" | "clubAdmin" | "platformAdmin";
 export const statuses = [
   "Draft",
