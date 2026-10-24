@@ -187,7 +187,7 @@ export function TeamsHub() {
           <Panel key={t.id}>
             <TeamCrest name={t.name} />
             <h2>{t.name}</h2>
-            <p>{t.roster.length}/3 roster confirmed</p>
+            <p>{t.roster.length} players confirmed</p>
             <Link
               className="button secondary"
               to={`/events/${t.eventId}/triace`}
@@ -403,9 +403,11 @@ function Invitation({ invitation: i }: { invitation: Entity }) {
 export function TriaceTournament({
   eventId,
   adminMode = false,
+  hideOperations = false,
 }: {
   eventId: string;
   adminMode?: boolean;
+  hideOperations?: boolean;
 }) {
   const d = useTriace(eventId),
     { user } = useSession(),
@@ -474,7 +476,11 @@ export function TriaceTournament({
         <div className="champion-banner" role="status">
           <Trophy size={28} />
           <div>
-            <small>CHAMPIONS</small>
+            <small>
+              {event.competition === "ladder"
+                ? "PLAYOFF CHAMPIONS"
+                : "CHAMPIONS"}
+            </small>
             <h2>{champion.name}</h2>
             {runnerUp && <p>Runner-up: {runnerUp.name}</p>}
           </div>
@@ -489,7 +495,7 @@ export function TriaceTournament({
             confirmation.
           </p>
         )}
-      {adminMode && d.admin && (
+      {adminMode && d.admin && !hideOperations && (
         <Panel title="Tournament operations">
           <div className="button-row">
             {["Draft", "Published"].includes(event.status) && (
@@ -617,8 +623,7 @@ export function TriaceTournament({
         {[
           "Teams",
           "Fixtures",
-          "Standings",
-          "Rules",
+          ...(!hideOperations ? ["Standings", "Rules"] : []),
           ...(user ? ["Disputes"] : []),
         ].map((t) => (
           <button
@@ -643,9 +648,15 @@ export function TriaceTournament({
           {user &&
             !myTeams.some((t) => !t.withdrawn) &&
             event.status === "Registration Open" && (
-              <Panel title="Captain your team">
+              <Panel
+                title={
+                  rules.teamSize === 1
+                    ? "Enter the season"
+                    : "Captain your team"
+                }
+              >
                 <Form
-                  label="Create team"
+                  label={rules.teamSize === 1 ? "Create entry" : "Create team"}
                   onSubmit={(f) =>
                     run("createTeam", {
                       name: text(f, "name"),
@@ -653,13 +664,20 @@ export function TriaceTournament({
                     })
                   }
                 >
-                  <Field label="Team name">
+                  <Field
+                    label={rules.teamSize === 1 ? "Entry name" : "Team name"}
+                  >
                     <input
                       name="name"
                       required
                       minLength={2}
                       maxLength={60}
                       placeholder="Your team’s name"
+                      defaultValue={
+                        rules.teamSize === 1
+                          ? d.event?.name && "My ladder entry"
+                          : undefined
+                      }
                     />
                   </Field>
                   <label className="check">
@@ -771,7 +789,7 @@ export function TriaceTournament({
                           type="number"
                           name="seed"
                           min="0"
-                          max="16"
+                          max={event.competition === "ladder" ? 32 : 16}
                           defaultValue={
                             d.registrations.find(
                               (r) => r.id === t.registrationId,
@@ -995,6 +1013,7 @@ export function TriaceTournament({
           <RulesSummary rules={rules} />
           {adminMode &&
             d.admin &&
+            event.competition !== "ladder" &&
             (event.competition === "triace" ? (
               <RulesEditor
                 rules={triaceRulesSchema.parse(event.triaceRules ?? {})}
@@ -1132,7 +1151,11 @@ function CaptainControls({
             ))}
           {t.roster.length === rules.teamSize && (
             <Form
-              label="Register confirmed team"
+              label={
+                rules.teamSize === 1
+                  ? "Register entry"
+                  : "Register confirmed team"
+              }
               onSubmit={(f) =>
                 run("registerTeam", {
                   teamId: t.id,
@@ -1166,7 +1189,7 @@ function CaptainControls({
           Registration & payment
         </Link>
       )}
-      {!d.encounters.length && (
+      {!d.encounters.length && !d.event?.ladderState?.started && (
         <Form
           label="Withdraw team"
           onSubmit={(f) =>
@@ -1181,7 +1204,7 @@ function CaptainControls({
     </div>
   );
 }
-function EncounterCard({
+export function EncounterCard({
   encounter: e,
   data: d,
   rules,
@@ -1198,7 +1221,8 @@ function EncounterCard({
     a = d.teams.find((t) => t.id === e.teamA),
     b = d.teams.find((t) => t.id === e.teamB);
   const own = [a, b].find((t) => t?.memberIds.includes(user?.uid)),
-    captain = own?.captainId === user?.uid;
+    captain = own?.captainId === user?.uid,
+    frozenLadder = e.phase === "ladder" && d.event?.ladderState?.frozen;
   const rs = d.rubbers
     .filter((r) => r.encounterId === e.id)
     .sort((a, b) => a.index - b.index);
@@ -1210,7 +1234,11 @@ function EncounterCard({
             ? e.nextId
               ? "PLAYOFF"
               : "CHAMPIONSHIP FINAL"
-            : d.groups.find((g) => g.id === e.groupId)?.name.toUpperCase()}{" "}
+            : e.phase === "ladder"
+              ? "LADDER CHALLENGE"
+              : d.groups
+                  .find((g) => g.id === e.groupId)
+                  ?.name.toUpperCase()}{" "}
           · ROUND {e.round}
         </span>
         <Badge>{e.status}</Badge>
@@ -1232,7 +1260,7 @@ function EncounterCard({
       </div>
       <p className="encounter-time">
         {e.scheduledAt
-          ? `${date(e.scheduledAt, d.event!.timezone, true)} · ${e.courtId}`
+          ? `${date(e.scheduledAt, d.event!.timezone, true)} · ${e.courtId ?? e.location ?? "Court to be arranged"}`
           : "Schedule to be announced"}
       </p>
       {captain &&
@@ -1312,9 +1340,10 @@ function EncounterCard({
                 .join(" / ")}
             </p>
             <small>Result version {r.version}</small>
-            {(authorized || (adminMode && d.admin)) &&
+            {!frozenLadder &&
+              (authorized || (adminMode && d.admin)) &&
               r.status === "Scheduled" &&
-              e.status !== "Awaiting encounter confirmation" && (
+              ["Ready", "In Progress"].includes(e.status) && (
                 <RubberScoreForm
                   rubber={r}
                   data={d}
@@ -1338,6 +1367,7 @@ function EncounterCard({
               </p>
             )}
             {pending?.state === "Submitted" &&
+              !frozenLadder &&
               authorized &&
               own!.id !== pending.submittedTeamId && (
                 <Action
@@ -1349,22 +1379,26 @@ function EncounterCard({
                   Confirm opponent score
                 </Action>
               )}
-            {pending?.state === "Submitted" && adminMode && d.admin && (
-              <Form
-                label="Confirm as organizer"
-                onSubmit={(f) =>
-                  run("confirmRubberScore", {
-                    resultId: pending.id,
-                    reason: text(f, "reason"),
-                  })
-                }
-              >
-                <Field label="Organizer confirmation reason">
-                  <input name="reason" required minLength={5} />
-                </Field>
-              </Form>
-            )}
-            {(authorized || (adminMode && d.admin)) &&
+            {pending?.state === "Submitted" &&
+              !frozenLadder &&
+              adminMode &&
+              d.admin && (
+                <Form
+                  label="Confirm as organizer"
+                  onSubmit={(f) =>
+                    run("confirmRubberScore", {
+                      resultId: pending.id,
+                      reason: text(f, "reason"),
+                    })
+                  }
+                >
+                  <Field label="Organizer confirmation reason">
+                    <input name="reason" required minLength={5} />
+                  </Field>
+                </Form>
+              )}
+            {!frozenLadder &&
+              (authorized || (adminMode && d.admin)) &&
               (pending || final) &&
               !r.disputed && (
                 <Form
@@ -1389,80 +1423,95 @@ function EncounterCard({
           </details>
         );
       })}
-      {adminMode && d.admin && e.status !== "Final" && a && b && (
-        <details className="organizer-fixture-tools">
-          <summary>Organizer scheduling & forfeit</summary>
-          <Form
-            label="Extend score deadline"
-            onSubmit={(f) =>
-              run("extendScoreDeadline", {
-                encounterId: e.id,
-                scoreDeadline: new Date(
-                  text(f, "scoreDeadline") + "Z",
-                ).toISOString(),
-                reason: text(f, "reason"),
-              })
-            }
-          >
-            <Field label="New score deadline (UTC)">
-              <input type="datetime-local" name="scoreDeadline" required />
-            </Field>
-            <Field label="Deadline extension reason">
-              <input name="reason" required minLength={5} />
-            </Field>
-          </Form>
-          <Form
-            label="Reschedule encounter"
-            onSubmit={(f) =>
-              run("scheduleEncounter", {
-                encounterId: e.id,
-                scheduledAt: new Date(text(f, "start") + "Z").toISOString(),
-                courtId: text(f, "courtId"),
-                reason: text(f, "reason"),
-              })
-            }
-          >
-            <Field label="Encounter start (UTC)">
-              <input
-                type="datetime-local"
-                name="start"
-                required
-                defaultValue={e.scheduledAt?.slice(0, 16)}
-              />
-            </Field>
-            <Field label="Encounter court">
-              <select name="courtId">
-                {d.event!.courtIds.map((id: string) => (
-                  <option key={id}>{id}</option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Rescheduling reason">
-              <input name="reason" required minLength={5} />
-            </Field>
-          </Form>
-          <Form
-            label="Record team forfeit"
-            onSubmit={(f) =>
-              run("forfeitEncounter", {
-                encounterId: e.id,
-                winner: text(f, "winner"),
-                reason: text(f, "reason"),
-              })
-            }
-          >
-            <Field label="Forfeit winner">
-              <select name="winner">
-                <option value={a.id}>{a.name}</option>
-                <option value={b.id}>{b.name}</option>
-              </select>
-            </Field>
-            <Field label="Forfeit reason">
-              <input name="reason" required minLength={5} />
-            </Field>
-          </Form>
-        </details>
-      )}
+      {adminMode &&
+        d.admin &&
+        !frozenLadder &&
+        e.status !== "Final" &&
+        a &&
+        b && (
+          <details className="organizer-fixture-tools">
+            <summary>Organizer scheduling & forfeit</summary>
+            {e.phase !== "ladder" && (
+              <>
+                <Form
+                  label="Extend score deadline"
+                  onSubmit={(f) =>
+                    run("extendScoreDeadline", {
+                      encounterId: e.id,
+                      scoreDeadline: new Date(
+                        text(f, "scoreDeadline") + "Z",
+                      ).toISOString(),
+                      reason: text(f, "reason"),
+                    })
+                  }
+                >
+                  <Field label="New score deadline (UTC)">
+                    <input
+                      type="datetime-local"
+                      name="scoreDeadline"
+                      required
+                    />
+                  </Field>
+                  <Field label="Deadline extension reason">
+                    <input name="reason" required minLength={5} />
+                  </Field>
+                </Form>
+                <Form
+                  label="Reschedule encounter"
+                  onSubmit={(f) =>
+                    run("scheduleEncounter", {
+                      encounterId: e.id,
+                      scheduledAt: new Date(
+                        text(f, "start") + "Z",
+                      ).toISOString(),
+                      courtId: text(f, "courtId"),
+                      reason: text(f, "reason"),
+                    })
+                  }
+                >
+                  <Field label="Encounter start (UTC)">
+                    <input
+                      type="datetime-local"
+                      name="start"
+                      required
+                      defaultValue={e.scheduledAt?.slice(0, 16)}
+                    />
+                  </Field>
+                  <Field label="Encounter court">
+                    <select name="courtId">
+                      {d.event!.courtIds.map((id: string) => (
+                        <option key={id}>{id}</option>
+                      ))}
+                    </select>
+                  </Field>
+                  <Field label="Rescheduling reason">
+                    <input name="reason" required minLength={5} />
+                  </Field>
+                </Form>
+              </>
+            )}
+            <Form
+              label="Record team forfeit"
+              onSubmit={(f) =>
+                run("forfeitEncounter", {
+                  encounterId: e.id,
+                  winner: text(f, "winner"),
+                  reason: text(f, "reason"),
+                })
+              }
+            >
+              <Field label="Forfeit winner">
+                <select name="winner">
+                  <option value={a.id}>{a.name}</option>
+                  <option value={b.id}>{b.name}</option>
+                </select>
+              </Field>
+              <Field label="Forfeit reason">
+                <input name="reason" required minLength={5} />
+              </Field>
+            </Form>
+          </details>
+        )}
     </section>
   );
 }

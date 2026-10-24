@@ -197,6 +197,33 @@ export const rubberKinds = (
   ...(r.decidingTiebreak ? ["tiebreak" as const] : []),
 ];
 export function competitionRules(event: Entity): CompetitionRules {
+  if (event.competition === "ladder") {
+    const l = event.ladderRules ?? {},
+      doubles = l.entryKind === "doubles";
+    return competitionRulesSchema.parse({
+      policyConfirmed: l.policyConfirmed,
+      teamSize: doubles ? 2 : 1,
+      singlesRubbers: doubles ? 0 : 1,
+      doublesRubbers: doubles ? 1 : 0,
+      decidingTiebreak: false,
+      winsRequired: 1,
+      maxRubbersPerPlayer: 1,
+      stageFormat: "single-elimination",
+      groupCount: 1,
+      referenceMetric: doubles ? "doubles" : "singles",
+      requireReferences: l.requireReferences ?? true,
+      requireVerified: l.requireVerified ?? false,
+      membersOnly: l.membersOnly ?? false,
+      combinedMinimum: 0,
+      combinedMaximum: l.requireReferences === false ? null : doubles ? 40 : 20,
+      encounterConfirmation: "lineups",
+      rubberScoring: l.rubberScoring ?? "best-of-three",
+      finalSetTiebreak: l.finalSetTiebreak ?? true,
+      setGames: l.setGames ?? 6,
+      setTiebreakAt: l.setTiebreakAt === undefined ? 6 : l.setTiebreakAt,
+      noAd: l.noAd ?? true,
+    });
+  }
   if (event.competition === "triace") {
     const {
       version: _version,

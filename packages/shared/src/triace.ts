@@ -98,7 +98,7 @@ export interface Team extends Entity {
 export interface TeamEncounter extends Entity {
   teamA: string | null;
   teamB: string | null;
-  phase: "groups" | "playoffs";
+  phase: "groups" | "playoffs" | "ladder";
   group?: number;
   round: number;
   position: number;

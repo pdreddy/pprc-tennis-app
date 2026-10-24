@@ -95,3 +95,15 @@ Outcomes: played, retirement, walkover, default. Walkover/default has no sets an
 `eventMaintenance` runs every five minutes for publication/deadline transitions, expired reservations and match reminders. `deliverPush` handles newly created notifications. Scheduler/FCM are managed production services; the local test suite invokes domain operations rather than waiting for Cloud Scheduler.
 
 The backend does not expose public HTTP exports or role-mutating endpoints without auth. Public discovery uses Firestore rules, not an unauthenticated administrative API.
+
+
+## Ladder callable
+
+`ladder({requestId, eventId, action, ...payload})` uses the same authenticated transaction engine, trusted club/assignment roles, hashed idempotency receipts and immutable audits. Strict action payloads reject browser-supplied clock, points or role overrides.
+
+- Assigned organizer: `configure(rules,reason)`, `start`, `close`, `reopen(reason)`, `generatePlayoffs`, `decidePointsChampion(teamId,reason)`.
+- Entrant captain: `challenge(teamId,opponentId)`, `respond(challengeId,accepted,reason?)`, `proposeSchedule(challengeId,teamId,scheduledAt,location)`, `confirmSchedule(challengeId,teamId)` by the opposite entrant.
+- Organizer exceptions: `waiveDecline`, `waiveStrike`, `waiveInactivity` with ledgerId/teamId/reason; `exemption(teamId,fromWeek,throughWeek,reason)`; `walkoverMovement(challengeId,approved,reason)`; `cancelChallenge(challengeId,reason)`.
+- `tick` processes due server-clock actions; scheduled maintenance invokes the same handler as a trusted system operation. No public clock-control endpoint exists.
+
+Registration/consent, playoff lineups, score submission/opponent confirmation, disputes, corrections and forfeits continue through `teamCompetition` (legacy `triace` alias remains). Ladder guards prevent roster changes after start, common fixture-generation bypasses, repeated advancement and frozen-season edits. See LADDER.md for persistence and sporting policy.

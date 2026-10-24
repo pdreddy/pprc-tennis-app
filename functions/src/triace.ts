@@ -1,3 +1,4 @@
+import { serverNow } from "./clock.js";
 import { z } from "zod";
 import { HttpsError } from "firebase-functions/v2/https";
 import {
@@ -78,6 +79,12 @@ export async function executeTriace(c: TriaceContext): Promise<any> {
   if (event.status === "Draft" && !manager)
     fail("Event is not published", "permission-denied");
   const rules = competitionRules(event);
+  if (
+    ["koc", "doubles", "ladder"].includes(event.competition) &&
+    !rules.policyConfirmed &&
+    !["configure", "exportTeamReport"].includes(data.action)
+  )
+    fail("Organizer must review and confirm the competition policy");
   const kinds = rubberKinds(rules);
   const slots = rosterForRules(rules);
   if (
@@ -260,7 +267,7 @@ export async function executeTriace(c: TriaceContext): Promise<any> {
   };
   const lockQualification = (e: Entity) => {
     if (
-      e.phase === "groups" &&
+      ["groups", "ladder"].includes(e.phase) &&
       list("teamEncounters").some((g) => g.phase === "playoffs")
     )
       fail("Group results are locked after playoff generation");
@@ -308,7 +315,7 @@ export async function executeTriace(c: TriaceContext): Promise<any> {
         fail("Consent to the public approved roster is required");
       if (
         event.status !== "Registration Open" ||
-        Date.now() > Date.parse(event.registrationClose) ||
+        serverNow() > Date.parse(event.registrationClose) ||
         list("teamEncounters").length
       )
         fail("Team registration is closed");
@@ -399,7 +406,7 @@ export async function executeTriace(c: TriaceContext): Promise<any> {
         t = team(invitation.teamId);
       openRoster(t);
       if (
-        Date.now() > Date.parse(event.registrationClose) ||
+        serverNow() > Date.parse(event.registrationClose) ||
         event.status !== "Registration Open"
       )
         fail("Team registration is closed");
@@ -463,8 +470,8 @@ export async function executeTriace(c: TriaceContext): Promise<any> {
       openRoster(t);
       if (
         event.status !== "Registration Open" ||
-        Date.now() < Date.parse(event.registrationOpen) ||
-        Date.now() > Date.parse(event.registrationClose)
+        serverNow() < Date.parse(event.registrationOpen) ||
+        serverNow() > Date.parse(event.registrationClose)
       )
         fail("Registration is closed");
       if (
@@ -540,7 +547,7 @@ export async function executeTriace(c: TriaceContext): Promise<any> {
           state === "Registered" && (division.fee ?? event.fee) > 0
             ? "Pending Payment"
             : state,
-        order: Date.now(),
+        order: serverNow(),
         seed: 0,
         checkIn: "Not Checked In",
         waiver: true,
@@ -549,7 +556,7 @@ export async function executeTriace(c: TriaceContext): Promise<any> {
         externalRating: combined,
         combinedReference: combined,
         ratingSnapshots: snapshots,
-        paymentExpiresAt: Date.now() + 30 * 60000,
+        paymentExpiresAt: serverNow() + 30 * 60000,
       });
       edit("teams", t, { registrationId: reg.id, combinedReference: combined });
       snapshots.forEach((s) =>
@@ -580,7 +587,7 @@ export async function executeTriace(c: TriaceContext): Promise<any> {
         .number()
         .int()
         .min(0)
-        .max(16)
+        .max(event.competition === "ladder" ? 32 : 16)
         .parse(data.seed ?? reg.seed);
       if (
         seed &&
@@ -789,7 +796,7 @@ export async function executeTriace(c: TriaceContext): Promise<any> {
       if (
         rules.lineupDeadlineMinutes !== null &&
         (!e.scheduledAt ||
-          Date.now() >
+          serverNow() >
             Date.parse(e.scheduledAt) - rules.lineupDeadlineMinutes * 60000)
       )
         fail(
@@ -902,16 +909,16 @@ export async function executeTriace(c: TriaceContext): Promise<any> {
         fail("Both captains must confirm the encounter before scoring");
       if (
         e.scoreDeadline
-          ? Date.now() > Date.parse(e.scoreDeadline)
+          ? serverNow() > Date.parse(e.scoreDeadline)
           : rules.resultDeadlineHours !== null &&
             (!e.scheduledAt ||
-              Date.now() >
+              serverNow() >
                 Date.parse(e.scheduledAt) + rules.resultDeadlineHours * 3600000)
       )
         fail("Score entry deadline has passed");
       if (
         r.status !== "Scheduled" ||
-        e.status === "Final" ||
+        !["Ready", "In Progress"].includes(e.status) ||
         event.status === "Cancelled"
       )
         fail("Rubber is not open for scoring");
@@ -1151,8 +1158,8 @@ export async function executeTriace(c: TriaceContext): Promise<any> {
       const deadline = z.string().datetime().parse(data.scoreDeadline);
       if (
         e.status === "Final" ||
-        Date.parse(deadline) < Date.now() ||
-        Date.parse(deadline) > Date.now() + 30 * 86400000
+        Date.parse(deadline) < serverNow() ||
+        Date.parse(deadline) > serverNow() + 30 * 86400000
       )
         fail(
           "Choose a future score deadline within 30 days for an open encounter",
@@ -1173,6 +1180,10 @@ export async function executeTriace(c: TriaceContext): Promise<any> {
         fail("Choose active PPRC courts");
       const duration = event.duration * 60000,
         buffer = event.buffer * 60000;
+      const playWindow = (e: Entity) =>
+        event.competition === "ladder" && e.phase === "playoffs"
+          ? (event.playoffWindow ?? event)
+          : event;
       const schedule = (e: Entity, start: number, courtId: string) => {
         const end = start + duration,
           existing = list("teamEncounters").filter(
@@ -1180,8 +1191,8 @@ export async function executeTriace(c: TriaceContext): Promise<any> {
           );
         if (
           !event.courtIds.includes(courtId) ||
-          start < Date.parse(event.startDate) ||
-          end > Date.parse(event.endDate) ||
+          start < Date.parse(playWindow(e).startDate) ||
+          end > Date.parse(playWindow(e).endDate) ||
           !withinDailyHours(
             new Date(start).toISOString(),
             event.timezone,
@@ -1251,8 +1262,8 @@ export async function executeTriace(c: TriaceContext): Promise<any> {
         const e = encounter(data.encounterId),
           start = Date.parse(z.string().datetime().parse(data.scheduledAt)),
           courtId = id.parse(data.courtId);
-        if (e.status === "Final")
-          fail("Final encounters cannot be rescheduled");
+        if (["Final", "Bye", "Cancelled", "Expired"].includes(e.status))
+          fail("Closed encounters cannot be rescheduled");
         if (!schedule(e, start, courtId))
           fail(
             "Court, team, predecessor, daily-hours or blackout scheduling conflict",
@@ -1262,7 +1273,17 @@ export async function executeTriace(c: TriaceContext): Promise<any> {
         return { status: "Scheduled" };
       }
       const pending = list("teamEncounters")
-        .filter((e) => !e.scheduledAt && !["Final", "Bye"].includes(e.status))
+        .filter(
+          (e) =>
+            !e.scheduledAt &&
+            [
+              "Awaiting lineups",
+              "Awaiting encounter confirmation",
+              "Ready",
+              "In Progress",
+            ].includes(e.status) &&
+            (event.competition !== "ladder" || e.phase === "playoffs"),
+        )
         .sort(
           (a, b) =>
             (a.phase === "groups" ? 0 : 100) +
@@ -1273,8 +1294,8 @@ export async function executeTriace(c: TriaceContext): Promise<any> {
       for (const e of pending) {
         let placed = false;
         for (
-          let start = Date.parse(event.startDate);
-          start + duration <= Date.parse(event.endDate) && !placed;
+          let start = Date.parse(playWindow(e).startDate);
+          start + duration <= Date.parse(playWindow(e).endDate) && !placed;
           start += 15 * 60000
         )
           for (const courtId of event.courtIds)

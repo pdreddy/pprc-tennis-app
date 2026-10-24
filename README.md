@@ -87,7 +87,7 @@ The Firebase wrapper puts emulator downloads and CLI configuration in the checko
 4. Enter legal scores; supervised admins can finalize directly. Players submit for opponent/admin confirmation. Winners advance transactionally.
 5. Review corrections, reporting reference status, payments/refund requests and CSV exports. Audit history is immutable from clients.
 
-Formats: single elimination, round robin, group round robin with knockout playoffs, and TRIACE 2.0 team competition. See the [TRIACE rulebook and complete rehearsal](docs/TRIACE.md). A division locks new registration after draw generation. Standings ties affecting playoff qualification require explicit resolution. No proprietary rating calculation, ladder, external result submission, scraped data or copied branding is included.
+Formats: individual elimination/round robin/groups, TRIACE 2.0, organizer-configured KOC, fixed-pair doubles tournaments, and singles/doubles ladder seasons. See the [shared team formats](docs/COMPETITIONS.md), [TRIACE rehearsal](docs/TRIACE.md) and [ladder operations](docs/LADDER.md). Ladder seasons reuse registration, consent, verified scoring and audits, with challenges, weekly deadlines, position swaps, separate points champions and optional playoffs. No proprietary rating calculation, external result submission, scraped data or copied branding is included.
 
 ## Test commands
 

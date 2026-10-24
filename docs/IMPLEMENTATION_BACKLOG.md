@@ -4,7 +4,7 @@ Updated October 24, 2026. Work on `feat/pprc-sports-triace`. Every implementatio
 
 | Priority / item | State | Completion boundary |
 | --- | --- | --- |
-| P0 — Preserve/verify existing individual and TRIACE lifecycle | Complete; current feature-branch full gate passed | 72 unit / 66 Firebase / 13 browser-PWA re-established with full gate exit 0 |
+| P0 — Preserve/verify existing individual and TRIACE lifecycle | Complete; current feature-branch full gate passed | 96 unit / 80 Firebase / 15 browser-PWA re-established with full gate exit 0 |
 | P0 — Scope Storage admin access to PPRC club/event | Implemented and exercised in integration | Owner/PPRC admin allowed; foreign-club role denied |
 | P0 — Keep browser tests on local demo config | Implemented; conflicting-env focused checks passed | Tests force emulator bindings and do not reuse an unrelated server |
 | P1 — New-player onboarding and secure club membership | Complete — full gate passed | Auth signup/profile → request → admin review → membership → notification/private-event access; rejection/withdrawal/races/privacy tests |
@@ -15,7 +15,7 @@ Updated October 24, 2026. Work on `feat/pprc-sports-triace`. Every implementatio
 | P2 — Mobile bottom navigation and deep-link polish | Complete — full gate passed | Existing routes, accessible 44px targets, admin gating, desktop/mobile browser tests |
 | P2 — Doubles tournament entries | Complete — Milestone 3 full gate passed | Fixed consenting pairs; round robin, knockout/byes and group-stage playoffs; shared scoring, corrections and championship |
 | P2 — Club announcements and analytics | Planned | Published/member audiences, trusted admin writes, notification links, privacy-safe reporting |
-| P2 — Ladder competition | Milestone 4 in progress — rules confirmed; shared team engine ready | User-defined points/challenges/movement/deadlines; fixed consenting pairs; acceptance closes five days before freeze; playoffs off unless configured |
+| P2 — Ladder competition | Complete — Milestone 4 full gate passed | Singles/fixed consenting doubles; trusted challenges/deadlines, verified result replay, points/position/strike/inactivity rules, audited exceptions, separate season champions and optional playoffs |
 | KOC competition | Complete — configurable PPRC policy; full gate passed | Structured policy UI, server validation, 1–8-player rosters, shared fixtures/lineups/confirmation/scoring/standings/playoffs; no claim of a verified external KOC rulebook |
 | UTR reference inspection | Blocked on package/evidence | No package/tools supplied; do not invent reference behavior or copy proprietary material |
 | Real Firebase staging/providers | Blocked on config and approval | Proposed project multiclub-890ea; configure isolated staging, web app, test Stripe, FCM, Scheduler and backup/recovery |
@@ -32,4 +32,13 @@ Full command `./pprc.sh test-all` exited 0 on October 24, 2026: 58 shared tests,
 
 ## Milestone 3 evidence
 
-Full gate exited 0: 72 shared, 66 Firebase, nine flow browser, three shell browser, one PWA and four legacy tests; migration and backup/restore passed. TRIACE runner-up and configurable confirmation/deadlines are implemented. KOC and doubles reuse the same competition engine; see COMPETITIONS.md and INTEGRATION_TEST_REPORT.md. Continue directly with the Milestone 4 ladder, using the confirmed policy in LADDER.md.
+Full gate exited 0: 72 shared, 66 Firebase, nine flow browser, three shell browser, one PWA and four legacy tests; migration and backup/restore passed. TRIACE runner-up and configurable confirmation/deadlines are implemented. KOC and doubles reuse the same competition engine; see COMPETITIONS.md and INTEGRATION_TEST_REPORT.md. Milestone 4 extends this engine with the confirmed ladder policy in LADDER.md.
+
+
+## Milestone 4 evidence and next tasks
+
+`./pprc.sh test-all` exited 0 on October 24, 2026: 96 shared unit, 80 Firebase integration (nine files), 11 complete browser flows, three browser-shell, one production PWA and four legacy tests. No skipped cases. Actual migration dry/apply/idempotence and Firestore/Auth backup/restore passed. Raw log: `.local/validation/milestone4-final-full.log`.
+
+The ladder is a complete additive vertical slice: event creation/policy/calendar, consent/registration/approval, initial snapshot/seed, private challenge/response/schedule negotiation, existing verified score/dispute history, deterministic standings replay, declines/strikes/weekly inactivity, waivers/exemptions, final freeze/review, separate ladder and points champions and explicitly enabled shared playoffs. Fourteen real Firebase ladder cases and two full mobile-aware Chromium journeys were added; all prior workflows remain enabled.
+
+Next: isolated staging/provider/Scheduler/recovery verification after required configuration and deployment approval; authorized reference-package audit when a package is available; public H2H/event leaderboards, club announcements and remaining player-experience backlog. The TRIACE 18.5 maximum remains pending organizer confirmation. No production deployment, live payment or real-player import was performed.

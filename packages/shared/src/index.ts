@@ -1,10 +1,12 @@
 import { z } from "zod";
 import { triaceRulesSchema } from "./triace";
 import { competitionRulesSchema } from "./competition";
+import {ladderRulesSchema} from "./ladder";
 export * from "./triace";
 export * from "./club";
 export * from "./players";
 export * from "./competition";
+export * from "./ladder";
 export type Role = "player" | "eventAdmin" | "clubAdmin" | "platformAdmin";
 export const statuses = [
   "Draft",
@@ -256,10 +258,11 @@ export const eventSchema = z
     divisionSummary: z.string().max(200).default("Open divisions"),
     coverPath: z.string().startsWith("covers/").max(500).optional(),
     competition: z
-      .enum(["individual", "triace", "koc", "doubles"])
+      .enum(["individual", "triace", "koc", "doubles", "ladder"])
       .default("individual"),
     triaceRules: triaceRulesSchema.optional(),
     teamRules: competitionRulesSchema.optional(),
+    ladderRules:ladderRulesSchema.optional(),
   })
   .refine(
     (e) =>

@@ -11,7 +11,7 @@
 - Use original CSS court illustrations as default event art. Admins may upload public event cover images. Profile photos and waivers have separate Storage rules.
 - Production sign-in supports Google and email/password through Firebase; emulator accounts use email/password. Google requires enabling the provider and authorized domains in the actual project. Email passwordless links are not implemented.
 - One PPRC club, USD, America/Chicago by default. Club admins assign event admins explicitly. Platform support is operationally read only. Bootstrap the first production club-admin membership through the Admin SDK/IAM, never client signup.
-- External ratings are informational reference fields. There is no PPRC or UTR rating engine, scraping, external submission integration or ladder. Admin verification is audited.
+- External ratings are informational reference fields. There is no proprietary PPRC/UTR rating calculation, scraping or external submission integration. Sporting ladder positions/points are independent of supplied references. Admin verification is audited.
 - Seed order prioritizes manually assigned seeds, then external reference values, then deterministic IDs. Admin seed changes always need a reason.
 - Results require opponent/admin confirmation. Supervised admins may finalize on submission. Corrections retain old versions and block invalid downstream changes.
 - Server transactions are the source of truth. No optimistic client capacity or score advancement. Payment simulation is guarded by `FUNCTIONS_EMULATOR === 'true'`, not a client flag.
@@ -24,3 +24,6 @@
 ## Verification status
 
 See `docs/VALIDATION.md` for measured results and environment blockers. Do not interpret authored tests as executed tests or deploy the platform as production-validated before emulator, Stripe and access-control checks have passed in the target environment.
+
+- Milestone 4 uses the existing team engine for one-player singles entries and two-player consenting season pairs. The reviewed policy locks at first entry; season roster/seed snapshots lock at start. Acceptance closes five days before freeze; invitations preserve the full additional response window. Playoffs are off unless configured, and never alter the ladder/points championships.
+- Corrections replay immutable ladder action order against current canonical score versions. Unverified/disputed results award zero; original versions remain. Organizer waivers and walkover movement require reasons. Season reopening holds automatic closure until explicit review completion. Post-qualification corrections remain locked.

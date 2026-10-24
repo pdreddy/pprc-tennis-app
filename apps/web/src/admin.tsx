@@ -1,3 +1,4 @@
+import { LadderTournament } from "./ladder";
 import { ScoreForm } from "./scoring";
 import { TriaceTournament } from "./teams";
 import { ClubMembershipRequests } from "./club";
@@ -28,6 +29,9 @@ import {
   defaultTriaceRules,
   defaultKocRules,
   defaultDoublesRules,
+  defaultLadderRules,
+  nextLadderMonday,
+  ladderWeekClose,
   formats,
   statuses,
   type Entity,
@@ -402,6 +406,8 @@ function EventAdmin({ eventId, tab }: { eventId: string; tab: string }) {
       </p>
     );
   if (!event) return <Empty title="Event not found" />;
+  if (event.competition === "ladder")
+    return <LadderTournament eventId={eventId} adminMode />;
   if (["triace", "koc", "doubles"].includes(event.competition))
     return <TriaceTournament eventId={eventId} adminMode />;
   const readOnly = !canManage(member?.role, user!.uid, event as Event);
@@ -1418,8 +1424,26 @@ export function EventWizard() {
         <Empty title="Event creation requires administrator access" />
       </div>
     );
-  const start = local(new Date(Date.now() + 14 * 86400000)),
-    end = local(new Date(Date.now() + 15 * 86400000));
+  const ladderStart = nextLadderMonday(
+    Date.now() + 14 * 86400000,
+    source?.timezone ?? "America/Chicago",
+  );
+  const start = local(
+      new Date(
+        competition === "ladder" ? ladderStart : Date.now() + 14 * 86400000,
+      ),
+    ),
+    end = local(
+      new Date(
+        competition === "ladder"
+          ? ladderWeekClose(
+              new Date(ladderStart).toISOString(),
+              source?.timezone ?? "America/Chicago",
+              8,
+            )
+          : Date.now() + 15 * 86400000,
+      ),
+    );
   const update = (i: number, k: string, v: any) =>
     setDivisions((ds) => ds.map((d, j) => (j === i ? { ...d, [k]: v } : d)));
   return (
@@ -1500,6 +1524,9 @@ export function EventWizard() {
                     },
                   }
                 : {}),
+              ...(competition === "ladder"
+                ? { ladderRules: source?.ladderRules ?? defaultLadderRules }
+                : {}),
               ...(coverPath ? { coverPath } : {}),
               name: text(f, "name"),
               description: text(f, "description"),
@@ -1566,11 +1593,13 @@ export function EventWizard() {
                       ...defaultDivision,
                       ...(e.target.value !== "individual"
                         ? {
-                            name: `${e.target.value.toUpperCase()} teams`,
+                            name: `${e.target.value.toUpperCase()} entries`,
                             format:
-                              e.target.value === "doubles"
-                                ? "round-robin"
-                                : "round-robin-playoffs",
+                              e.target.value === "ladder"
+                                ? "single-elimination"
+                                : e.target.value === "doubles"
+                                  ? "round-robin"
+                                  : "round-robin-playoffs",
                             capacity: 8,
                           }
                         : {}),
@@ -1582,6 +1611,7 @@ export function EventWizard() {
                 <option value="triace">TRIACE 2.0 team tournament</option>
                 <option value="koc">Configurable KOC team competition</option>
                 <option value="doubles">Doubles tournament</option>
+                <option value="ladder">Singles or doubles ladder season</option>
               </select>
             </Field>
             {["koc", "doubles"].includes(competition) && (
@@ -1699,6 +1729,7 @@ export function EventWizard() {
                 <input
                   type="datetime-local"
                   name="startDate"
+                  key={`start-${competition}`}
                   defaultValue={source?.startDate?.slice(0, 16) ?? start}
                 />
               </Field>
@@ -1706,6 +1737,7 @@ export function EventWizard() {
                 <input
                   type="datetime-local"
                   name="endDate"
+                  key={`end-${competition}`}
                   defaultValue={source?.endDate?.slice(0, 16) ?? end}
                 />
               </Field>
@@ -1767,7 +1799,13 @@ export function EventWizard() {
                   name="capacity"
                   type="number"
                   min="2"
-                  max={competition !== "individual" ? 16 : 128}
+                  max={
+                    competition === "ladder"
+                      ? 32
+                      : competition !== "individual"
+                        ? 16
+                        : 128
+                  }
                   defaultValue={source?.capacity ?? 16}
                 />
               </Field>

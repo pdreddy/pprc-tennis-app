@@ -1,3 +1,4 @@
+import { LadderTournament } from "./ladder";
 import { useEffect, useState } from "react";
 import { ScoreForm } from "./scoring";
 import { Link, useNavigate, useParams } from "react-router-dom";
@@ -51,6 +52,8 @@ export function EventDetail() {
       </div>
     );
   if (!event) return <Empty title="Event not found" />;
+  if (event.competition === "ladder")
+    return <LadderTournament eventId={eventId} />;
   if (["triace", "koc", "doubles"].includes(event.competition))
     return <TriaceTournament eventId={eventId} />;
   return (

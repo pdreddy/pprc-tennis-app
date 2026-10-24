@@ -1,3 +1,4 @@
+import { serverNow } from "./clock.js";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { randomUUID } from "node:crypto";
 import { execute } from "./engine.js";
@@ -17,7 +18,7 @@ export async function runEventMaintenance() {
     .get();
   for (const doc of events.docs) {
     const event = doc.data(),
-      now = Date.now();
+      now = serverNow();
     let status = event.status;
     if (status === "Published" && now >= Date.parse(event.registrationOpen))
       status = "Registration Open";
@@ -51,6 +52,13 @@ export async function runEventMaintenance() {
       { eventId: doc.id, requestId: randomUUID() },
       true,
     );
+    if (event.competition === "ladder")
+      await execute(
+        "ladder",
+        "system",
+        { eventId: doc.id, requestId: randomUUID(), action: "tick" },
+        true,
+      );
     const matches = await db
       .collection("matches")
       .where("eventId", "==", doc.id)

@@ -1,3 +1,4 @@
+import { serverNow } from "./clock.js";
 import { randomUUID, createHash } from "node:crypto";
 import {
   getFirestore,
@@ -6,7 +7,17 @@ import {
 } from "firebase-admin/firestore";
 import { HttpsError } from "firebase-functions/v2/https";
 import { z } from "zod";
-import { executeTriace, triaceCollections } from "./triace.js";
+import {
+  executeTriace,
+  triaceCollections,
+  type TriaceContext,
+} from "./triace.js";
+import {
+  executeLadder,
+  ladderCollections,
+  validateLadderTeamOperation,
+  reconcileLadder,
+} from "./ladder.js";
 import {
   eventSchema,
   divisionSchema,
@@ -29,6 +40,8 @@ import {
   type Role,
   triaceRulesSchema,
   competitionRules,
+  ladderRulesSchema,
+  ladderCalendar,
   isTeamCompetition,
   membershipRequestInput,
   membershipReviewInput,
@@ -45,6 +58,7 @@ export const eventCollections = [
   "matchResults",
   "notifications",
   ...triaceCollections,
+  ...ladderCollections,
 ] as const;
 const idSchema = z.string().regex(/^[a-zA-Z0-9_-]{1,120}$/);
 const active = ["Pending Payment", "Registered", "Approved"];
@@ -110,7 +124,8 @@ export async function execute(
     ].includes(operation);
     const operationLimitId = clubOperation ? `club-${uid}` : uid;
     const operationLimit =
-      ["triace", "teamCompetition"].includes(operation) || clubOperation
+      ["triace", "teamCompetition", "ladder"].includes(operation) ||
+      clubOperation
         ? await tx.get(db.doc(`operationLimits/${operationLimitId}`))
         : null;
     const buckets: Record<string, Entity[]> = {};
@@ -176,14 +191,14 @@ export async function execute(
         ...(href ? { href } : {}),
       });
     const applyOperationLimit = (maximum: number) => {
-      const recent = Date.now() - (operationLimit?.get("window") ?? 0) < 60000;
+      const recent = serverNow() - (operationLimit?.get("window") ?? 0) < 60000;
       const count = recent ? (operationLimit?.get("count") ?? 0) : 0;
       if (count >= maximum)
         fail("Too many operations; retry in a minute", "resource-exhausted");
       make(
         "operationLimits",
         {
-          window: recent ? operationLimit!.get("window") : Date.now(),
+          window: recent ? operationLimit!.get("window") : serverNow(),
           count: count + 1,
         },
         operationLimitId,
@@ -235,7 +250,7 @@ export async function execute(
         const next = price(d) > 0 ? "Pending Payment" : "Registered";
         edit("registrations", waiting, {
           state: next,
-          paymentExpiresAt: Date.now() + 30 * 60000,
+          paymentExpiresAt: serverNow() + 30 * 60000,
         });
         notify(
           waiting.playerId,
@@ -511,13 +526,16 @@ export async function execute(
         break;
       }
       case "triace":
-      case "teamCompetition": {
-        applyOperationLimit(manager ? 240 : 120);
-        result = await executeTriace({
+      case "teamCompetition":
+      case "ladder": {
+        if (!system) applyOperationLimit(manager ? 240 : 120);
+        const context: TriaceContext = {
           uid,
           role,
           data,
-          event: event!,
+          get event() {
+            return (updates.get(`events/${eventId}`) ?? event!) as Entity;
+          },
           profile,
           manager,
           clubMember:
@@ -543,7 +561,15 @@ export async function execute(
             const s = await tx.get(db.doc(`courts/${idSchema.parse(courtId)}`));
             return s.exists ? ({ id: s.id, ...s.data() } as Entity) : undefined;
           },
-        });
+        };
+        if (operation === "ladder")
+          result = await executeLadder(context, system);
+        else {
+          if (event!.competition === "ladder")
+            validateLadderTeamOperation(context);
+          result = await executeTriace(context);
+          if (event!.competition === "ladder") reconcileLadder(context);
+        }
         if (data.action === "withdrawTeam") promote();
         break;
       }
@@ -578,7 +604,7 @@ export async function execute(
                 (v) =>
                   Number.isFinite(Date.parse(v)) &&
                   new Date(v).toISOString().slice(0, 10) === v &&
-                  Date.parse(v) <= Date.now(),
+                  Date.parse(v) <= serverNow(),
                 "Valid past birth date required",
               )
               .optional(),
@@ -795,13 +821,25 @@ export async function execute(
             .parse(data.divisions);
         if (divisions.reduce((n, d) => n + d.capacity, 0) > 128)
           fail("Maximum 128 entries per event");
+        const ladderConfig =
+          e.competition === "ladder"
+            ? ladderRulesSchema.parse(e.ladderRules ?? {})
+            : null;
+        const ladderDates = ladderConfig
+          ? ladderCalendar(e.startDate, e.endDate, e.timezone)
+          : null;
         if (isTeamCompetition(e))
-          competitionRules({ ...e, id: eventId, clubId: "pprc" });
+          competitionRules({
+            ...e,
+            ...(ladderConfig ? { ladderRules: ladderConfig } : {}),
+            id: eventId,
+            clubId: "pprc",
+          });
         if (
           isTeamCompetition(e) &&
           (divisions.length !== 1 ||
-            e.capacity > 16 ||
-            divisions[0].capacity > 16)
+            e.capacity > (e.competition === "ladder" ? 32 : 16) ||
+            divisions[0].capacity > (e.competition === "ladder" ? 32 : 16))
         )
           fail("Team competitions use one division and at most 16 teams");
         make(
@@ -824,6 +862,14 @@ export async function execute(
                   schemaVersion: 3,
                   formatLabel:
                     e.competition === "doubles" ? "Doubles" : "KOC teams",
+                }
+              : {}),
+            ...(ladderConfig
+              ? {
+                  ladderRules: ladderConfig,
+                  schemaVersion: 4,
+                  endDate: new Date(ladderDates!.freezeAt).toISOString(),
+                  formatLabel: `${ladderConfig.entryKind === "doubles" ? "Doubles" : "Singles"} ladder`,
                 }
               : {}),
             divisionFilters: divisions.map((d) => ({
@@ -855,12 +901,19 @@ export async function execute(
         if (patch.competition !== (event!.competition ?? "individual"))
           fail("Competition format cannot be changed; create a separate event");
         if (isTeamCompetition(patch)) {
-          if (patch.capacity > 16) fail("TRIACE capacity is at most 16 teams");
-          if (data.event?.triaceRules || data.event?.teamRules)
+          if (patch.capacity > (patch.competition === "ladder" ? 32 : 16))
+            fail("TRIACE capacity is at most 16 teams");
+          if (
+            data.event?.triaceRules ||
+            data.event?.teamRules ||
+            data.event?.ladderRules
+          )
             fail("Change TRIACE rules through the audited team workspace");
           if (
             data.divisions &&
-            (data.divisions.length !== 1 || data.divisions[0].capacity > 16)
+            (data.divisions.length !== 1 ||
+              data.divisions[0].capacity >
+                (patch.competition === "ladder" ? 32 : 16))
           )
             fail("Team competitions use one division and at most 16 teams");
           if (
@@ -869,6 +922,16 @@ export async function execute(
               patch.refundPolicy !== event!.refundPolicy)
           )
             fail("Waiver policy is locked after team creation");
+        }
+        if (patch.competition === "ladder") {
+          ladderCalendar(patch.startDate, patch.endDate, patch.timezone);
+          if (
+            event!.ladderState?.started &&
+            (patch.startDate !== event!.startDate ||
+              patch.endDate !== event!.endDate ||
+              patch.timezone !== event!.timezone)
+          )
+            fail("Season calendar locks after the ladder starts");
         }
         if (
           patch.capacity <
@@ -914,6 +977,11 @@ export async function execute(
       case "publishEvent": {
         requireAdmin();
         eventSchema.parse(event);
+        if (
+          event!.competition === "ladder" &&
+          !ladderRulesSchema.parse(event!.ladderRules).policyConfirmed
+        )
+          fail("Review and confirm the ladder policy before publishing");
         if (!list("divisions").length) fail("At least one division required");
         if (
           ["koc", "doubles"].includes(event!.competition) &&
@@ -924,8 +992,8 @@ export async function execute(
           fail("Event already published");
         edit("events", event!, {
           status:
-            Date.now() >= Date.parse(event!.registrationOpen) &&
-            Date.now() < Date.parse(event!.registrationClose)
+            serverNow() >= Date.parse(event!.registrationOpen) &&
+            serverNow() < Date.parse(event!.registrationClose)
               ? "Registration Open"
               : "Published",
         });
@@ -944,7 +1012,7 @@ export async function execute(
       case "registerForDivision": {
         const window = rateSnap?.get("window") ?? 0;
         const count =
-          Date.now() - window < 60000 ? (rateSnap?.get("count") ?? 0) : 0;
+          serverNow() - window < 60000 ? (rateSnap?.get("count") ?? 0) : 0;
         if (count >= 5)
           fail(
             "Registration limit reached; try again in a minute",
@@ -952,7 +1020,7 @@ export async function execute(
           );
         make(
           "registrationLimits",
-          { window: count ? window : Date.now(), count: count + 1 },
+          { window: count ? window : serverNow(), count: count + 1 },
           uid,
         );
         if (!profile) fail("Complete your player profile before registering");
@@ -967,8 +1035,8 @@ export async function execute(
           fail("Club membership required", "permission-denied");
         if (
           event!.status !== "Registration Open" ||
-          Date.now() < Date.parse(event!.registrationOpen) ||
-          Date.now() > Date.parse(event!.registrationClose)
+          serverNow() < Date.parse(event!.registrationOpen) ||
+          serverNow() > Date.parse(event!.registrationClose)
         )
           fail("Registration is closed");
         const division = getDivision(data.divisionId);
@@ -995,7 +1063,7 @@ export async function execute(
         )
           fail("Already registered in this division");
         const recent = list("registrations").filter(
-          (r) => r.playerId === uid && r.order > Date.now() - 60000,
+          (r) => r.playerId === uid && r.order > serverNow() - 60000,
         );
         if (recent.length >= 3)
           fail("Please wait before registering again", "resource-exhausted");
@@ -1019,7 +1087,7 @@ export async function execute(
             state === "Registered" && price(division) > 0
               ? "Pending Payment"
               : state,
-          order: Date.now(),
+          order: serverNow(),
           seed: 0,
           checkIn: "Not Checked In",
           waiver: !!data.waiver,
@@ -1035,7 +1103,7 @@ export async function execute(
                   .parse(data.waiverPath),
               }
             : {}),
-          paymentExpiresAt: Date.now() + 30 * 60000,
+          paymentExpiresAt: serverNow() + 30 * 60000,
         });
         notify(
           uid,
@@ -1051,7 +1119,10 @@ export async function execute(
       case "cancelRegistration":
       case "rejectRegistration": {
         const reg = regFor(data.registrationId);
-        if (reg.teamId && list("teamEncounters").length)
+        if (
+          reg.teamId &&
+          (list("teamEncounters").length || event!.ladderState?.started)
+        )
           fail("Team fixtures are locked; use encounter forfeits and disputes");
         if (reg.playerId !== uid) requireAdmin();
         if (operation === "rejectRegistration") requireAdmin();
@@ -1131,7 +1202,7 @@ export async function execute(
         if (reg.playerId !== uid)
           fail("Own registration required", "permission-denied");
         if (reg.state !== "Pending Payment") fail("Payment not required");
-        if (reg.paymentExpiresAt < Date.now())
+        if (reg.paymentExpiresAt < serverNow())
           fail("Payment reservation expired");
         const division = getDivision(reg.divisionId);
         const existing = list("payments").find(
@@ -1182,7 +1253,7 @@ export async function execute(
           fail("Payment amount mismatch");
         if (
           reg.state !== "Pending Payment" ||
-          reg.paymentExpiresAt < Date.now()
+          reg.paymentExpiresAt < serverNow()
         ) {
           if (!system) fail("Payment reservation expired");
           edit("payments", payment, {
@@ -1660,6 +1731,13 @@ export async function execute(
           ])
           .parse(data.kind);
         if (kind === "status") {
+          if (
+            event!.competition === "ladder" &&
+            !["Cancelled", "Registration Open", "Registration Closed"].includes(
+              data.status,
+            )
+          )
+            fail("Use ladder season controls for lifecycle changes");
           const status = z
             .enum([
               "Registration Open",
@@ -1683,7 +1761,7 @@ export async function execute(
             fail("All matches must be final");
           if (
             status === "Registration Open" &&
-            Date.now() > Date.parse(event!.registrationClose)
+            serverNow() > Date.parse(event!.registrationClose)
           )
             fail("Update registration deadline first");
           edit("events", event!, { status });
@@ -1794,7 +1872,7 @@ export async function execute(
         if (!system) fail("Scheduled task only", "permission-denied");
         for (const reg of list("registrations").filter(
           (r) =>
-            r.state === "Pending Payment" && r.paymentExpiresAt < Date.now(),
+            r.state === "Pending Payment" && r.paymentExpiresAt < serverNow(),
         )) {
           edit("registrations", reg, {
             state: "Cancelled",
@@ -1870,7 +1948,7 @@ export async function execute(
         clubId: "pprc",
         eventId,
         actor: uid,
-        action: ["triace", "teamCompetition"].includes(operation)
+        action: ["triace", "teamCompetition", "ladder"].includes(operation)
           ? `${event?.competition}.${data.action}`
           : operation,
         entityType: eventId ? "event" : "club",

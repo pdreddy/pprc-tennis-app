@@ -12,7 +12,7 @@ The navy/gold theme applies across existing Events routes. `/teams` handles invi
 
 ## Boundaries
 
-The existing root Next.js app, `app/`, `lib/`, and `data/baseline.db` remain independent. Root TypeScript excludes the new workspaces. PPRC Events is a React 18/Vite PWA in `apps/web`, Gen 2 Firebase Functions in `functions`, and shared TypeScript/Zod domain logic in `packages/shared`. It never reads or writes ladder or legacy SQLite paths.
+The existing root Next.js app, `app/`, `lib/`, and `data/baseline.db` remain independent. Root TypeScript excludes the new workspaces. PPRC Events is a React 18/Vite PWA in `apps/web`, Gen 2 Firebase Functions in `functions`, and shared TypeScript/Zod domain logic in `packages/shared`. It never reads or writes the legacy SQLite paths. The sporting ladder uses additive Firestore collections inside the Events backend.
 
 ```mermaid
 flowchart LR
@@ -60,3 +60,10 @@ In-app notifications are transaction-created and refreshed by TanStack Query. Sc
 ## Operations
 
 Event capacity is capped at 128, total division capacities at 128 and generation at 400 changed records. An oversized round robin is rejected atomically; split it into groups or smaller divisions. Before larger-scale use, replace the event-wide transaction reads with inventory counters and chunked administrative jobs. Deploy Firestore TTL for operation receipts only after choosing a retention period longer than payment retry windows. Audit retention and account deletion require club policy and human review.
+
+
+## Sporting ladder
+
+`packages/shared/src/ladder.ts` contains strict policy, timezone/week arithmetic, challenge validation and deterministic result/penalty replay. `functions/src/ladder.ts` extends the existing event transaction context and shared team competition engine; no separate backend is introduced. `functions/src/clock.ts` isolates the trusted business clock so deadline tests can move seasons without altering Firebase/gRPC authentication timing. Production uses server `Date.now()`; browsers cannot supply it.
+
+`ladderChallenges` and `ladderLedger` are event/club-scoped, with participant/operator-only reads and no client writes. Derived `events.ladderState` separates ladder positions, season points, reference snapshots and optional playoff results. Corrections retain original versions and replay sequenced canonical outcomes. `apps/web/src/ladder.tsx` connects the existing event routes/admin portal to these callables and Firestore queries, reusing roster, invitation, registration, score/dispute and playoff components.

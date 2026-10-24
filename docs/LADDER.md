@@ -1,6 +1,6 @@
-# Ladder policy and implementation boundary
+# Ladder seasons
 
-User-supplied policy, October 24, 2026. Implementation is pending baseline validation; this document is not evidence that the feature has shipped.
+User-supplied policy, October 24, 2026. Milestone 4 passed the complete integration gate on October 24, 2026: 96 shared unit, 80 Firebase integration, 15 browser/PWA and four legacy tests, plus migration and backup/restore. See INTEGRATION_TEST_REPORT.md for actual evidence.
 
 The ladder is part of the existing Events PWA and Firebase transaction engine. Ladder positions, season points, supplied UTR references and tournament standings are separate concepts. No proprietary rating calculation or external data feed is authorized.
 
@@ -28,3 +28,22 @@ The system must not silently infer these choices from another tennis application
 ## Required evidence
 
 Use synthetic Auth accounts and real Firestore/Functions emulators. Verify challenge authorization, partner consent, reach, concurrent challenge creation, rematch limits, deadlines, repeated-decline strikes, ranking swaps, walkovers, inactivity, timezone boundaries, correction replay, champion ties and concurrent season closure. Browser journeys must cover creation/entry/challenge/acceptance/result/opponent confirmation/standings, with mobile and denied actions. Run `./pprc.sh test-all`, including migration and backup/restore, before declaring a cycle complete.
+
+
+## Implementation and operations
+
+The event wizard creates `competition: ladder` with a reviewed `ladderRules` policy. Use **Season rules** to choose singles or fixed doubles, reference/verification requirements, all point/bonus/penalty/range/deadline settings, retirement treatment, match scoring and optional playoff qualification. Policy locks at the first entry. Calendar boundaries are Monday 00:00 through Sunday 23:59 in the event timezone, with 1–52 complete weeks and 2–32 approved entries. UTC input labels are explicit; player deadlines render in the event timezone, including DST changes.
+
+Use **Entries & playoffs** for existing consent, waiver, registration, payment, approval/seeding, roster, shared score review and optional bracket workflows. After registration closes, the organizer starts the approved season. Singles use one-person entries; doubles use two consenting roster members. Rosters, eligibility snapshots and initial seeding lock for the season. External UTR references remain supplied/admin-verified snapshots, never calculated official ratings.
+
+**Challenges** sends private opponent invitations, accepts/declines, proposes a real match time/location and obtains the opposite entrant's schedule confirmation. Accepted challenges create the existing encounter/lineup/rubber records with fixed participants. Scores use the common versioned submission and opposing-player/organizer verification engine. Pending and disputed results award no points. A completed result is reserved once in the ladder ledger; current canonical versions replay the original action sequence after correction, updating points, streaks and position movement without double-awarding. The last verified time does not replace the original result sequence. No-contest cancellation preserves superseded result versions.
+
+`ladderChallenges` stores invitation state, participants, rank snapshots, response/completion deadlines, schedule proposals/confirmation and explicit walkover movement decisions. `ladderLedger` stores immutable sequenced results, declines, week closes, exemptions, waivers, review/closure and organizer decisions. `events.ladderState` holds the server-derived current standings, initial order, closure/review state, qualification and separate ladder/points champions. Clients cannot write these records. Challenge and ledger reads are limited to their participants and scoped event operators; public approved entries/results/standings follow existing event visibility.
+
+Existing five-minute maintenance invokes the same transactional `tick` handler as organizer refresh. It deduplicates response expiries, accepted-match expiry, weekly inactivity and final freeze. A full 48-hour response period plus five-day completion period must fit before freeze, so new invitations close seven days before freeze with the default policy. Acceptance closes five days before freeze. Unplayed expiry awards zero; an organizer verifies a no-show through the shared forfeit workflow. Walkover movement is a separate audited decision, with exactly three points and no played activity or bonus.
+
+Organizer review provides decline/strike/inactivity waivers, inclusive exemption weeks, no-contest cancellation, walkover movement, points-champion tie decisions and explicit season reopening. Frozen disputed/unverified seasons declare no champions until reviewed. Reopening pauses automatic closure until the organizer explicitly freezes the reviewed results. Playoff generation locks season corrections and serializes concurrent requests. Season champions and season points remain unchanged by playoff scores; the shared bracket declares a separate playoff champion/runner-up.
+
+Playoffs default off. If enabled, choose 2/4/8 qualifiers, minimum played matches and position or points seeding. Points seeds compare points, wins, successful upward wins, then frozen ladder position; this ordering is shown in the policy UI. Playoff schedules use their own configured post-freeze gap/window and existing court conflict/daily-hours checks. Captain lineups and verified scores reuse the shared competition lifecycle.
+
+Retirements default to no contest until the organizer reviews another treatment. Walkovers count toward rematch limits by default. Simultaneous inactivity drops preserve relative order among affected entrants; if everyone is inactive, the same order remains. These choices are explicit PPRC policy, not inferred reference-app behavior. Scheduled cloud invocation, real notifications and physical-device behavior still require staging verification; local tests do not deploy anything.

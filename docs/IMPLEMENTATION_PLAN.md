@@ -2,7 +2,7 @@
 
 The October 24 completion work is recorded in [COMPLETION_AUDIT.md](COMPLETION_AUDIT.md). TRIACE extends this architecture with teams, invitations, lineups, confirmed rubbers, qualification and champion completion; local automation and guarded staging preparation are implemented. [VALIDATION.md](VALIDATION.md) records executed results and [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) identifies remaining external checks. The original implementation notes below describe the first individual Events module.
 
-The existing Next.js prototype, source tree and SQLite data remain intact. The new event module lives in `apps/web`, `functions`, and `packages/shared`, using separate Firebase projects and emulator data. No ladder or proprietary rating algorithm is added.
+The existing Next.js prototype, source tree and SQLite data remain intact. The new event module lives in `apps/web`, `functions`, and `packages/shared`, using separate Firebase projects and emulator data. The subsequent Milestone 4 extends the same Firebase event module with a sporting ladder; no proprietary rating algorithm is added.
 
 ## Milestones
 
