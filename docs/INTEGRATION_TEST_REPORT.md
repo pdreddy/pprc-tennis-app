@@ -4,7 +4,7 @@ Date: October 24, 2026. Feature branch: `feat/pprc-sports-triace`. Completed fou
 
 ## Milestone 3 completed gate
 
-`./pprc.sh test-all` exited **0** on October 24, 2026: **72 shared unit, 66 Firebase integration, nine full browser, three browser-shell, one production PWA and four legacy tests passed**, with no skipped tests. Actual migration dry-run/apply/idempotence and Firestore/Auth export/import/restore passed. Raw log: `.local/validation/milestone3-final-full.log`. The committed source revision is recorded after the implementation commit.
+`./pprc.sh test-all` exited **0** on October 24, 2026: **72 shared unit, 66 Firebase integration, nine full browser, three browser-shell, one production PWA and four legacy tests passed**, with no skipped tests. Actual migration dry-run/apply/idempotence and Firestore/Auth export/import/restore passed. Raw log: `.local/validation/milestone3-final-full.log`. Tested implementation commit: `86f1b57002ab3c30088aead34391900731d5f7f4`.
 
 KOC and doubles now use the existing team transaction engine, collections, payments, scheduling, score history and shared standings. KOC policy is explicitly configurable and must be reviewed before publication. Doubles supports fixed consenting pairs, round robin, knockout/byes and group-stage playoffs. TRIACE retains its default three-player/five-rubber/40% policy and pending 18.5 maximum, with additional configurable encounter confirmation, verification and deadlines. Championship results now persist champion and runner-up. Eligibility snapshot details and structured policy controls are integrated into the React screens.
 
