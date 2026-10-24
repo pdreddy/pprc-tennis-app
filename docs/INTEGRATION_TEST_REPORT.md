@@ -2,6 +2,31 @@
 
 Date: October 24, 2026. Feature branch: `feat/pprc-sports-triace`. Completed foundation commit: `4faa90a`; original baseline: `2b062c6`.
 
+## Milestone 4 completed gate
+
+`./pprc.sh test-all` exited **0** on October 24, 2026. Tested implementation commit: `b4ec00441a80eb48d0b5d9133f933988b8522a01`. Actual results: **96 shared unit, 80 Firebase integration (nine files), 11 complete browser workflows, three browser-shell, one production PWA and four legacy tests passed**, with zero skipped tests. Actual migration dry-run/apply/reapply and Firestore/Auth export/import/restore passed. Raw log: `.local/validation/milestone4-final-full.log`.
+
+The existing event wizard and separate admin portal now support reviewed singles/fixed-doubles ladder seasons. The connected vertical slice covers consent, waivers, registration/payment/approval, seed/reference snapshots, private challenges, response/accepted-match deadlines, negotiated schedule/location, common verified score/dispute/correction history, deterministic points/streak/position replay, declines/strikes, weekly inactivity, exemptions/waivers and final freeze/review. Ladder Champion, Points Champion and an optional playoff champion remain separate. Acceptance closes five days before final freeze; invitations preserve the additional 48-hour response period. Fixed consenting pairs lock for the season. Playoffs default off and use existing lineups, score verification, advancement and champion/runner-up persistence when configured.
+
+### Added evidence
+
+- **24 shared ladder tests:** exact win/loss/streak/upset/challenge/defense points, walkover/no-contest behavior, swaps, declines/waivers/strikes, simultaneous inactivity, exemptions, canonical correction replay, duplicate sequence rejection, points-champion tiebreaks, challenge reach/activity/rematch limits, final-window preservation and DST/week boundaries.
+- **14 real Firebase ladder cases:** authenticated callable boundary, server-derived seeds/references, roster-lock and client-write denial, wrong-team/club/support/clock/rank/role spoofing, overlapping challenge races and private reads, fixed participants, opposing schedule confirmation, pending zero points, concurrent score confirmation, correction history/replay, system expiry processing, strike waivers, expired/no-show results, inactivity/exemptions, early/rematch/final-cutoff rejection, single final freeze, frozen-season correction denial, pending-result championship review, audited tied Points Champion decision, fixed doubles consent and single optional playoff generation/completion. Existing 66 Firebase cases remain enabled and passed.
+- **Two real Chromium journeys:** event wizard/policy review, singles entry or consenting doubles roster, registration/approval, audited calendar update/start, challenge acceptance, proposed/opposing-confirmed time/location, score submission with zero pending points, opposing confirmation, persisted position swap/points after reload and 390px layout. All nine previous complete tournament/player journeys remain enabled and passed.
+- Existing lint/types/builds, three browser-shell cases, production manifest/icons/worker/offline test, four legacy tests, actual migration dry-run 3/apply 3/reapply 0 and private Firestore/Auth backup/restore passed. The restore rehearsal validates existing private team fields; ladder persistence is independently asserted in Firebase and browser reload tests.
+
+### Failures found and corrected
+
+The initial focused backend run passed eight cases and timed out in four because a global future `Date.now` test spy affected Firebase/gRPC authentication timing. Business deadlines now use `functions/src/clock.ts`, whose production implementation is the trusted server clock; tests control only that business helper. No browser clock override or network simulation was added. The focused emulator rerun passed all 12 then-existing cases, and the expanded final run passed all 14.
+
+The initial two browser journeys asserted the standings table while the organizer remained on Season rules after starting. Explicit navigation to Standings fixed the harness; all original score, persistence and mobile assertions remain. The focused rerun passed both journeys, and both passed again in the complete gate. No tests were skipped, removed or weakened.
+
+### Files and remaining boundaries
+
+The implementation adds `packages/shared/src/ladder.ts`, `functions/src/ladder.ts`, `functions/src/clock.ts`, `apps/web/src/ladder.tsx` and their unit/Firebase/browser tests. It extends existing event types, shared competition normalization, transactional dispatch, maintenance, roster/score/scheduling components, player/admin routes, Firestore rules/indexes and the complete browser command. API, architecture, schema, rulebook, backlog and reference matrix documentation are current. Legacy `app/`, `lib/`, SQLite and seed remain unchanged.
+
+No production deployment, live payment or real player data was modified. Reference inspection remains R0 because no authorized local APK/XAPK or direct observation was available. Real staging configuration, provider/FCM/Scheduler/recovery validation and physical Safari/device certification remain external prerequisites. TRIACE's proposed 18.5 maximum still needs organizer confirmation. See LADDER.md, IMPLEMENTATION_BACKLOG.md and PRODUCTION_READINESS.md.
+
 ## Milestone 3 completed gate
 
 `./pprc.sh test-all` exited **0** on October 24, 2026: **72 shared unit, 66 Firebase integration, nine full browser, three browser-shell, one production PWA and four legacy tests passed**, with no skipped tests. Actual migration dry-run/apply/idempotence and Firestore/Auth export/import/restore passed. Raw log: `.local/validation/milestone3-final-full.log`. Tested implementation commit: `86f1b57002ab3c30088aead34391900731d5f7f4`.
@@ -14,7 +39,7 @@ Two new browser journeys exercise the event wizard/policy review, four-player in
 
 Authorization now checks the event club in trusted operations and Firestore reads. Administrative lists use explicit club scopes and declared indexes; foreign membership/profile/resource overwrites are rejected. Support remains read-only. Bulk schedule notices are consolidated per team; finals cannot precede scheduled group fixtures. Complete encounter forfeits also terminate correctly under a normal play-all policy.
 
-See COMPETITIONS.md for supported configuration and limits. No reference package was available, no proprietary rating algorithm was added, and no production deployment/live payment/real-player mutation was performed. Milestone 4 is in progress; its sporting ladder is not yet complete.
+See COMPETITIONS.md for supported configuration and limits. No reference package was available, no proprietary rating algorithm was added, and no production deployment/live payment/real-player mutation was performed. Milestone 4 subsequently passed the gate recorded above.
 
 ## Milestone 2 completed gate
 
@@ -34,7 +59,7 @@ New Firebase cases comprise nine membership, seven performance and three actual 
 
 ### Milestones 3 and 4
 
-TRIACE's foundation remains validated. Explicit runner-up declaration, configurable KOC/doubles extensions and the sporting ladder are still pending; requesting a milestone does not establish its implementation. The UTR reference audit remains R0: no authorized local APK/XAPK or direct observation evidence is available.
+Historical Milestone 2 handoff: TRIACE runner-up and KOC/doubles were pending then; the successful Milestone 3 gate above supersedes that status. The completed Milestone 4 evidence above supersedes its earlier pending status. The UTR reference audit remains R0: no authorized local APK/XAPK or direct observation evidence is available.
 
 The supplied ladder rules are recorded in LADDER.md. Confirmed decisions: acceptance closes five days before the final Sunday freeze; doubles use fixed, consenting season pairs; playoffs default off unless configured by the organizer. Existing supplied-reference leaderboards are not a sporting ladder.
 

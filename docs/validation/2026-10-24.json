@@ -14,15 +14,16 @@
   },
   "suites": {
     "shared_unit": {
-      "passed": 72,
+      "passed": 96,
       "skipped": 0
     },
     "firebase_integration": {
-      "passed": 66,
-      "skipped": 0
+      "passed": 80,
+      "skipped": 0,
+      "files": 9
     },
     "browser_flows": {
-      "passed": 9
+      "passed": 11
     },
     "browser_shell": {
       "passed": 3
@@ -60,7 +61,13 @@
     "remote CI"
   ],
   "foundation_commit": "4faa90a53a52cbeb52da5a41f1e922dd2267a77e",
-  "log": ".local/validation/milestone3-final-full.log",
-  "previous_tested_source_commit": "9077c2a237fb2186eddaad22c852402c741d78cf",
-  "tested_source_commit": "86f1b57002ab3c30088aead34391900731d5f7f4"
+  "log": ".local/validation/milestone4-final-full.log",
+  "previous_tested_source_commit": "86f1b57002ab3c30088aead34391900731d5f7f4",
+  "tested_source_commit": "b4ec00441a80eb48d0b5d9133f933988b8522a01",
+  "milestone": 4,
+  "ladder_added_tests": {
+    "shared": 24,
+    "firebase": 14,
+    "browser": 2
+  }
 }
