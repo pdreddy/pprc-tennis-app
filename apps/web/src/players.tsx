@@ -4,7 +4,11 @@ import { useQuery } from "@tanstack/react-query";
 import { Activity, ArrowUpRight, Trophy } from "lucide-react";
 import { useList, useSession } from "./context";
 import { call } from "./firebase";
-import { referenceLeaderboard, type PerformanceRecord } from "@pprc/shared";
+import {
+  referenceLeaderboard,
+  type Entity,
+  type PerformanceRecord,
+} from "@pprc/shared";
 import { Badge, Empty, Field, Panel, date, reference } from "./ui";
 
 export function PerformanceDashboard() {
@@ -267,6 +271,89 @@ export function PerformanceDashboard() {
     </div>
   );
 }
+// Ladder standings are computed by the server ranking engine and stored on the
+// event. The client only displays them; it never recalculates positions.
+function LadderSeasonTable({ event }: { event: Entity }) {
+  const teams = useList("teams", [["eventId", "==", event.id]]);
+  const standings = (event.ladderState?.standings ?? []) as {
+    teamId: string;
+    position: number;
+    points: number;
+    played: number;
+    wins: number;
+    losses: number;
+  }[];
+  const name = (id: string) =>
+    teams.data?.find((t) => t.id === id)?.name ?? "Entrant";
+  return (
+    <Panel title={String(event.name)}>
+      {teams.error && (
+        <p className="muted" role="status">
+          Entrant names are unavailable; positions are still the server
+          standings.
+        </p>
+      )}
+      <div className="table-scroll">
+        <table>
+          <caption className="muted">
+            Positions follow the published season rules for this ladder.
+          </caption>
+          <thead>
+            <tr>
+              <th scope="col">Rank</th>
+              <th scope="col">Entrant</th>
+              <th scope="col">Points</th>
+              <th scope="col">Played</th>
+              <th scope="col">W–L</th>
+            </tr>
+          </thead>
+          <tbody>
+            {standings.map((s) => (
+              <tr key={s.teamId}>
+                <td>{s.position}</td>
+                <td>{name(s.teamId)}</td>
+                <td>{s.points}</td>
+                <td>{s.played}</td>
+                <td>
+                  {s.wins}–{s.losses}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Panel>
+  );
+}
+function LadderStandings() {
+  const events = useList("events", [
+    ["visibility", "==", "public"],
+    ["status", "!=", "Draft"],
+  ]);
+  if (events.isLoading) return <p role="status">Loading ladder standings…</p>;
+  if (events.error)
+    return (
+      <p className="error" role="alert">
+        {events.error.message}
+      </p>
+    );
+  const seasons = (events.data ?? []).filter(
+    (e) => e.competition === "ladder" && e.ladderState?.standings?.length,
+  );
+  if (!seasons.length)
+    return (
+      <Empty title="No ladder standings yet">
+        Standings appear once a ladder season has played its first results.
+      </Empty>
+    );
+  return (
+    <section aria-label="Ladder standings">
+      {seasons.map((e) => (
+        <LadderSeasonTable key={e.id} event={e} />
+      ))}
+    </section>
+  );
+}
 export function Rankings() {
   const [metric, setMetric] = useState<"singles" | "doubles">("singles"),
     players = useList("publicProfiles", [["clubId", "==", "pprc"]]);
@@ -274,9 +361,15 @@ export function Rankings() {
   return (
     <div className="page">
       <p className="eyebrow">
-        <Trophy size={15} /> PPRC PLAYER REFERENCES
+        <Trophy size={15} /> PPRC RANKINGS
       </p>
-      <h1>Reference leaderboard</h1>
+      <h1>Ladder standings</h1>
+      <p className="lead">
+        Server-computed positions from PPRC ladder seasons. Reference ratings
+        are listed separately below.
+      </p>
+      <LadderStandings />
+      <h2>Reference leaderboard</h2>
       <p className="lead">
         A directory ranking of player-provided or club-admin-verified values.
       </p>

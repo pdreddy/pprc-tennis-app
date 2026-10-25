@@ -37,6 +37,7 @@ service cloud.firestore {
    allow write: if false;
   }
   match /publicProfiles/{uid} { allow read: if true; allow write: if false; }
+  match /availability/{uid} { allow read: if (signed() && resource.data.playerId == request.auth.uid) || ((clubAdmin() || support()) && resource.data.clubId == 'pprc'); allow write: if false; }
   match /memberships/{uid} { allow read: if (signed() && request.auth.uid == uid) || ((clubAdmin() || support()) && resource.data.clubId == 'pprc'); allow write: if false; }
   match /membershipRequests/{uid} { allow read: if (signed() && request.auth.uid == uid) || ((clubAdmin() || support()) && resource.data.clubId == 'pprc'); allow write: if false; }
   match /notifications/{id} { allow read: if signed() && resource.data.playerId == request.auth.uid; allow update: if signed() && resource.data.playerId == request.auth.uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read','updatedAt']) && request.resource.data.read is bool; allow create,delete: if false; }

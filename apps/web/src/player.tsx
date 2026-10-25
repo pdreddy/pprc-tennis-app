@@ -861,6 +861,96 @@ function ProfileSummary() {
     </section>
   );
 }
+const weekdayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+// Private availability for scheduling. Only the player and club administrators
+// can read it; the server validates every field before saving.
+function AvailabilityForm() {
+  const { user } = useSession(),
+    action = useAction();
+  const saved = useList("availability", [["playerId", "==", user!.uid]]);
+  const current = saved.data?.[0] as
+    | {
+        weekdays?: number[];
+        windows?: { start: string; end: string }[];
+        unavailableDates?: string[];
+        notes?: string;
+        updatedAt?: { seconds: number };
+      }
+    | undefined;
+  const slot = current?.windows?.[0];
+  return (
+    <section aria-label="Availability">
+      <Panel title="Availability">
+        <p className="muted">
+          Only you and club administrators can see this. It is used to propose
+          match times, never shown on your public profile.
+        </p>
+        {saved.error && (
+          <p className="error" role="alert">
+            Could not load your availability: {saved.error.message}
+          </p>
+        )}
+        <Form
+          key={saved.isLoading ? "availability-loading" : "availability-loaded"}
+          label="Save availability"
+          onSubmit={(f) =>
+            action("saveAvailability", {
+              availability: {
+                weekdays: weekdayNames
+                  .map((_, i) => (f.get(`day-${i}`) === "on" ? i : -1))
+                  .filter((i) => i >= 0),
+                windows:
+                  text(f, "start") && text(f, "end")
+                    ? [{ start: text(f, "start"), end: text(f, "end") }]
+                    : [],
+                unavailableDates: text(f, "dates")
+                  .split(",")
+                  .map((d) => d.trim())
+                  .filter(Boolean),
+                notes: text(f, "notes"),
+              },
+            })
+          }
+        >
+          <fieldset>
+            <legend>Preferred days</legend>
+            <div className="check-grid">
+              {weekdayNames.map((name, i) => (
+                <label className="check" key={name}>
+                  <input
+                    type="checkbox"
+                    name={`day-${i}`}
+                    defaultChecked={current?.weekdays?.includes(i)}
+                  />
+                  {name}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          <Field label="Preferred start time">
+            <input name="start" type="time" defaultValue={slot?.start ?? ""} />
+          </Field>
+          <Field label="Preferred end time">
+            <input name="end" type="time" defaultValue={slot?.end ?? ""} />
+          </Field>
+          <Field label="Unavailable dates (YYYY-MM-DD, comma separated)">
+            <input
+              name="dates"
+              defaultValue={(current?.unavailableDates ?? []).join(", ")}
+            />
+          </Field>
+          <Field label="Scheduling notes">
+            <input
+              name="notes"
+              maxLength={300}
+              defaultValue={current?.notes ?? ""}
+            />
+          </Field>
+        </Form>
+      </Panel>
+    </section>
+  );
+}
 export function Profile() {
   const { profile, user } = useSession(),
     action = useAction();
@@ -870,6 +960,7 @@ export function Profile() {
       <p className="eyebrow">PART OF THE CLUB</p>
       <h1>My player profile</h1>
       <ProfileSummary />
+      <AvailabilityForm />
       <Link className="button secondary" to="/dashboard">
         View my performance
       </Link>

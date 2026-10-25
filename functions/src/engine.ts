@@ -34,6 +34,7 @@ import {
   withinDailyHours,
   courtBlockSchema,
   courtBlocked,
+  availabilitySchema,
   csv,
   type CourtBlock,
   type Entity,
@@ -151,7 +152,12 @@ export async function execute(
     if (
       eventId &&
       event?.courtIds?.length &&
-      ["generateSchedule", "rescheduleMatch", "triace", "teamCompetition"].includes(operation)
+      [
+        "generateSchedule",
+        "rescheduleMatch",
+        "triace",
+        "teamCompetition",
+      ].includes(operation)
     ) {
       const blockSnapshots = await Promise.all(
         event.courtIds.map((courtId) =>
@@ -397,6 +403,7 @@ export async function execute(
       ![
         "createEvent",
         "saveProfile",
+        "saveAvailability",
         "requestAccountDeletion",
         "manageClub",
         "registerPushToken",
@@ -662,6 +669,21 @@ export async function execute(
         result = { id: uid };
         break;
       }
+      case "saveAvailability": {
+        // Private player data: written only for the signed-in player's own
+        // document. Clients cannot read other players' availability.
+        if (!profile) fail("Create a profile first");
+        const a = availabilitySchema.parse(data.availability);
+        put("availability", {
+          id: uid,
+          playerId: uid,
+          clubId: "pprc",
+          ...a,
+          updatedAt: now,
+        });
+        result = { id: uid };
+        break;
+      }
       case "requestAccountDeletion": {
         if (!profile) fail("Create a profile first");
         edit("users", profile!, { deletionRequestedAt: now });
@@ -685,7 +707,15 @@ export async function execute(
         requireClub();
         requiredReason(data);
         const target = z
-          .enum(["court", "courtBlock", "membership", "template", "rating", "venue", "club"])
+          .enum([
+            "court",
+            "courtBlock",
+            "membership",
+            "template",
+            "rating",
+            "venue",
+            "club",
+          ])
           .parse(data.target);
         if (["court", "venue"].includes(target) && data.id) {
           const existing = await tx.get(
@@ -827,8 +857,14 @@ export async function execute(
           const action = z.enum(["add", "remove"]).parse(data.action ?? "add");
           if (action === "add") {
             const p = courtBlockSchema.parse(data.value);
-            const court = await tx.get(db.doc(`courts/${idSchema.parse(p.courtId)}`));
-            if (!court.exists || court.get("clubId") !== "pprc" || !court.get("active"))
+            const court = await tx.get(
+              db.doc(`courts/${idSchema.parse(p.courtId)}`),
+            );
+            if (
+              !court.exists ||
+              court.get("clubId") !== "pprc" ||
+              !court.get("active")
+            )
               fail("Choose an active PPRC court");
             make("courtBlocks", p, randomUUID());
           } else {
@@ -1525,7 +1561,14 @@ export async function execute(
             )
               continue;
             for (const courtId of availableCourts) {
-              if (courtBlocked(courtBlocks, courtId, t, t + event!.duration * 60000))
+              if (
+                courtBlocked(
+                  courtBlocks,
+                  courtId,
+                  t,
+                  t + event!.duration * 60000,
+                )
+              )
                 continue;
               const proposed = {
                 ...m,
@@ -1588,7 +1631,12 @@ export async function execute(
         )
           fail("Court blackout");
         if (
-          courtBlocked(courtBlocks, proposed.courtId, t, t + event!.duration * 60000)
+          courtBlocked(
+            courtBlocks,
+            proposed.courtId,
+            t,
+            t + event!.duration * 60000,
+          )
         )
           fail("Court blocked for maintenance");
         if (

@@ -62,6 +62,7 @@ export const exportEventReport = callable("exportEventReport");
 export const createEventTemplate = callable("createEventTemplate");
 export const applyAdminOverride = callable("applyAdminOverride");
 export const saveProfile = callable("saveProfile");
+export const saveAvailability = callable("saveAvailability");
 export const requestAccountDeletion = callable("requestAccountDeletion");
 export const manageClub = callable("manageClub");
 export const registerPushToken = callable("registerPushToken");
