@@ -78,3 +78,8 @@ Players save private availability (preferred days, time window, unavailable date
 ## Milestone 6 coding status (not yet tested)
 
 Coded, not run: ranking movement from week-close baselines; the match center grouping; inbox unread count, filters and match deep links; notification preferences with quiet hours; feedback components and reduced-motion styles; captain view on team cards. Still open: the full UI functionality audit and accessibility and performance measurements (need real runs), the Phase 14 browser scenarios (test work, deferred), and the team and captain workflows beyond the card view.
+
+## Milestones 5 and 6 — gate status
+
+`./pprc.sh test-all` exited 0 at commit `973c672`: 135 shared, 92 Firebase, 24 browser, three shell, one PWA and four legacy tests. Remaining: full UI functionality audit, accessibility and performance measurements, the Phase 14 scenario list, and team/captain lineup flows beyond the card view.
+

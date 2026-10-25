@@ -2,6 +2,14 @@
 
 Date: October 24, 2026. Feature branch: `feat/pprc-sports-triace`. Completed foundation commit: `4faa90a`; original baseline: `2b062c6`.
 
+## Milestones 5 and 6 — end-of-milestone gate
+
+`./pprc.sh test-all` exited **0** on October 25, 2026. Tested implementation commit: `973c672` (on `4ef2b49`). Actual results: **135 shared unit**, **92 Firebase integration (fifteen files)**, **24 browser flows**, three browser-shell, one production PWA and four legacy tests passed, with no skipped tests. Migration and backup/restore passed.
+
+Failure found and fixed during this gate: the core registration-to-score flow failed in the full run only. The cause was state left by the availability browser test, which saved a Monday-evening preference for a seeded player; the scheduler then correctly refused slots outside it. The test now restores the original availability in a `finally` block. The core flow then passed in the full run.
+
+Limitations that remain: the full UI functionality audit, accessibility and performance measurements, and the Phase 14 scenario list are not complete. Ranking movement appears only after the second week close. Organizer approval and reminder timing are per event; the team and captain workflows beyond the card view are unchanged.
+
 ## Milestone 5 slice 2 and Milestone 6 slice 5 — availability and ladder standings
 
 `./pprc.sh test-all` exited **0** on October 25, 2026. Tested implementation commit: `4ef2b49` (on `7660257`). Actual results: **112 shared unit** (eight new availability cases), **88 Firebase integration (eleven files)** (four new availability cases: owner write, invalid window and missing profile rejected, owner-only read via rules, client write denied), **21 browser flows** (two new: private availability persists after reload; rankings show ladder standings or an explicit empty state with the reference list), three browser-shell, one production PWA and four legacy tests passed, with no skipped tests. Migration and backup/restore passed.
