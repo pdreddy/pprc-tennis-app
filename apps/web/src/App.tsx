@@ -1,3 +1,9 @@
+import {
+  WorkspaceSearch,
+  NotificationLink,
+  RouteFocus,
+  ConnectionStatus,
+} from "./workspace";
 import { lazy, Suspense, useState, type ReactNode } from "react";
 import {
   Routes,
@@ -12,7 +18,6 @@ import {
   CalendarDays,
   Home,
   Medal,
-  Bell,
   Menu,
   X,
   ArrowUpRight,
@@ -80,6 +85,10 @@ function Layout() {
   );
   return (
     <>
+      <a className="skip-link" href="#main-content">
+        Skip to content
+      </a>
+      <RouteFocus />
       <div className="club-strip">
         <span>PROSPER PREMIER RACQUET CLUB</span>
         <span>
@@ -111,15 +120,10 @@ function Layout() {
           {admin && <NavLink to="/admin">Admin portal</NavLink>}
         </nav>
         <div className="header-actions">
+          <WorkspaceSearch />
           {user ? (
             <>
-              <Link
-                to="/notifications"
-                className="icon-button"
-                aria-label="Notifications"
-              >
-                <Bell size={20} />
-              </Link>
+              <NotificationLink />
               <Link to="/profile" className="avatar" aria-label="My profile">
                 {user.email?.slice(0, 2).toUpperCase()}
               </Link>
@@ -139,7 +143,8 @@ function Layout() {
           </button>
         </div>
       </header>
-      <main>
+      <ConnectionStatus />
+      <main id="main-content" tabIndex={-1}>
         <Suspense
           fallback={
             <div className="page" role="status">

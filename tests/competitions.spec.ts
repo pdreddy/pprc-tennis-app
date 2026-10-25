@@ -179,6 +179,21 @@ async function captainLineup(
   await editor
     .getByRole("button", { name: "Lock & submit lineup", exact: true })
     .click();
+  // A click does not await an async Firebase submit. Confirm persistence before
+  // navigating away; a full-page navigation can abort the pending callable.
+  await expect
+    .poll(() =>
+      page.evaluate(async (eventId) => {
+        const { getList, auth } = await import("/src/firebase.ts");
+        return (
+          await getList("lineups", [
+            ["eventId", "==", eventId],
+            ["memberIds", "array-contains", auth.currentUser!.uid],
+          ])
+        ).length;
+      }, id),
+    )
+    .toBeGreaterThan(0);
 }
 async function confirmEncounter(page: Page, id: string) {
   await page.goto(`/events/${id}`);
@@ -186,6 +201,29 @@ async function confirmEncounter(page: Page, id: string) {
   await page
     .getByRole("button", { name: "Confirm encounter", exact: true })
     .click();
+  await expect
+    .poll(() =>
+      page.evaluate(async (eventId) => {
+        const { getList, auth } = await import("/src/firebase.ts");
+        const [teams, games] = await Promise.all([
+          getList("teams", [
+            ["eventId", "==", eventId],
+            ["memberIds", "array-contains", auth.currentUser!.uid],
+          ]),
+          getList("teamEncounters", [
+            ["eventId", "==", eventId],
+            ["published", "==", true],
+          ]),
+        ]);
+        return games.some((game) =>
+          game.confirmedTeamIds?.includes(teams[0]?.id),
+        );
+      }, id),
+    )
+    .toBe(true);
+  await expect(
+    page.getByRole("button", { name: "Confirm encounter", exact: true }),
+  ).toHaveCount(0);
 }
 async function scoreUi(page: Page, id: string, index: number, decider = false) {
   await page.goto(`/events/${id}`);
@@ -235,11 +273,9 @@ test("KOC organizer policy → four-player roster → captain lineups/confirmati
   await captain
     .getByRole("button", { name: "Create team", exact: true })
     .click();
-  const ownPanel = captain
-    .locator(".panel")
-    .filter({
-      has: captain.getByRole("heading", { name: "Orbit Four", exact: true }),
-    });
+  const ownPanel = captain.locator(".panel").filter({
+    has: captain.getByRole("heading", { name: "Orbit Four", exact: true }),
+  });
   for (const [slot, p] of [
     ["P2", 10],
     ["P3", 11],
@@ -269,14 +305,12 @@ test("KOC organizer policy → four-player roster → captain lineups/confirmati
     partner = await partnerContext.newPage();
   await login(partner, "player12");
   await partner.goto("/teams");
-  const invitation = partner
-    .locator(".panel")
-    .filter({
-      has: partner.getByRole("heading", {
-        name: "Orbit Four · P4",
-        exact: true,
-      }),
-    });
+  const invitation = partner.locator(".panel").filter({
+    has: partner.getByRole("heading", {
+      name: "Orbit Four · P4",
+      exact: true,
+    }),
+  });
   await invitation.getByRole("checkbox").check();
   await invitation
     .getByRole("button", { name: "Accept invitation", exact: true })

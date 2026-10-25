@@ -739,6 +739,10 @@ export async function execute(
         const entity = {
           ...profile,
           ...p,
+          notificationPreferences: {
+            ...profile?.notificationPreferences,
+            ...p.notificationPreferences,
+          },
           ratingSource:
             profile?.ratingSource === "Admin verified" &&
             profile.externalRating === p.externalRating &&

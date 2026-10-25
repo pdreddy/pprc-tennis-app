@@ -39,8 +39,11 @@ The engine returns pass/fail with a reason string, not a ranked recommendation. 
 
 ## Not implemented yet
 
-- Player and team availability as input to the engine (Milestone 5, Phase 3).
 - Recommendations with explanations, and organizer-defined priority.
 - Weather-related rescheduling.
-- Rescheduling requests with opponent acceptance and organizer approval.
+- Counterproposals and equivalent captain/team rescheduling requests.
 - Timezone-aware display for players beyond the event timezone rules above.
+
+## October 25 independent review
+
+Scheduling reads event-scoped matches/encounters; global cross-event court/player collision protection and an allocation/reservation ledger remain missing. Team availability uses a minimum count of available roster players, not every final lineup assignment. A green event-local test suite does not establish those broader guarantees. See MASTER_REQUIREMENTS_REVIEW.md.

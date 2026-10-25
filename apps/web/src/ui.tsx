@@ -1,3 +1,4 @@
+import { createPortal } from "react-dom";
 import {
   cloneElement,
   isValidElement,
@@ -335,18 +336,20 @@ export function Dialog({
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
   useEffect(() => {
     if (ref.current && !ref.current.open) ref.current.showModal();
   }, []);
-  return (
+  return createPortal(
     <dialog
       ref={ref}
       className="modal"
-      aria-labelledby="dialog-title"
+      aria-labelledby={titleId}
       onClose={onClose}
     >
-      <h2 id="dialog-title">{title}</h2>
+      <h2 id={titleId}>{title}</h2>
       {children}
-    </dialog>
+    </dialog>,
+    document.body,
   );
 }

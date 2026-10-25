@@ -306,7 +306,13 @@ describe.sequential(
         challenge(f, 3, 0),
         challenge(f, 4, 1),
       ]);
-      expect(outcomes.every((r) => r.status === "fulfilled")).toBe(true);
+      expect(
+        outcomes.every((r) => r.status === "fulfilled"),
+        outcomes
+          .filter((r) => r.status === "rejected")
+          .map((r) => r.reason?.stack ?? String(r.reason))
+          .join("\n"),
+      ).toBe(true);
       first = (outcomes[0] as PromiseFulfilledResult<any>).value;
       const overlapping = await Promise.allSettled([
         challenge(f, 5, 3),

@@ -36,3 +36,7 @@ Only general usability principles, not the reference's structure or wording:
 
 - Static resource names cannot show layout, interaction, or flow. Those need observation.
 - The reference's rating scale and its UTR branding are not used here. PPRC ratings stay separate and labeled, as required.
+
+## October 25 provenance check
+
+This review imported the R1 report above from commit 52f40d1. No APK/XAPK was found in the current workspace, so the prior resources-only observations were not independently reproduced. No runtime behavior, private API, proprietary asset or source was inspected or copied in this UI redesign.

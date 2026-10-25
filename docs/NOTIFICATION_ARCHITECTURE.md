@@ -1,6 +1,6 @@
 # Notification architecture
 
-Status: the existing in-app notification path is in use. Milestone 5 notification features are not implemented yet.
+Status: partial. In-app notices/read state, user preferences/quiet hours, upcoming/overdue reminders and individual rescheduling notices are implemented. Durable job/retry records, complete deadline coverage and approved email delivery remain missing.
 
 ## Existing
 
@@ -14,12 +14,10 @@ Status: the existing in-app notification path is in use. Milestone 5 notificatio
 ## Not implemented yet
 
 - Email delivery through an approved provider.
-- User notification preferences beyond the existing push/in-app toggles.
-- Quiet hours.
 - Deep links to specific screens from every notification type.
-- Organizer-configurable reminder windows are set per event (`setReminderPolicy`, 5–240 minutes before a match and 1–48 hours after start for score-due reminders). Defaults come from the shared policy.
+- Durable reminder job/delivery retry state and full deadline reminder policies.
 - Confirmation-deadline and registration-deadline reminders.
-- Read/unread history beyond the existing notification list.
+- History filtering beyond the existing read/unread notification list.
 
 ## Notes for the next slice
 
@@ -28,3 +26,5 @@ Use idempotent keys per (recipient, event type, entity, version) when adding new
 ## Notification preferences and quiet hours
 
 Players set in-app, push and reminder choices and optional quiet hours on the inbox page (`saveNotificationPreferences`, own profile only). Reminder creation is held back when reminders are switched off or the local time falls inside quiet hours; quiet hours may cross midnight. Email delivery and FCM device tokens are still outside this step.
+
+The October 25 profile-save regression fix preserves stored reminder/quiet-hour settings when identity fields are edited. Inbox opt-out is also preserved by the profile form. This does not imply every business notice currently honors in-app opt-out; audit that path separately.

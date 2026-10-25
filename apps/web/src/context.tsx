@@ -6,7 +6,7 @@ import {
   type ReactNode,
 } from "react";
 import { onAuthStateChanged, type User } from "firebase/auth";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { auth, getOne, getList, call } from "./firebase";
 import { canManage, type Entity, type Event } from "@pprc/shared";
 const Session = createContext<{
@@ -143,5 +143,46 @@ export function useEvent(id: string) {
       matches.error ??
       registrations.error ??
       results.error,
+  };
+}
+
+// Scope each match query to one owned registration's event. This keeps parent
+// event authorization provable and avoids exhausting rules document-read budgets
+// when a player has matches across many events. Rules are unchanged.
+export function usePlayerMatches() {
+  const { user } = useSession();
+  const registrations = useList(
+    "registrations",
+    [["playerId", "==", user?.uid ?? "guest"]],
+    !!user,
+  );
+  const eventIds = [
+    ...new Set((registrations.data ?? []).map((r) => String(r.eventId))),
+  ].sort();
+  const queries = useQueries({
+    queries: eventIds.flatMap((eventId) =>
+      ["p1", "p2"].map((side) => ({
+        queryKey: ["owned-matches", eventId, side, user?.uid],
+        queryFn: () =>
+          getList("matches", [
+            ["eventId", "==", eventId],
+            [side, "==", user!.uid],
+            ["published", "==", true],
+          ]),
+        enabled: !!user,
+      })),
+    ),
+  });
+  const isLoading = registrations.isLoading || queries.some((q) => q.isLoading);
+  return {
+    data: isLoading
+      ? undefined
+      : [
+          ...new Map(
+            queries.flatMap((q) => q.data ?? []).map((m) => [m.id, m]),
+          ).values(),
+        ],
+    isLoading,
+    error: registrations.error ?? queries.find((q) => q.error)?.error,
   };
 }

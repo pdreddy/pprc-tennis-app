@@ -12,7 +12,13 @@ import {
   ArrowUpRight,
   ShieldCheck,
 } from "lucide-react";
-import { useSession, useEvent, useList, useAction } from "./context";
+import {
+  useSession,
+  useEvent,
+  useList,
+  useAction,
+  usePlayerMatches,
+} from "./context";
 import { db, storage, enablePush, getOne } from "./firebase";
 import {
   Panel,
@@ -713,24 +719,22 @@ function MatchCenterTabs({ matches }: { matches: Entity[] }) {
   );
 }
 export function Schedule() {
-  const { user } = useSession(),
-    action = useAction();
-  const a = useList("matches", [
-      ["p1", "==", user!.uid],
-      ["published", "==", true],
-    ]),
-    b = useList("matches", [
-      ["p2", "==", user!.uid],
-      ["published", "==", true],
-    ]);
+  const action = useAction();
+  const matches = usePlayerMatches();
   return (
     <div className="page">
       <p className="eyebrow">PLAN YOUR PLAY</p>
       <h1>My match schedule</h1>
       <p className="lead">Times are shown in the event’s local timezone.</p>
-      <CalendarExport matches={[...(a.data ?? []), ...(b.data ?? [])]} />
+      {matches.error && (
+        <p role="alert" className="error">
+          {matches.error.message}
+        </p>
+      )}
+      {matches.isLoading && <p role="status">Loading matches…</p>}
+      <CalendarExport matches={matches.data ?? []} />
       <CalendarViews
-        items={[...(a.data ?? []), ...(b.data ?? [])]
+        items={(matches.data ?? [])
           .filter((m) => m.scheduledAt)
           .map((m) => ({
             id: m.id,
@@ -741,7 +745,7 @@ export function Schedule() {
       />
       <RescheduleRequests />
       <Panel title="Request a new time">
-        {[...(a.data ?? []), ...(b.data ?? [])]
+        {(matches.data ?? [])
           .filter(
             (m) => m.p1 && m.p2 && m.scheduledAt && m.status === "Scheduled",
           )
@@ -755,9 +759,9 @@ export function Schedule() {
           ))}
       </Panel>
       <TeamSchedule />
-      <MatchCenterTabs matches={[...(a.data ?? []), ...(b.data ?? [])]} />
+      <MatchCenterTabs matches={matches.data ?? []} />
       <Panel title="Submit a match score">
-        {[...(a.data ?? []), ...(b.data ?? [])]
+        {(matches.data ?? [])
           .filter((m) => m.p1 && m.p2 && m.status === "Scheduled")
           .map((m) => (
             <details key={m.id}>
@@ -1138,7 +1142,7 @@ export function Profile() {
                 emergencyContact: text(f, "emergencyContact"),
                 visibility: text(f, "visibility"),
                 notificationPreferences: {
-                  inApp: true,
+                  inApp: profile?.notificationPreferences?.inApp ?? true,
                   push: f.get("push") === "on",
                 },
                 ...(text(f, "birthDate")

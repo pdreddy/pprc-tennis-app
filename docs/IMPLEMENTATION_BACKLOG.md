@@ -1,5 +1,7 @@
 # PPRC Sports Elite implementation backlog
 
+**October 25 review:** Milestones 5 and 6 remain PARTIAL against their complete requests. Passing implemented workflows does not close missing requirements. See [MASTER_REQUIREMENTS_REVIEW.md](MASTER_REQUIREMENTS_REVIEW.md) and the latest integration report for current evidence and release risks.
+
 Updated October 24, 2026. Work on `feat/pprc-sports-triace`. Every implementation cycle requires focused checks and a completed successful `./pprc.sh test-all` before commit/completion. Record actual results in INTEGRATION_TEST_REPORT.md.
 
 | Priority / item                                               | State                                                             | Completion boundary                                                                                                                                                                                  |
@@ -87,3 +89,14 @@ Coded, not run: ranking movement from week-close baselines; the match center gro
 
 `./pprc.sh test-all` exited 0 at commit `ef8f9bd`: 135 shared, 92 Firebase, 29 browser, three shell, one PWA and four legacy tests. Added route audit with axe WCAG 2.2 AA checks and two journey tests. Remaining: control-level UI functionality audit, manual keyboard and screen-reader checks, device performance measurements, and mobile lineup flow coverage.
 
+
+
+## October 25 independent review and workspace redesign
+
+Latest requested branch was fetched and fast-forwarded to `52f40d1` before changes. See [MASTER_REQUIREMENTS_REVIEW.md](MASTER_REQUIREMENTS_REVIEW.md) for every supplied requirement identifier, source/test evidence pointers and explicit acceptance gaps. This supersedes broad milestone completion labels: Milestones 5 and 6 are partial against their entire requests. Imported reference-package R1 observations were not independently reproducible without the package in this workspace.
+
+New UI slice: original midnight/champagne player workspace, live authorized activity counts and contextual next actions, public-event/navigation quick search, responsive desktop navigation, unread indicator, skip link/route focus, native-dialog portal/focus handling, offline/update status, and actionable challenge/team/match rows. Completed challenges are removed from the active list. Profile updates preserve reminder/quiet-hour/in-app choices. Event-scoped owned match queries fix the home/schedule permission error while preserving rules.
+
+Required follow-up: investigate intermittent concurrent ladder challenge rejection (fresh baseline failed once; focused reruns pass), cross-event collision/reservation ledger, complete team availability/requests, ranked schedule recommendations, durable reminder/delivery jobs, manual/device/performance verification and the remaining control-by-control audit. Full execution results for this slice are in INTEGRATION_TEST_REPORT.md.
+
+Current UI review gate passed on October 25: **135 unit, 93 Firebase integration, 31 workflow browser + 3 shell + 1 PWA, four legacy**, actual migration and Auth/Firestore backup/restore. No skipped tests. Log: `.local/validation/review-redesign-final-full-rerun.log`. The green run validates implemented workflows; open requirements and the unreproduced baseline race remain tracked.

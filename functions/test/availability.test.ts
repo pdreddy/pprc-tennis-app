@@ -112,3 +112,38 @@ describe("player availability", () => {
     );
   });
 });
+
+// Editing identity must not silently reset notification choices made in the inbox.
+it("preserves owner quiet hours and reminder opt-out across profile edits", async () => {
+  const preferences = {
+    inApp: true,
+    push: false,
+    reminders: false,
+    quietStart: "21:00",
+    quietEnd: "07:00",
+  };
+  await execute("saveNotificationPreferences", owner, req({ preferences }));
+  await execute(
+    "saveProfile",
+    owner,
+    req({
+      profile: {
+        displayName: "Updated synthetic player",
+        city: "Prosper",
+        preferredSport: "Tennis",
+        tennisLevel: "Club",
+        handedness: "Right",
+        availability: "Evenings",
+        emergencyContact: "Synthetic contact",
+        visibility: "private",
+        notificationPreferences: { inApp: false, push: false },
+      },
+    }),
+  );
+  expect(
+    (await db.doc(`users/${owner}`).get()).get("notificationPreferences"),
+  ).toEqual({ ...preferences, inApp: false });
+  await assertFails(
+    getDoc(doc(env.authenticatedContext(rival).firestore(), "users", owner)),
+  );
+});
