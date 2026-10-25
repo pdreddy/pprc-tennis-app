@@ -64,3 +64,7 @@ Bottom navigation has five primary destinations (Home, Tournaments, Matches, Ran
 
 Signed-in players land on a personal home built from authorized queries: supplied ratings (missing values shown as not provided), upcoming matches, registrations, active ladder challenges, teams, unread notifications and quick actions. Guests keep the public landing page without sample member initials. `./pprc.sh test-all` exited 0 at commit `2478f67`: 102 shared, 84 Firebase, 17 browser, three shell, one PWA and four legacy tests. Remaining Milestone 6 work: design system, discovery, profile, match center, rankings, captain workflows, notification UX, PWA review and the Phase 14 scenarios.
 
+## Milestone 6 slice 3 — tournament discovery
+
+Discovery groups events as Upcoming, Active and Completed with counts, and cards show the registration close time while registration is open. `./pprc.sh test-all` exited 0 at commit `12b0389`: 108 shared, 84 Firebase, 18 browser, three shell, one PWA and four legacy tests. Still open for discovery: featured events, rules and venue detail, waitlist position, and participant lists.
+
