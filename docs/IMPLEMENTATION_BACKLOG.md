@@ -48,3 +48,11 @@ Next: isolated staging/provider/Scheduler/recovery verification after required c
 Court maintenance blocks are implemented and enforced by fixture generation, rescheduling and TRIACE/team scheduling, with audited club-admin management and a Courts admin panel. `./pprc.sh test-all` exited 0 on October 25, 2026 at implementation commit `884de66`: 102 shared, 84 Firebase integration, 13 browser, three shell, one PWA and four legacy tests. See COURT_MANAGEMENT.md and INTEGRATION_TEST_REPORT.md.
 
 Remaining Milestone 5 work: player availability, rescheduling requests, notification center and preferences, organizer reminders, organizer operations dashboard, calendar/ICS, and their emulator and browser tests.
+
+## Milestone 6 Phase 0 status
+
+- Baseline: `./pprc.sh test-all` exited 0 at commit `884de66` (the implementation tree of Milestone 5 slice 1). Results are in INTEGRATION_TEST_REPORT.md.
+- Milestones 1–5: only the court-block slice of Milestone 5 is implemented. Player availability, rescheduling requests, notification center, reminders, organizer dashboard and calendar/ICS remain open.
+- Reference audit: static evidence from the supplied XAPK's manifest and resource names only (see MOBILE_UX_REFERENCE_AUDIT.md). No runtime behavior has been observed.
+- Not started: the design system, mobile navigation, player dashboard, discovery, profile, match center, rankings, team/captain, notification UX, PWA review, and the Playwright scenarios in Phase 14.
+
