@@ -903,7 +903,12 @@ export function TriaceTournament({
           <div className="two-columns">
             {d.groups.map((g) => (
               <Panel key={g.id} title={g.name}>
-                <div className="table-scroll">
+                <div
+                  className="table-scroll"
+                  tabIndex={0}
+                  role="region"
+                  aria-label="Scrollable table"
+                >
                   <table>
                     <thead>
                       <tr>

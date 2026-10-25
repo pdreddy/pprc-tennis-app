@@ -545,6 +545,7 @@ svg {
   background: none;
   font-size: 12px;
   min-height: 38px;
+  color: #102c43;
 }
 .search-field {
   display: flex;
@@ -574,11 +575,11 @@ svg {
   display: grid;
   place-items: center;
   background: #eaf2f1;
+  color: #102c43;
   border-radius: 3px;
   width: 18px;
   height: 18px;
   font-size: 10px;
-  color: var(--teal);
 }
 .advanced-filters {
   display: grid;
@@ -851,7 +852,7 @@ svg {
   font-size: 16px;
 }
 .panel p {
-  color: #5a6d7d;
+  color: #a0aec2;
   font-size: 13px;
   line-height: 1.8;
 }

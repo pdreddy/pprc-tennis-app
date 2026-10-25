@@ -106,7 +106,12 @@ export function PerformanceDashboard() {
       )}
       <div className="two-columns">
         <Panel title="Results by format">
-          <div className="table-scroll">
+          <div
+            className="table-scroll"
+            tabIndex={0}
+            role="region"
+            aria-label="Scrollable table"
+          >
             <table>
               <thead>
                 <tr>
@@ -155,7 +160,12 @@ export function PerformanceDashboard() {
         </Panel>
       </div>
       <Panel title="My confirmed match history">
-        <div className="table-scroll">
+        <div
+          className="table-scroll"
+          tabIndex={0}
+          role="region"
+          aria-label="Scrollable table"
+        >
           <table>
             <thead>
               <tr>
@@ -299,7 +309,12 @@ function LadderSeasonTable({ event }: { event: Entity }) {
         head-to-head, then a recorded organizer decision. Movement since the
         previous week is not shown yet.
       </p>
-      <div className="table-scroll">
+      <div
+        className="table-scroll"
+        tabIndex={0}
+        role="region"
+        aria-label="Scrollable table"
+      >
         <table>
           <caption className="muted">
             Ladder standings for {String(event.name)}
@@ -419,7 +434,12 @@ export function Rankings() {
         </p>
       )}
       <Panel>
-        <div className="table-scroll">
+        <div
+          className="table-scroll"
+          tabIndex={0}
+          role="region"
+          aria-label="Scrollable table"
+        >
           <table>
             <thead>
               <tr>

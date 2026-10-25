@@ -247,7 +247,12 @@ export function LadderTournament({
               UTR references.
             </Empty>
           ) : (
-            <div className="table-scroll">
+            <div
+              className="table-scroll"
+              tabIndex={0}
+              role="region"
+              aria-label="Scrollable table"
+            >
               <table data-testid="ladder-standings">
                 <thead>
                   <tr>

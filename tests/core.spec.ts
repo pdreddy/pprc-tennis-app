@@ -92,9 +92,15 @@ test("registration → development payment → admin approval, seed, draw, sched
     admin.getByText("Published", { exact: true }).first(),
   ).toBeVisible();
   await admin.goto("/admin/events/prosper-open/schedule");
+  // Verify the server accepted the schedule request; a rejection reports its reason.
+  const scheduled = admin.waitForResponse((r) =>
+    r.url().includes("generateSchedule"),
+  );
   await admin
     .getByRole("button", { name: "Generate schedule", exact: true })
     .click();
+  const scheduleResponse = await scheduled;
+  expect(scheduleResponse.ok(), await scheduleResponse.text()).toBeTruthy();
   await expect(admin.getByText("Unscheduled", { exact: true })).toHaveCount(0);
   await admin.goto("/admin/events/prosper-open/scores");
   let firstWinner = "";

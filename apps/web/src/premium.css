@@ -1138,3 +1138,8 @@ footer {
     scroll-behavior: auto !important;
   }
 }
+
+/* Empty-state text meets WCAG AA contrast on the dark surface. */
+.empty > p {
+  color: #a0aec2;
+}

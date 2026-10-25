@@ -351,7 +351,12 @@ function Dashboard({ events }: { events: Entity[] }) {
 function EventTable({ events }: { events: Entity[] }) {
   return (
     <Panel title="Your event calendar">
-      <div className="table-scroll">
+      <div
+        className="table-scroll"
+        tabIndex={0}
+        role="region"
+        aria-label="Scrollable table"
+      >
         <table>
           <thead>
             <tr>
@@ -751,7 +756,12 @@ function EventAdmin({ eventId, tab }: { eventId: string; tab: string }) {
                 >
                   {draw.published ? "Unpublish draw" : "Publish draw"}
                 </Action>
-                <div className="table-scroll">
+                <div
+                  className="table-scroll"
+                  tabIndex={0}
+                  role="region"
+                  aria-label="Scrollable table"
+                >
                   <table>
                     <thead>
                       <tr>
@@ -1290,7 +1300,12 @@ function Members() {
         <Empty title="Club administrator access required" />
       ) : (
         <Panel title="Club directory">
-          <div className="table-scroll">
+          <div
+            className="table-scroll"
+            tabIndex={0}
+            role="region"
+            aria-label="Scrollable table"
+          >
             <table>
               <thead>
                 <tr>

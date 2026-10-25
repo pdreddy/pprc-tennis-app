@@ -218,7 +218,12 @@ export function EventDetail() {
                     ({ rows }: { rows: Entity[] }, i: number) => (
                       <div key={i}>
                         <h3>Group {i + 1} standings</h3>
-                        <div className="table-scroll">
+                        <div
+                          className="table-scroll"
+                          tabIndex={0}
+                          role="region"
+                          aria-label="Scrollable table"
+                        >
                           <table>
                             <thead>
                               <tr>
