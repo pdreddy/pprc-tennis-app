@@ -7,6 +7,7 @@ export * from "./club";
 export * from "./players";
 export * from "./competition";
 export * from "./ladder";
+export * from "./courtBlocks";
 export type Role = "player" | "eventAdmin" | "clubAdmin" | "platformAdmin";
 export const statuses = [
   "Draft",
@@ -148,6 +149,7 @@ export const collections = [
   "memberships",
   "venues",
   "courts",
+  "courtBlocks",
   "events",
   "divisions",
   "registrations",

@@ -1094,8 +1094,11 @@ function ReportingQueue({ events }: { events: Entity[] }) {
 function Courts() {
   const courts = useList("courts").data ?? [],
     venues = useList("venues").data ?? [],
+    blocks = useList("courtBlocks").data ?? [],
     action = useAction(),
     { member } = useSession();
+  const courtName = (id: string) =>
+    courts.find((c) => c.id === id)?.name ?? id;
   return (
     <>
       <h1>Courts & venues</h1>
@@ -1109,6 +1112,84 @@ function Courts() {
           </Panel>
         ))}
       </div>
+      <Panel title="Maintenance blocks">
+        <p className="lead">
+          Blocked courts are excluded from fixture and reschedule placement.
+          Times use this browser's local timezone.
+        </p>
+        {blocks.length ? (
+          <ul>
+            {blocks.map((b) => (
+              <li key={b.id}>
+                <strong>{courtName(b.courtId)}</strong>:{" "}
+                {new Date(b.start).toLocaleString()} to{" "}
+                {new Date(b.end).toLocaleString()} — {b.reason}
+                {member?.role === "clubAdmin" && (
+                  <Form
+                    label="Remove block"
+                    onSubmit={(f) =>
+                      action("manageClub", {
+                        target: "courtBlock",
+                        action: "remove",
+                        blockId: b.id,
+                        reason: text(f, "reason"),
+                      })
+                    }
+                  >
+                    <Field label="Removal reason">
+                      <input name="reason" required minLength={5} />
+                    </Field>
+                  </Form>
+                )}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p>No maintenance blocks.</p>
+        )}
+      </Panel>
+      {member?.role === "clubAdmin" && (
+        <Panel title="Block a court for maintenance">
+          <Form
+            label="Add block"
+            onSubmit={(f) =>
+              action("manageClub", {
+                target: "courtBlock",
+                action: "add",
+                value: {
+                  courtId: text(f, "courtId"),
+                  start: new Date(text(f, "start")).toISOString(),
+                  end: new Date(text(f, "end")).toISOString(),
+                  reason: text(f, "blockReason"),
+                },
+                reason: text(f, "reason"),
+              })
+            }
+          >
+            <Field label="Court">
+              <select name="courtId">
+                {courts.map((c) => (
+                  <option value={c.id} key={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Start">
+              <input name="start" type="datetime-local" required />
+            </Field>
+            <Field label="End">
+              <input name="end" type="datetime-local" required />
+            </Field>
+            <Field label="Block reason">
+              <input name="blockReason" required minLength={2} />
+            </Field>
+            <Field label="Audit reason">
+              <input name="reason" required minLength={5} />
+            </Field>
+          </Form>
+        </Panel>
+      )}
       {member?.role === "clubAdmin" && (
         <Panel title="Add or update a court">
           <Form

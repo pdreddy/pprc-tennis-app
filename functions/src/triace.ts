@@ -21,7 +21,9 @@ import {
   registrationPlacement,
   withinDailyHours,
   cleanText,
+  courtBlocked,
   csv,
+  type CourtBlock,
   type Entity,
   type Team,
 } from "@pprc/shared";
@@ -63,6 +65,7 @@ export interface TriaceContext {
   notify: (uid: string, title: string, body: string, type: string) => Entity;
   readPlayer: (uid: string) => Promise<Entity | undefined>;
   readCourt: (id: string) => Promise<Entity | undefined>;
+  courtBlocks: CourtBlock[];
   readMembership: (id: string) => Promise<Entity | undefined>;
   reason: () => string;
 }
@@ -1209,6 +1212,7 @@ export async function executeTriace(c: TriaceContext): Promise<any> {
           )
         )
           return false;
+        if (courtBlocked(c.courtBlocks, courtId, start, end)) return false;
         if (
           existing.some(
             (x) =>

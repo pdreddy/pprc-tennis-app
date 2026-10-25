@@ -32,7 +32,10 @@ import {
   validateScore,
   scheduleConflict,
   withinDailyHours,
+  courtBlockSchema,
+  courtBlocked,
   csv,
+  type CourtBlock,
   type Entity,
   type Event,
   type Division,
@@ -141,6 +144,22 @@ export async function execute(
             (d) => ({ id: d.id, ...d.data() }) as Entity,
           )),
       );
+    }
+    // Court maintenance blocks are read inside this transaction so a concurrent
+    // block cannot be missed by a schedule or reschedule that commits after it.
+    const courtBlocks: CourtBlock[] = [];
+    if (
+      eventId &&
+      event?.courtIds?.length &&
+      ["generateSchedule", "rescheduleMatch", "triace", "teamCompetition"].includes(operation)
+    ) {
+      const blockSnapshots = await Promise.all(
+        event.courtIds.map((courtId) =>
+          tx.get(db.collection("courtBlocks").where("courtId", "==", courtId)),
+        ),
+      );
+      for (const snapshot of blockSnapshots)
+        for (const d of snapshot.docs) courtBlocks.push(d.data() as CourtBlock);
     }
     const updates = new Map<string, Entity | null>();
     const now = FieldValue.serverTimestamp();
@@ -551,6 +570,7 @@ export async function execute(
             const s = await tx.get(db.doc(`users/${idSchema.parse(playerId)}`));
             return s.exists ? ({ id: s.id, ...s.data() } as Entity) : undefined;
           },
+          courtBlocks,
           readMembership: async (playerId) => {
             const s = await tx.get(
               db.doc(`memberships/${idSchema.parse(playerId)}`),
@@ -665,7 +685,7 @@ export async function execute(
         requireClub();
         requiredReason(data);
         const target = z
-          .enum(["court", "membership", "template", "rating", "venue", "club"])
+          .enum(["court", "courtBlock", "membership", "template", "rating", "venue", "club"])
           .parse(data.target);
         if (["court", "venue"].includes(target) && data.id) {
           const existing = await tx.get(
@@ -800,6 +820,24 @@ export async function execute(
           if (!venue.exists || venue.get("clubId") !== "pprc")
             fail("Choose an existing PPRC venue");
           make("courts", p, idSchema.parse(data.id ?? randomUUID()));
+        }
+        if (target === "courtBlock") {
+          // Blocks are club-scoped maintenance windows. Each change is a single
+          // audited write carrying the organizer's reason.
+          const action = z.enum(["add", "remove"]).parse(data.action ?? "add");
+          if (action === "add") {
+            const p = courtBlockSchema.parse(data.value);
+            const court = await tx.get(db.doc(`courts/${idSchema.parse(p.courtId)}`));
+            if (!court.exists || court.get("clubId") !== "pprc" || !court.get("active"))
+              fail("Choose an active PPRC court");
+            make("courtBlocks", p, randomUUID());
+          } else {
+            const blockId = idSchema.parse(data.blockId);
+            const existing = await tx.get(db.doc(`courtBlocks/${blockId}`));
+            if (!existing.exists || existing.get("clubId") !== "pprc")
+              fail("Court block not found");
+            updates.set(`courtBlocks/${blockId}`, null);
+          }
         }
         if (target === "template") {
           make("eventTemplates", {
@@ -1487,6 +1525,8 @@ export async function execute(
             )
               continue;
             for (const courtId of availableCourts) {
+              if (courtBlocked(courtBlocks, courtId, t, t + event!.duration * 60000))
+                continue;
               const proposed = {
                 ...m,
                 courtId,
@@ -1547,6 +1587,10 @@ export async function execute(
           )
         )
           fail("Court blackout");
+        if (
+          courtBlocked(courtBlocks, proposed.courtId, t, t + event!.duration * 60000)
+        )
+          fail("Court blocked for maintenance");
         if (
           list("matches").some(
             (other) =>
