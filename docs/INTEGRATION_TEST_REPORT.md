@@ -2,6 +2,12 @@
 
 Date: October 24, 2026. Feature branch: `feat/pprc-sports-triace`. Completed foundation commit: `4faa90a`; original baseline: `2b062c6`.
 
+## Milestone 6 slice 4 — profile summary
+
+`./pprc.sh test-all` exited **0** on October 25, 2026. Tested implementation commit: `7f21a10` (on `1c4a29e`). Actual results: **108 shared unit**, **84 Firebase integration (ten files)**, **19 browser flows** (one new: profile summary shows labelled ratings, confirmed record and teams on a 390px viewport), three browser-shell, one production PWA and four legacy tests passed, with no skipped tests. Migration and backup/restore passed.
+
+Limitation: the summary does not yet show rating history, recent opponents or performance charts, and it has no profile-photo control beyond the existing edit form.
+
 ## Milestone 6 slice 3 — tournament discovery
 
 `./pprc.sh test-all` exited **0** on October 25, 2026. Tested implementation commit: `12b0389` (on `066941a`). Actual results: **108 shared unit** (eight new discovery cases), **84 Firebase integration (ten files)**, **18 browser flows** (one new: discovery groups filter the list and each count matches its visible cards on a 390px viewport), three browser-shell, one production PWA and four legacy tests passed, with no skipped tests. Migration and backup/restore passed.
