@@ -2,6 +2,12 @@
 
 Date: October 24, 2026. Feature branch: `feat/pprc-sports-triace`. Completed foundation commit: `4faa90a`; original baseline: `2b062c6`.
 
+## Milestone 6 slice 2 — player home dashboard
+
+`./pprc.sh test-all` exited **0** on October 25, 2026. Tested implementation commit: `2478f67` (on `b328908`). Actual results: **102 shared unit**, **84 Firebase integration (ten files)**, **17 browser flows** (two new: a signed-in player's personal home with no load errors and a 390px overflow check; the guest landing page with no personal data), three browser-shell, one production PWA and four legacy tests passed, with no skipped tests. Migration and backup/restore passed.
+
+Limitation: the home reads supplied references and PPRC records only. It does not show a verified UTR rating, rating history, or recent-results cards; those remain on the performance dashboard.
+
 ## Milestone 6 slice 1 — mobile navigation
 
 `./pprc.sh test-all` exited **0** on October 25, 2026. Tested implementation commit: `52697fd` (on `e66c17b`). Actual results: **102 shared unit**, **84 Firebase integration (ten files)**, **15 browser flows** (two new: five mobile destinations with active-state checks, and profile links to My teams, Club and Players; the club mobile test now reaches Club through Profile), three browser-shell, one production PWA and four legacy tests passed, with no skipped tests. Migration and backup/restore passed.

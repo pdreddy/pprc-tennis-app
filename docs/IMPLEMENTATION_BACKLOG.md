@@ -60,3 +60,7 @@ Remaining Milestone 5 work: player availability, rescheduling requests, notifica
 
 Bottom navigation has five primary destinations (Home, Tournaments, Matches, Rankings, Profile) with active-state and accessible labels. Teams and Club are reached from Profile. `./pprc.sh test-all` exited 0 at commit `52697fd`: 102 shared, 84 Firebase, 15 browser, three shell, one PWA and four legacy tests. See INTEGRATION_TEST_REPORT.md.
 
+## Milestone 6 slice 2 — player home dashboard
+
+Signed-in players land on a personal home built from authorized queries: supplied ratings (missing values shown as not provided), upcoming matches, registrations, active ladder challenges, teams, unread notifications and quick actions. Guests keep the public landing page without sample member initials. `./pprc.sh test-all` exited 0 at commit `2478f67`: 102 shared, 84 Firebase, 17 browser, three shell, one PWA and four legacy tests. Remaining Milestone 6 work: design system, discovery, profile, match center, rankings, captain workflows, notification UX, PWA review and the Phase 14 scenarios.
+
