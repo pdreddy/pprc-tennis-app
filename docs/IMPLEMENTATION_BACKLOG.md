@@ -72,3 +72,7 @@ Discovery groups events as Upcoming, Active and Completed with counts, and cards
 
 The profile opens with a read-only summary: identity, supplied singles and doubles references (missing values labelled Not provided), confirmed record and teams. `./pprc.sh test-all` exited 0 at commit `7f21a10`: 108 shared, 84 Firebase, 19 browser, three shell, one PWA and four legacy tests. Still open for profile: rating history, recent opponents, tournament participation list and charts.
 
+## Milestone 5 slice 2 — player availability (partial) and Milestone 6 slice 5 — ladder standings (partial)
+
+Players save private availability (preferred days, time window, unavailable dates, notes); only the player and club administrators can read it. Rankings show server-computed ladder standings per season above the reference leaderboard. `./pprc.sh test-all` exited 0 at commit `4ef2b49`: 112 shared, 88 Firebase, 21 browser, three shell, one PWA and four legacy tests. Still open: scheduler integration of availability, rescheduling requests, notifications, reminders, organizer dashboard, calendar/ICS; rankings movement and tiebreak explanations, tournament-group and club rankings.
+

@@ -2,6 +2,12 @@
 
 Date: October 24, 2026. Feature branch: `feat/pprc-sports-triace`. Completed foundation commit: `4faa90a`; original baseline: `2b062c6`.
 
+## Milestone 5 slice 2 and Milestone 6 slice 5 — availability and ladder standings
+
+`./pprc.sh test-all` exited **0** on October 25, 2026. Tested implementation commit: `4ef2b49` (on `7660257`). Actual results: **112 shared unit** (eight new availability cases), **88 Firebase integration (eleven files)** (four new availability cases: owner write, invalid window and missing profile rejected, owner-only read via rules, client write denied), **21 browser flows** (two new: private availability persists after reload; rankings show ladder standings or an explicit empty state with the reference list), three browser-shell, one production PWA and four legacy tests passed, with no skipped tests. Migration and backup/restore passed.
+
+Limitations: availability is stored and visible to its owner and club administrators, but it is not yet used by the scheduler or doubles/team overlap checks (the `sharedWindows` helper exists and is tested). Rankings show standings only; ranking movement and tiebreaker explanations are not yet shown.
+
 ## Milestone 6 slice 4 — profile summary
 
 `./pprc.sh test-all` exited **0** on October 25, 2026. Tested implementation commit: `7f21a10` (on `1c4a29e`). Actual results: **108 shared unit**, **84 Firebase integration (ten files)**, **19 browser flows** (one new: profile summary shows labelled ratings, confirmed record and teams on a 390px viewport), three browser-shell, one production PWA and four legacy tests passed, with no skipped tests. Migration and backup/restore passed.
