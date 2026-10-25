@@ -1108,3 +1108,33 @@ footer {
 .profile-facts dd {
   margin: 0;
 }
+
+/* Toast notifications: polite live region, bottom of the screen. */
+.toast-region {
+  position: fixed;
+  left: 16px;
+  right: 16px;
+  bottom: calc(84px + env(safe-area-inset-bottom));
+  z-index: 80;
+  display: grid;
+  gap: 8px;
+  pointer-events: none;
+}
+.toast {
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #0b1323;
+  color: #e8edf7;
+  border: 1px solid currentColor;
+  font-weight: 600;
+}
+.toast-success { color: #9fe3b8; }
+.toast-error { color: #ffb4a8; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

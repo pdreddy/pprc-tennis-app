@@ -1,6 +1,6 @@
 # Court management
 
-Status: Milestone 5, slice 1 — maintenance blocks. Other court features are not implemented yet.
+Status: maintenance blocks are implemented. Reservations and utilization reports are not implemented yet.
 
 ## Implemented
 

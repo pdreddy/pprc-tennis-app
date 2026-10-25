@@ -36,6 +36,7 @@ service cloud.firestore {
    allow read: if (signed() && request.auth.uid == uid) || ((clubAdmin() || support()) && resource.data.clubId == 'pprc');
    allow write: if false;
   }
+  match /rescheduleRequests/{id} { allow read: if operator(resource.data) || (signed() && request.auth.uid in resource.data.participantIds); allow write: if false; }
   match /publicProfiles/{uid} { allow read: if true; allow write: if false; }
   match /availability/{uid} { allow read: if (signed() && resource.data.playerId == request.auth.uid) || ((clubAdmin() || support()) && resource.data.clubId == 'pprc'); allow write: if false; }
   match /memberships/{uid} { allow read: if (signed() && request.auth.uid == uid) || ((clubAdmin() || support()) && resource.data.clubId == 'pprc'); allow write: if false; }

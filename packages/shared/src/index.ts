@@ -10,6 +10,8 @@ export * from "./ladder";
 export * from "./courtBlocks";
 export * from "./discovery";
 export * from "./availability";
+export * from "./calendar";
+export * from "./operations";
 export type Role = "player" | "eventAdmin" | "clubAdmin" | "platformAdmin";
 export const statuses = [
   "Draft",
@@ -79,6 +81,9 @@ export interface Event extends Entity {
   duration: number;
   buffer: number;
   courtIds: string[];
+  rescheduleApproval?: boolean;
+  reminderUpcomingMinutes?: number;
+  reminderOverdueHours?: number;
 }
 export interface Division extends Entity {
   name: string;
@@ -153,6 +158,7 @@ export const collections = [
   "courts",
   "courtBlocks",
   "availability",
+  "rescheduleRequests",
   "events",
   "divisions",
   "registrations",

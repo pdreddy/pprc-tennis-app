@@ -183,19 +183,34 @@ export function TeamsHub() {
         </p>
       )}
       <div className="team-grid">
-        {teams.data?.map((t) => (
-          <Panel key={t.id}>
-            <TeamCrest name={t.name} />
-            <h2>{t.name}</h2>
-            <p>{t.roster.length} players confirmed</p>
-            <Link
-              className="button secondary"
-              to={`/events/${t.eventId}/triace`}
-            >
-              Open team tournament <ChevronRight size={16} />
-            </Link>
-          </Panel>
-        ))}
+        {teams.data?.map((t) => {
+          // Captain view: pending invitations for this team and the next step.
+          const isCaptain = t.captainId === user!.uid && !t.withdrawn;
+          const pendingForTeam = (invitations.data ?? []).filter(
+            (i) => i.teamId === t.id && i.status === "Pending",
+          ).length;
+          return (
+            <Panel key={t.id}>
+              <TeamCrest name={t.name} />
+              <h2>{t.name}</h2>
+              {isCaptain && <Badge>Captain</Badge>}
+              <p>{t.roster.length} players confirmed</p>
+              {isCaptain && (
+                <p className="muted">
+                  {pendingForTeam
+                    ? `${pendingForTeam} invitation${pendingForTeam === 1 ? "" : "s"} waiting for a response`
+                    : "No invitations waiting. Submit lineups before each encounter's deadline."}
+                </p>
+              )}
+              <Link
+                className="button secondary"
+                to={`/events/${t.eventId}/triace`}
+              >
+                Open team tournament <ChevronRight size={16} />
+              </Link>
+            </Panel>
+          );
+        })}
       </div>
       <h2>Player invitations</h2>
       {invitations.data

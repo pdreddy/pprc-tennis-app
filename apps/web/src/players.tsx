@@ -293,10 +293,16 @@ function LadderSeasonTable({ event }: { event: Entity }) {
           standings.
         </p>
       )}
+      <p className="muted">
+        Positions follow the published season rules. Points-leader ties are
+        broken by match wins, then successful upward challenges, then
+        head-to-head, then a recorded organizer decision. Movement since the
+        previous week is not shown yet.
+      </p>
       <div className="table-scroll">
         <table>
           <caption className="muted">
-            Positions follow the published season rules for this ladder.
+            Ladder standings for {String(event.name)}
           </caption>
           <thead>
             <tr>
@@ -305,20 +311,40 @@ function LadderSeasonTable({ event }: { event: Entity }) {
               <th scope="col">Points</th>
               <th scope="col">Played</th>
               <th scope="col">W–L</th>
+              <th scope="col">Movement</th>
             </tr>
           </thead>
           <tbody>
-            {standings.map((s) => (
-              <tr key={s.teamId}>
-                <td>{s.position}</td>
-                <td>{name(s.teamId)}</td>
-                <td>{s.points}</td>
-                <td>{s.played}</td>
-                <td>
-                  {s.wins}–{s.losses}
-                </td>
-              </tr>
-            ))}
+            {standings.map((s) => {
+              // Movement is the change since the previous week close. A team
+              // with no earlier position is shown as new, not as zero movement.
+              const baseline = (
+                event.ladderState?.movementBaseline as
+                  Record<string, number> | undefined
+              )?.[s.teamId];
+              const change =
+                typeof baseline === "number" ? baseline - s.position : null;
+              return (
+                <tr key={s.teamId}>
+                  <td>{s.position}</td>
+                  <td>{name(s.teamId)}</td>
+                  <td>{s.points}</td>
+                  <td>{s.played}</td>
+                  <td>
+                    {s.wins}–{s.losses}
+                  </td>
+                  <td>
+                    {change === null
+                      ? "No prior week"
+                      : change > 0
+                        ? `▲ ${change}`
+                        : change < 0
+                          ? `▼ ${-change}`
+                          : "—"}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

@@ -2,6 +2,7 @@ import { LadderTournament } from "./ladder";
 import { ScoreForm } from "./scoring";
 import { TriaceTournament } from "./teams";
 import { ClubMembershipRequests } from "./club";
+import { OperationsDashboard } from "./operations";
 import { useState } from "react";
 import {
   Link,
@@ -94,6 +95,7 @@ export function Admin() {
         {[
           ["", "Overview", Activity],
           ["events", "Events", CalendarDays],
+          ["operations", "Operations", Activity],
           ["club", "Club settings", Shield],
           ["courts", "Courts & venues", MapPin],
           ["members", "Members & roles", Users],
@@ -137,6 +139,8 @@ export function Admin() {
           <Members />
         ) : section === "audit" ? (
           <Audits />
+        ) : section === "operations" ? (
+          <OperationsDashboard />
         ) : section === "events" ? (
           <>
             <div className="section-heading">
@@ -1097,8 +1101,7 @@ function Courts() {
     blocks = useList("courtBlocks").data ?? [],
     action = useAction(),
     { member } = useSession();
-  const courtName = (id: string) =>
-    courts.find((c) => c.id === id)?.name ?? id;
+  const courtName = (id: string) => courts.find((c) => c.id === id)?.name ?? id;
   return (
     <>
       <h1>Courts & venues</h1>

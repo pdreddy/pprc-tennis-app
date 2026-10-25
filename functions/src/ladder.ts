@@ -205,13 +205,26 @@ export function tickLadder(c: TriaceContext, autoClose = true) {
       a.at - b.at ||
       String(a.row?.id ?? a.week).localeCompare(String(b.row?.id ?? b.week)),
   )) {
-    if (item.kind === "week")
+    if (item.kind === "week") {
+      // Movement baseline: positions as they stood at the previous week close.
+      // The rankings page compares the current position against this.
+      save(c, {
+        movementBaseline: Object.fromEntries(
+          (state(c).standings ?? []).map(
+            (row: { teamId: string; position: number }) => [
+              row.teamId,
+              row.position,
+            ],
+          ),
+        ),
+      });
       append(
         c,
         "week-close",
         { week: item.week },
         `${c.event.id}-week-${item.week}`,
       );
+    }
     if (item.kind === "decline") {
       const ch = c.find("ladderChallenges", item.row!.id);
       c.edit("ladderChallenges", ch, {

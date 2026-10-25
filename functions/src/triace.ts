@@ -22,6 +22,7 @@ import {
   withinDailyHours,
   cleanText,
   courtBlocked,
+  teamAvailable,
   csv,
   type CourtBlock,
   type Entity,
@@ -66,6 +67,7 @@ export interface TriaceContext {
   readPlayer: (uid: string) => Promise<Entity | undefined>;
   readCourt: (id: string) => Promise<Entity | undefined>;
   courtBlocks: CourtBlock[];
+  availability: Record<string, unknown>;
   readMembership: (id: string) => Promise<Entity | undefined>;
   reason: () => string;
 }
@@ -1213,6 +1215,24 @@ export async function executeTriace(c: TriaceContext): Promise<any> {
         )
           return false;
         if (courtBlocked(c.courtBlocks, courtId, start, end)) return false;
+        // A team can play only when enough of its roster is available.
+        const teamPlayers = (teamId: string | undefined) =>
+          list("teams").find((t) => t.id === teamId)?.memberIds as
+            string[] | undefined;
+        for (const teamId of [e.teamA, e.teamB]) {
+          const members = teamPlayers(teamId);
+          if (
+            members &&
+            !teamAvailable(
+              members,
+              c.availability,
+              start,
+              event.duration,
+              event.timezone,
+            )
+          )
+            return false;
+        }
         if (
           existing.some(
             (x) =>

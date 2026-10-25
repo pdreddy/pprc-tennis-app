@@ -2,6 +2,19 @@ import { serverNow } from "./clock.js";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { randomUUID } from "node:crypto";
 import { execute } from "./engine.js";
+import { reminderPolicy, reminderSuppressed } from "@pprc/shared";
+
+// Reads the player's notification preferences and reports whether a reminder
+// must be held back (reminders off, or inside quiet hours).
+async function suppressedFor(playerId: string, now: number, timezone: string) {
+  const db = getFirestore();
+  const snapshot = await db.doc(`users/${playerId}`).get();
+  return reminderSuppressed(
+    snapshot.get("notificationPreferences"),
+    now,
+    timezone,
+  );
+}
 
 export async function runEventMaintenance() {
   const db = getFirestore();
@@ -19,6 +32,11 @@ export async function runEventMaintenance() {
   for (const doc of events.docs) {
     const event = doc.data(),
       now = serverNow();
+    // Organizer-set reminder timing, falling back to the shared defaults.
+    const overdueHours =
+      event.reminderOverdueHours ?? reminderPolicy.overdueScoreHours;
+    const upcomingMinutes =
+      event.reminderUpcomingMinutes ?? reminderPolicy.upcomingMatchMinutes;
     let status = event.status;
     if (status === "Published" && now >= Date.parse(event.registrationOpen))
       status = "Registration Open";
@@ -66,8 +84,40 @@ export async function runEventMaintenance() {
     for (const match of matches.docs) {
       const m = match.data(),
         t = Date.parse(m.scheduledAt ?? "");
-      if (t < now || t > now + 30 * 60000 || m.status === "Final") continue;
+      // Overdue score: a scheduled head-to-head match with no final result
+      // after the policy window. One reminder per player, ever.
+      if (
+        Number.isFinite(t) &&
+        t < now - overdueHours * 3600000 &&
+        m.status !== "Final" &&
+        m.status !== "Bye" &&
+        m.p1 &&
+        m.p2
+      )
+        for (const playerId of [m.p1, m.p2]) {
+          if (await suppressedFor(playerId, now, event.timezone)) continue;
+          const ref = db.doc(`notifications/score-due-${match.id}-${playerId}`);
+          await db.runTransaction(async (tx) => {
+            if ((await tx.get(ref)).exists) return;
+            tx.create(ref, {
+              id: ref.id,
+              clubId: "pprc",
+              eventId: doc.id,
+              playerId,
+              title: "Score due",
+              body: `${event.name}: submit your match score.`,
+              type: "score-due",
+              read: false,
+              createdAt: FieldValue.serverTimestamp(),
+              updatedAt: FieldValue.serverTimestamp(),
+              createdBy: "system",
+            });
+          });
+        }
+      if (t < now || t > now + upcomingMinutes * 60000 || m.status === "Final")
+        continue;
       for (const playerId of [m.p1, m.p2].filter(Boolean)) {
+        if (await suppressedFor(playerId, now, event.timezone)) continue;
         const ref = db.doc(
           `notifications/reminder-${match.id}-${playerId}-${t}`,
         );

@@ -27,9 +27,14 @@ import {
   money,
   text,
 } from "./ui";
-import type { Entity } from "@pprc/shared";
+import { matchesToIcs, type Entity } from "@pprc/shared";
 import { TriaceTournament, TeamSchedule, TeamHistory } from "./teams";
 import { OnboardingSteps } from "./club";
+import {
+  CalendarViews,
+  RescheduleForm,
+  RescheduleRequests,
+} from "./operations";
 import { call } from "./firebase";
 export function EventDetail() {
   const { eventId = "" } = useParams();
@@ -609,6 +614,99 @@ export function MatchList({
     </div>
   );
 }
+// Downloads the player's scheduled matches as an .ics file. Times come from the
+// server; event length and location come from each event. A match whose event
+// cannot be read is left out, and the count of left-out matches is shown.
+function CalendarExport({ matches }: { matches: Entity[] }) {
+  const scheduled = matches.filter((m) => m.scheduledAt);
+  const eventIds = [...new Set(scheduled.map((m) => String(m.eventId)))];
+  const events = useQuery({
+    queryKey: ["calendarEvents", eventIds],
+    queryFn: async () =>
+      Object.fromEntries(
+        await Promise.all(
+          eventIds.map(async (id) => [
+            id,
+            await getOne("events", id).catch(() => null),
+          ]),
+        ),
+      ) as Record<string, Entity | null>,
+    enabled: eventIds.length > 0,
+  });
+  const map = events.data ?? {};
+  const readable = scheduled.filter((m) => map[String(m.eventId)]);
+  const download = () => {
+    const ics = matchesToIcs(
+      "PPRC matches",
+      readable.map((m) => {
+        const event = map[String(m.eventId)]!;
+        return {
+          id: m.id,
+          title: `${event.name}: Round ${m.round}`,
+          start: String(m.scheduledAt),
+          minutes: Number(event.duration ?? 75),
+          location: String(event.location ?? ""),
+        };
+      }),
+    );
+    const url = URL.createObjectURL(new Blob([ics], { type: "text/calendar" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "pprc-matches.ics";
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+  const skipped = scheduled.length - readable.length;
+  return (
+    <div className="calendar-export">
+      <button
+        type="button"
+        className="button secondary"
+        onClick={download}
+        disabled={events.isLoading}
+      >
+        Download calendar (.ics)
+      </button>
+      {skipped > 0 && (
+        <p className="muted" role="status">
+          {skipped} scheduled {skipped === 1 ? "match is" : "matches are"} not
+          included because the event could not be read.
+        </p>
+      )}
+    </div>
+  );
+}
+// Match center: upcoming and completed matches for the signed-in player.
+// Completed means the server has finalized the match; nothing here is live.
+function MatchCenterTabs({ matches }: { matches: Entity[] }) {
+  const [tab, setTab] = useState<"upcoming" | "completed">("upcoming");
+  const completed = matches.filter((m) => m.status === "Final");
+  const upcoming = matches.filter((m) => m.status !== "Final");
+  const shown = tab === "completed" ? completed : upcoming;
+  return (
+    <section aria-label="Match center">
+      <div className="group-tabs" role="group" aria-label="Match status">
+        {(
+          [
+            ["upcoming", "Upcoming", upcoming.length],
+            ["completed", "Completed", completed.length],
+          ] as const
+        ).map(([value, label, count]) => (
+          <button
+            key={value}
+            type="button"
+            className="group-tab"
+            aria-pressed={tab === value}
+            onClick={() => setTab(value)}
+          >
+            {label} <span className="filter-count">{count}</span>
+          </button>
+        ))}
+      </div>
+      <MatchList matches={shown} />
+    </section>
+  );
+}
 export function Schedule() {
   const { user } = useSession(),
     action = useAction();
@@ -625,8 +723,34 @@ export function Schedule() {
       <p className="eyebrow">PLAN YOUR PLAY</p>
       <h1>My match schedule</h1>
       <p className="lead">Times are shown in the event’s local timezone.</p>
+      <CalendarExport matches={[...(a.data ?? []), ...(b.data ?? [])]} />
+      <CalendarViews
+        items={[...(a.data ?? []), ...(b.data ?? [])]
+          .filter((m) => m.scheduledAt)
+          .map((m) => ({
+            id: m.id,
+            title: `Round ${m.round}`,
+            start: String(m.scheduledAt),
+            location: m.courtId ? String(m.courtId) : undefined,
+          }))}
+      />
+      <RescheduleRequests />
+      <Panel title="Request a new time">
+        {[...(a.data ?? []), ...(b.data ?? [])]
+          .filter(
+            (m) => m.p1 && m.p2 && m.scheduledAt && m.status === "Scheduled",
+          )
+          .map((m) => (
+            <details key={m.id}>
+              <summary>
+                Round {m.round} · {m.id}
+              </summary>
+              <RescheduleForm match={m} />
+            </details>
+          ))}
+      </Panel>
       <TeamSchedule />
-      <MatchList matches={[...(a.data ?? []), ...(b.data ?? [])]} />
+      <MatchCenterTabs matches={[...(a.data ?? []), ...(b.data ?? [])]} />
       <Panel title="Submit a match score">
         {[...(a.data ?? []), ...(b.data ?? [])]
           .filter((m) => m.p1 && m.p2 && m.status === "Scheduled")
@@ -1150,55 +1274,186 @@ export function Profile() {
     </div>
   );
 }
+// Player choices for in-app and push alerts, reminders and quiet hours. The
+// server stores them on the player's own profile and the reminder job reads them.
+function NotificationPreferencesForm() {
+  const { profile } = useSession(),
+    action = useAction();
+  const saved = (profile?.notificationPreferences ?? {}) as {
+    inApp?: boolean;
+    push?: boolean;
+    reminders?: boolean;
+    quietStart?: string | null;
+    quietEnd?: string | null;
+  };
+  return (
+    <Panel title="Notification preferences">
+      <p className="muted">
+        Reminders are held during quiet hours. Quiet hours can cross midnight.
+      </p>
+      <Form
+        key={profile?.updatedAt?.seconds ?? "prefs"}
+        label="Save preferences"
+        onSubmit={(f) =>
+          action("saveNotificationPreferences", {
+            preferences: {
+              inApp: f.get("inApp") === "on",
+              push: f.get("push") === "on",
+              reminders: f.get("reminders") === "on",
+              quietStart: text(f, "quietStart") || null,
+              quietEnd: text(f, "quietEnd") || null,
+            },
+          })
+        }
+      >
+        <label className="check">
+          <input
+            type="checkbox"
+            name="inApp"
+            defaultChecked={saved.inApp !== false}
+          />
+          In-app notifications
+        </label>
+        <label className="check">
+          <input type="checkbox" name="push" defaultChecked={!!saved.push} />
+          Push notifications
+        </label>
+        <label className="check">
+          <input
+            type="checkbox"
+            name="reminders"
+            defaultChecked={saved.reminders !== false}
+          />
+          Match and score reminders
+        </label>
+        <Field label="Quiet hours start">
+          <input
+            name="quietStart"
+            type="time"
+            defaultValue={saved.quietStart ?? ""}
+          />
+        </Field>
+        <Field label="Quiet hours end">
+          <input
+            name="quietEnd"
+            type="time"
+            defaultValue={saved.quietEnd ?? ""}
+          />
+        </Field>
+      </Form>
+    </Panel>
+  );
+}
 export function Notifications() {
   const { user } = useSession(),
     action = useAction(),
     qc = useQueryClient();
   void action;
+  const [unreadOnly, setUnreadOnly] = useState(false);
   const { data = [], error } = useList("notifications", [
     ["playerId", "==", user!.uid],
   ]);
+  const sorted = [...data].sort(
+    (a, b) => (b.createdAt?.seconds ?? 0) - (a.createdAt?.seconds ?? 0),
+  );
+  const unread = sorted.filter((n) => !n.read);
+  const shown = unreadOnly ? unread : sorted;
+  // Match-related notices open the schedule; everything else opens the event.
+  const matchTypes = [
+    "match-reminder",
+    "score-due",
+    "match-changed",
+    "reschedule-request",
+    "reschedule-declined",
+  ];
+  const markRead = async (ids: string[]) => {
+    await Promise.all(
+      ids.map((id) =>
+        updateDoc(doc(db, "notifications", id), {
+          read: true,
+          updatedAt: serverTimestamp(),
+        }),
+      ),
+    );
+    await qc.invalidateQueries();
+  };
   return (
     <div className="page narrow">
       <p className="eyebrow">STAY IN THE LOOP</p>
       <h1>Your notifications</h1>
-      {error && <p className="error">{error.message}</p>}
-      {!data.length ? (
-        <Empty title="You’re all caught up" />
+      <p className="lead" role="status">
+        {unread.length ? `${unread.length} unread` : "No unread notifications"}
+      </p>
+      <div className="row">
+        <div
+          className="group-tabs"
+          role="group"
+          aria-label="Notification filter"
+        >
+          <button
+            type="button"
+            className="group-tab"
+            aria-pressed={!unreadOnly}
+            onClick={() => setUnreadOnly(false)}
+          >
+            All
+          </button>
+          <button
+            type="button"
+            className="group-tab"
+            aria-pressed={unreadOnly}
+            onClick={() => setUnreadOnly(true)}
+          >
+            Unread <span className="filter-count">{unread.length}</span>
+          </button>
+        </div>
+        {unread.length > 0 && (
+          <Action onClick={() => markRead(unread.map((n) => n.id))}>
+            Mark all as read
+          </Action>
+        )}
+      </div>
+      {error && (
+        <p className="error" role="alert">
+          {error.message}
+        </p>
+      )}
+      {!shown.length ? (
+        <Empty
+          title={
+            unreadOnly ? "No unread notifications" : "You’re all caught up"
+          }
+        />
       ) : (
-        data
-          .sort(
-            (a, b) => (b.createdAt?.seconds ?? 0) - (a.createdAt?.seconds ?? 0),
-          )
-          .map((n) => (
-            <Panel key={n.id} title={n.title}>
+        shown.map((n) => {
+          const matchRelated = matchTypes.includes(String(n.type));
+          const href =
+            n.href ||
+            (matchRelated
+              ? "/schedule"
+              : n.eventId
+                ? `/events/${n.eventId}`
+                : "/clubs/pprc");
+          return (
+            <Panel key={n.id} title={`${n.read ? "" : "New · "}${n.title}`}>
               <p>{n.body}</p>
               <div className="row">
-                <Link
-                  to={
-                    n.href ||
-                    (n.eventId ? `/events/${n.eventId}` : "/clubs/pprc")
-                  }
-                >
-                  {n.href ? "View update" : "View event"}
+                <Link to={href}>
+                  {matchRelated
+                    ? "Open my matches"
+                    : n.href
+                      ? "View update"
+                      : "View event"}
                 </Link>
                 {!n.read && (
-                  <Action
-                    onClick={async () => {
-                      await updateDoc(doc(db, "notifications", n.id), {
-                        read: true,
-                        updatedAt: serverTimestamp(),
-                      });
-                      await qc.invalidateQueries();
-                    }}
-                  >
-                    Mark as read
-                  </Action>
+                  <Action onClick={() => markRead([n.id])}>Mark as read</Action>
                 )}
               </div>
             </Panel>
-          ))
+          );
+        })
       )}
+      <NotificationPreferencesForm />
     </div>
   );
 }

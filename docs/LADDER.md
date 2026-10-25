@@ -29,7 +29,6 @@ The system must not silently infer these choices from another tennis application
 
 Use synthetic Auth accounts and real Firestore/Functions emulators. Verify challenge authorization, partner consent, reach, concurrent challenge creation, rematch limits, deadlines, repeated-decline strikes, ranking swaps, walkovers, inactivity, timezone boundaries, correction replay, champion ties and concurrent season closure. Browser journeys must cover creation/entry/challenge/acceptance/result/opponent confirmation/standings, with mobile and denied actions. Run `./pprc.sh test-all`, including migration and backup/restore, before declaring a cycle complete.
 
-
 ## Implementation and operations
 
 The event wizard creates `competition: ladder` with a reviewed `ladderRules` policy. Use **Season rules** to choose singles or fixed doubles, reference/verification requirements, all point/bonus/penalty/range/deadline settings, retirement treatment, match scoring and optional playoff qualification. Policy locks at the first entry. Calendar boundaries are Monday 00:00 through Sunday 23:59 in the event timezone, with 1–52 complete weeks and 2–32 approved entries. UTC input labels are explicit; player deadlines render in the event timezone, including DST changes.
@@ -47,3 +46,7 @@ Organizer review provides decline/strike/inactivity waivers, inclusive exemption
 Playoffs default off. If enabled, choose 2/4/8 qualifiers, minimum played matches and position or points seeding. Points seeds compare points, wins, successful upward wins, then frozen ladder position; this ordering is shown in the policy UI. Playoff schedules use their own configured post-freeze gap/window and existing court conflict/daily-hours checks. Captain lineups and verified scores reuse the shared competition lifecycle.
 
 Retirements default to no contest until the organizer reviews another treatment. Walkovers count toward rematch limits by default. Simultaneous inactivity drops preserve relative order among affected entrants; if everyone is inactive, the same order remains. These choices are explicit PPRC policy, not inferred reference-app behavior. Scheduled cloud invocation, real notifications and physical-device behavior still require staging verification; local tests do not deploy anything.
+
+## Ranking movement
+
+At each week close the server stores the standings positions as `ladderState.movementBaseline`. The rankings page shows each team's change against that baseline (▲ up, ▼ down). A team with no baseline yet shows "No prior week", not zero. Movement is only as current as the last week close.

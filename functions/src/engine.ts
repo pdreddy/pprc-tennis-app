@@ -35,6 +35,8 @@ import {
   courtBlockSchema,
   courtBlocked,
   availabilitySchema,
+  notificationPreferencesSchema,
+  playerAvailableAt,
   csv,
   type CourtBlock,
   type Entity,
@@ -61,6 +63,7 @@ export const eventCollections = [
   "matches",
   "matchResults",
   "notifications",
+  "rescheduleRequests",
   ...triaceCollections,
   ...ladderCollections,
 ] as const;
@@ -155,6 +158,9 @@ export async function execute(
       [
         "generateSchedule",
         "rescheduleMatch",
+        "requestReschedule",
+        "respondReschedule",
+        "decideReschedule",
         "triace",
         "teamCompetition",
       ].includes(operation)
@@ -166,6 +172,37 @@ export async function execute(
       );
       for (const snapshot of blockSnapshots)
         for (const d of snapshot.docs) courtBlocks.push(d.data() as CourtBlock);
+    }
+    // Player availability is read in the same transaction so a schedule or
+    // reschedule checks the same preferences it commits against.
+    const availability: Record<string, any> = {};
+    if (
+      eventId &&
+      [
+        "generateSchedule",
+        "rescheduleMatch",
+        "requestReschedule",
+        "respondReschedule",
+        "decideReschedule",
+        "triace",
+        "teamCompetition",
+      ].includes(operation)
+    ) {
+      // Individual events use registrations; team events use roster members.
+      const playerIds = [
+        ...new Set(
+          [
+            ...(buckets["registrations"] ?? []).map((r: any) => r.playerId),
+            ...(buckets["teams"] ?? []).flatMap((t: any) => t.memberIds ?? []),
+          ].filter(Boolean) as string[],
+        ),
+      ];
+      const snapshots = await Promise.all(
+        playerIds.map((id) => tx.get(db.doc(`availability/${id}`))),
+      );
+      snapshots.forEach((s, i) => {
+        if (s.exists) availability[playerIds[i]] = s.data();
+      });
     }
     const updates = new Map<string, Entity | null>();
     const now = FieldValue.serverTimestamp();
@@ -404,6 +441,7 @@ export async function execute(
         "createEvent",
         "saveProfile",
         "saveAvailability",
+        "saveNotificationPreferences",
         "requestAccountDeletion",
         "manageClub",
         "registerPushToken",
@@ -417,6 +455,64 @@ export async function execute(
       fail("Event not found", "not-found");
     if (event && event.clubId !== "pprc")
       fail("This deployment cannot manage another club", "permission-denied");
+    // Shared by player requests, opponent acceptance and organizer changes:
+    // returns the first reason a proposed slot cannot be used, or null.
+    const rescheduleProblem = (
+      match: Match,
+      courtId: string,
+      scheduledAt: string,
+    ): string | null => {
+      const t = Date.parse(scheduledAt);
+      const span = event!.duration * 60000;
+      const interval = (event!.duration + event!.buffer) * 60000;
+      if (!event!.courtIds.includes(courtId)) return "Choose an event court";
+      if (
+        !withinDailyHours(
+          scheduledAt,
+          event!.timezone,
+          event!.dailyStartHour ?? 8,
+          event!.dailyEndHour ?? 21,
+          event!.duration + event!.buffer,
+        )
+      )
+        return "Outside daily playing hours";
+      if (
+        t < Date.parse(event!.startDate) ||
+        t + span > Date.parse(event!.endDate)
+      )
+        return "Outside event dates";
+      if (
+        (event!.blackouts ?? []).some(
+          (b: any) =>
+            t < Date.parse(b.end) && t + interval > Date.parse(b.start),
+        )
+      )
+        return "Court blackout";
+      if (courtBlocked(courtBlocks, courtId, t, t + span))
+        return "Court blocked for maintenance";
+      const players = [match.p1, match.p2].filter(Boolean) as string[];
+      if (
+        !players.every((p) =>
+          playerAvailableAt(
+            availability[p],
+            t,
+            event!.duration,
+            event!.timezone,
+          ),
+        )
+      )
+        return "A player is unavailable at this time";
+      const proposed = { ...match, courtId, scheduledAt };
+      if (
+        (list("matches") as Match[]).some(
+          (other) =>
+            other.id !== match.id &&
+            scheduleConflict(proposed, other, interval / 60000),
+        )
+      )
+        return "Court or player conflict";
+      return null;
+    };
     switch (operation) {
       case "requestClubMembership": {
         const input = membershipRequestInput.parse(data);
@@ -578,6 +674,7 @@ export async function execute(
             return s.exists ? ({ id: s.id, ...s.data() } as Entity) : undefined;
           },
           courtBlocks,
+          availability,
           readMembership: async (playerId) => {
             const s = await tx.get(
               db.doc(`memberships/${idSchema.parse(playerId)}`),
@@ -666,6 +763,14 @@ export async function execute(
         };
         put("users", entity);
         projectPlayer(entity, memberSnap.data());
+        result = { id: uid };
+        break;
+      }
+      case "saveNotificationPreferences": {
+        // Only the signed-in player's own profile is written.
+        if (!profile) fail("Create a profile first");
+        const prefs = notificationPreferencesSchema.parse(data.preferences);
+        edit("users", profile!, { notificationPreferences: prefs });
         result = { id: uid };
         break;
       }
@@ -1560,6 +1665,18 @@ export async function execute(
               )
             )
               continue;
+            const participants = [m.p1, m.p2].filter(Boolean) as string[];
+            if (
+              !participants.every((p) =>
+                playerAvailableAt(
+                  availability[p],
+                  t,
+                  event!.duration,
+                  event!.timezone,
+                ),
+              )
+            )
+              continue;
             for (const courtId of availableCourts) {
               if (
                 courtBlocked(
@@ -1640,6 +1757,19 @@ export async function execute(
         )
           fail("Court blocked for maintenance");
         if (
+          ![m.p1, m.p2]
+            .filter(Boolean)
+            .every((p) =>
+              playerAvailableAt(
+                availability[p as string],
+                t,
+                event!.duration,
+                event!.timezone,
+              ),
+            )
+        )
+          fail("A player is unavailable at this time");
+        if (
           list("matches").some(
             (other) =>
               other.id !== m.id &&
@@ -1676,6 +1806,182 @@ export async function execute(
             `${event!.name}: your court time changed.`,
             "match-changed",
           );
+        break;
+      }
+      case "requestReschedule": {
+        const reason = requiredReason(data);
+        const m = find("matches", data.matchId) as Match;
+        if (!m.p1 || !m.p2) fail("Only head-to-head matches can change time");
+        if (![m.p1, m.p2].includes(uid))
+          fail(
+            "Only a participant can request a new time",
+            "permission-denied",
+          );
+        if (m.status === "Final" || m.status === "Bye")
+          fail("Completed matches cannot be rescheduled");
+        const proposal = z
+          .object({ courtId: idSchema, scheduledAt: z.string().datetime() })
+          .parse(data);
+        const problem = rescheduleProblem(
+          m,
+          proposal.courtId,
+          proposal.scheduledAt,
+        );
+        if (problem) fail(problem);
+        if (
+          (list("rescheduleRequests") as Entity[]).some(
+            (r) => r.matchId === m.id && r.status === "Pending",
+          )
+        )
+          fail("A request for this match is already pending");
+        const opponentId = (uid === m.p1 ? m.p2 : m.p1) as string;
+        const request = make("rescheduleRequests", {
+          matchId: m.id,
+          participantIds: [m.p1, m.p2],
+          requestedBy: uid,
+          opponentId,
+          courtId: proposal.courtId,
+          proposedAt: proposal.scheduledAt,
+          reason,
+          from: {
+            scheduledAt: m.scheduledAt ?? null,
+            courtId: m.courtId ?? null,
+          },
+          status: "Pending",
+        });
+        notify(
+          opponentId,
+          "Reschedule requested",
+          event!.name,
+          "reschedule-request",
+        );
+        result = { requestId: request.id, status: "Pending" };
+        break;
+      }
+      case "respondReschedule": {
+        const r = find("rescheduleRequests", data.requestId) as Entity & {
+          matchId: string;
+          requestedBy: string;
+          opponentId: string;
+          participantIds: string[];
+          courtId: string;
+          proposedAt: string;
+          from: { scheduledAt: string | null; courtId: string | null };
+          status: string;
+        };
+        if (r.opponentId !== uid)
+          fail(
+            "Only the opponent can respond to this request",
+            "permission-denied",
+          );
+        if (r.status !== "Pending") fail("This request is already closed");
+        if (!z.boolean().parse(data.accept)) {
+          edit("rescheduleRequests", r, { status: "Declined" });
+          notify(
+            r.requestedBy,
+            "Reschedule declined",
+            event!.name,
+            "reschedule-declined",
+          );
+          result = { status: "Declined" };
+          break;
+        }
+        const m = find("matches", r.matchId) as Match;
+        const unchanged =
+          (m.scheduledAt ?? null) === r.from.scheduledAt &&
+          (m.courtId ?? null) === r.from.courtId;
+        // The match moved after the request was made: do not overwrite it.
+        if (!unchanged) {
+          edit("rescheduleRequests", r, { status: "Stale" });
+          result = { status: "Stale" };
+          break;
+        }
+        const problem = rescheduleProblem(m, r.courtId, r.proposedAt);
+        if (problem) fail(problem);
+        // When the event requires it, the organizer decides before anything moves.
+        if (event!.rescheduleApproval) {
+          edit("rescheduleRequests", r, { status: "Awaiting organizer" });
+          notify(
+            r.requestedBy,
+            "Opponent accepted",
+            event!.name,
+            "reschedule-awaiting",
+          );
+          result = { status: "Awaiting organizer" };
+          break;
+        }
+        edit("matches", m, { scheduledAt: r.proposedAt, courtId: r.courtId });
+        edit("rescheduleRequests", r, { status: "Applied" });
+        for (const p of r.participantIds)
+          notify(p, "Schedule changed", event!.name, "match-changed");
+        result = { status: "Applied" };
+        break;
+      }
+      case "setReminderPolicy": {
+        requireAdmin();
+        requiredReason(data);
+        const p = z
+          .object({
+            upcomingMinutes: z.number().int().min(5).max(240),
+            overdueHours: z.number().int().min(1).max(48),
+          })
+          .parse(data);
+        edit("events", event!, {
+          reminderUpcomingMinutes: p.upcomingMinutes,
+          reminderOverdueHours: p.overdueHours,
+        });
+        break;
+      }
+      case "setReschedulePolicy": {
+        requireAdmin();
+        requiredReason(data);
+        edit("events", event!, {
+          rescheduleApproval: z.boolean().parse(data.enabled),
+        });
+        break;
+      }
+      case "decideReschedule": {
+        requireAdmin();
+        requiredReason(data);
+        const r = find("rescheduleRequests", data.requestId) as Entity & {
+          matchId: string;
+          requestedBy: string;
+          participantIds: string[];
+          courtId: string;
+          proposedAt: string;
+          from: { scheduledAt: string | null; courtId: string | null };
+          status: string;
+        };
+        if (r.status !== "Awaiting organizer")
+          fail("Only requests waiting for the organizer can be decided");
+        if (!z.boolean().parse(data.approve)) {
+          edit("rescheduleRequests", r, { status: "Declined" });
+          for (const p of r.participantIds)
+            notify(
+              p,
+              "Reschedule declined",
+              event!.name,
+              "reschedule-declined",
+            );
+          result = { status: "Declined" };
+          break;
+        }
+        const m = find("matches", r.matchId) as Match;
+        const unchanged =
+          (m.scheduledAt ?? null) === r.from.scheduledAt &&
+          (m.courtId ?? null) === r.from.courtId;
+        if (!unchanged) {
+          edit("rescheduleRequests", r, { status: "Stale" });
+          result = { status: "Stale" };
+          break;
+        }
+        const problem = rescheduleProblem(m, r.courtId, r.proposedAt);
+        if (problem) fail(problem);
+        edit("matches", m, { scheduledAt: r.proposedAt, courtId: r.courtId });
+        edit("rescheduleRequests", r, { status: "Applied" });
+        for (const p of r.participantIds)
+          notify(p, "Schedule changed", event!.name, "match-changed");
+        result = { status: "Applied" };
         break;
       }
       case "checkInPlayer": {

@@ -27,6 +27,7 @@ import { auth, login, signup, googleLogin, emulator } from "./firebase";
 import { SessionProvider, useSession, useList } from "./context";
 import { EventCard, Field, Form, Empty, Panel, text } from "./ui";
 import { PlayerHome } from "./home";
+import { ToastProvider } from "./feedback";
 import { discoveryGroup, type DiscoveryGroup, type Event } from "@pprc/shared";
 const EventDetail = lazy(() =>
   import("./player").then((m) => ({ default: m.EventDetail })),
@@ -676,8 +677,10 @@ function UsersIcon() {
 export default function App() {
   return (
     <SessionProvider>
-      <LocationReset />
-      <Layout />
+      <ToastProvider>
+        <LocationReset />
+        <Layout />
+      </ToastProvider>
     </SessionProvider>
   );
 }

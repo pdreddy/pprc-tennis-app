@@ -63,6 +63,14 @@ export const createEventTemplate = callable("createEventTemplate");
 export const applyAdminOverride = callable("applyAdminOverride");
 export const saveProfile = callable("saveProfile");
 export const saveAvailability = callable("saveAvailability");
+export const saveNotificationPreferences = callable(
+  "saveNotificationPreferences",
+);
+export const requestReschedule = callable("requestReschedule");
+export const respondReschedule = callable("respondReschedule");
+export const decideReschedule = callable("decideReschedule");
+export const setReschedulePolicy = callable("setReschedulePolicy");
+export const setReminderPolicy = callable("setReminderPolicy");
 export const requestAccountDeletion = callable("requestAccountDeletion");
 export const manageClub = callable("manageClub");
 export const registerPushToken = callable("registerPushToken");
