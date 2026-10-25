@@ -15,7 +15,7 @@
     "events:emulators": "pnpm --filter @pprc/functions build && node scripts/events/firebase.mjs emulators:start --project demo-pprc-events",
     "events:seed": "pnpm --filter @pprc/functions seed",
     "events:integration": "pnpm --filter @pprc/functions build && node scripts/events/firebase.mjs emulators:exec --project demo-pprc-events --only auth,firestore,functions,storage \"pnpm --filter @pprc/functions test\"",
-    "events:e2e": "pnpm --filter @pprc/functions build && node scripts/events/firebase.mjs emulators:exec --project demo-pprc-events --only auth,firestore,functions,storage \"pnpm events:seed && pnpm exec playwright test tests/core.spec.ts tests/triace.spec.ts tests/club.spec.ts tests/players.spec.ts tests/competitions.spec.ts tests/ladder.spec.ts tests/courts.spec.ts tests/mobile-nav.spec.ts tests/home.spec.ts tests/discovery.spec.ts\"",
+    "events:e2e": "pnpm --filter @pprc/functions build && node scripts/events/firebase.mjs emulators:exec --project demo-pprc-events --only auth,firestore,functions,storage \"pnpm events:seed && pnpm exec playwright test tests/core.spec.ts tests/triace.spec.ts tests/club.spec.ts tests/players.spec.ts tests/competitions.spec.ts tests/ladder.spec.ts tests/courts.spec.ts tests/mobile-nav.spec.ts tests/home.spec.ts tests/discovery.spec.ts tests/profile.spec.ts\"",
     "events:lint": "eslint apps/web/src functions/src packages/shared/src",
     "events:ui": "playwright test tests/ui.spec.ts",
     "events:doctor": "node scripts/events/local.mjs doctor",

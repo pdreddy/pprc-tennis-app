@@ -30,6 +30,7 @@ import {
 import type { Entity } from "@pprc/shared";
 import { TriaceTournament, TeamSchedule, TeamHistory } from "./teams";
 import { OnboardingSteps } from "./club";
+import { call } from "./firebase";
 export function EventDetail() {
   const { eventId = "" } = useParams();
   const data = useEvent(eventId);
@@ -774,6 +775,92 @@ export function Results() {
     </div>
   );
 }
+// Read-only summary at the top of the profile. Ratings are supplied
+// references, never official UTR values. A missing rating shows "Not
+// provided"; an empty record shows "No confirmed results yet", not zero.
+function ProfileSummary() {
+  const { profile, user } = useSession();
+  const record = useQuery({
+    queryKey: ["myPerformance", user?.uid],
+    queryFn: () => call("getMyPerformance"),
+    enabled: !!user && !!profile,
+    staleTime: 60000,
+  });
+  const teams = useList("teams", [["memberIds", "array-contains", user!.uid]]);
+  const initials = (profile?.displayName ?? "?")
+    .split(" ")
+    .map((w: string) => w[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+  const rating = (value: unknown) =>
+    typeof value === "number" && Number.isFinite(value)
+      ? value.toFixed(2)
+      : "Not provided";
+  const summary = record.data?.summary;
+  return (
+    <section className="profile-summary" aria-label="Profile summary">
+      <div className="profile-summary-head">
+        <span className="profile-avatar" aria-hidden="true">
+          {initials}
+        </span>
+        <div>
+          <h2>{profile?.displayName ?? "Your name"}</h2>
+          <p className="muted">
+            {[
+              profile?.city,
+              profile?.visibility === "public"
+                ? "Public profile"
+                : "Private profile",
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          </p>
+        </div>
+      </div>
+      <div className="stat-grid">
+        <div className="stat-card">
+          <span className="muted">Singles</span>
+          <strong>{rating(profile?.singlesUtr)}</strong>
+        </div>
+        <div className="stat-card">
+          <span className="muted">Doubles</span>
+          <strong>{rating(profile?.doublesUtr)}</strong>
+        </div>
+      </div>
+      <p className="muted">
+        Supplied reference ({profile?.ratingSource ?? "Player provided"}), not
+        an official UTR rating.
+      </p>
+      <dl className="profile-facts">
+        <dt>Confirmed record</dt>
+        <dd>
+          {record.error ? (
+            <span role="alert">Could not load results.</span>
+          ) : record.isLoading ? (
+            <span role="status">Loading…</span>
+          ) : summary && summary.total > 0 ? (
+            `${summary.wins} wins, ${summary.losses} losses (${summary.total} confirmed)`
+          ) : (
+            "No confirmed results yet"
+          )}
+        </dd>
+        <dt>Teams</dt>
+        <dd>
+          {teams.error ? (
+            <span role="alert">Could not load teams.</span>
+          ) : teams.isLoading ? (
+            <span role="status">Loading…</span>
+          ) : teams.data?.length ? (
+            teams.data.map((t) => String(t.name ?? "Team")).join(", ")
+          ) : (
+            "Not on a team"
+          )}
+        </dd>
+      </dl>
+    </section>
+  );
+}
 export function Profile() {
   const { profile, user } = useSession(),
     action = useAction();
@@ -782,6 +869,7 @@ export function Profile() {
     <div className="page narrow">
       <p className="eyebrow">PART OF THE CLUB</p>
       <h1>My player profile</h1>
+      <ProfileSummary />
       <Link className="button secondary" to="/dashboard">
         View my performance
       </Link>
