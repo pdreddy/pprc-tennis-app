@@ -56,3 +56,7 @@ Remaining Milestone 5 work: player availability, rescheduling requests, notifica
 - Reference audit: static evidence from the supplied XAPK's manifest and resource names only (see MOBILE_UX_REFERENCE_AUDIT.md). No runtime behavior has been observed.
 - Not started: the design system, mobile navigation, player dashboard, discovery, profile, match center, rankings, team/captain, notification UX, PWA review, and the Playwright scenarios in Phase 14.
 
+## Milestone 6 slice 1 — mobile navigation
+
+Bottom navigation has five primary destinations (Home, Tournaments, Matches, Rankings, Profile) with active-state and accessible labels. Teams and Club are reached from Profile. `./pprc.sh test-all` exited 0 at commit `52697fd`: 102 shared, 84 Firebase, 15 browser, three shell, one PWA and four legacy tests. See INTEGRATION_TEST_REPORT.md.
+

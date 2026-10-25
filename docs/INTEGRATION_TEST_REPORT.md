@@ -2,6 +2,14 @@
 
 Date: October 24, 2026. Feature branch: `feat/pprc-sports-triace`. Completed foundation commit: `4faa90a`; original baseline: `2b062c6`.
 
+## Milestone 6 slice 1 — mobile navigation
+
+`./pprc.sh test-all` exited **0** on October 25, 2026. Tested implementation commit: `52697fd` (on `e66c17b`). Actual results: **102 shared unit**, **84 Firebase integration (ten files)**, **15 browser flows** (two new: five mobile destinations with active-state checks, and profile links to My teams, Club and Players; the club mobile test now reaches Club through Profile), three browser-shell, one production PWA and four legacy tests passed, with no skipped tests. Migration and backup/restore passed.
+
+Earlier failing run: the first gate attempt failed at lint on two icon imports left unused by the new bottom bar. They were removed and the gate was rerun in full.
+
+Remaining Milestone 6 work: design system, player dashboard, discovery, profile, match center, rankings, captain workflows, notification UX, PWA review, and the Phase 14 scenarios.
+
 ## Milestone 5 slice 1 — court maintenance blocks
 
 `./pprc.sh test-all` exited **0** on October 25, 2026. Tested implementation commit: `884de66` (on `adfb728`). Actual results: **102 shared unit** (six new court-block cases), **84 Firebase integration across ten files** (four new court-block emulator cases: fixtures avoid a blocked court, direct schedule is rejected then accepted after release, unauthorized/inverted/foreign-court requests denied, court edits keep blocks), **13 browser flows** (two new: club admin blocks and releases a court; non-admin cannot see the form), three browser-shell, one production PWA and four legacy tests passed, with no skipped tests. Migration dry-run/apply/idempotence and Firestore/Auth backup/restore passed. Earlier failing run: the focused emulator run first failed on a fixture with too few teams for the group minimum; the fixture was corrected to four teams and the test rerun. The raw log was kept outside the repository and is not committed.
