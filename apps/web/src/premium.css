@@ -1036,3 +1036,34 @@ footer {
   outline: 3px solid #efd4a0;
   outline-offset: 2px;
 }
+
+/* Tournament discovery groups: Upcoming, Active, Completed. */
+.group-tabs {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  margin: 12px 0 16px;
+  padding-bottom: 4px;
+}
+.group-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 8px 14px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  white-space: nowrap;
+  font: inherit;
+  cursor: pointer;
+}
+.group-tab[aria-pressed="true"] {
+  background: #efd4a0;
+  color: #0b1323;
+}
+.group-tab:focus-visible {
+  outline: 3px solid #efd4a0;
+  outline-offset: 2px;
+}

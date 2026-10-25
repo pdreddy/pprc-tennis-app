@@ -8,6 +8,7 @@ export * from "./players";
 export * from "./competition";
 export * from "./ladder";
 export * from "./courtBlocks";
+export * from "./discovery";
 export type Role = "player" | "eventAdmin" | "clubAdmin" | "platformAdmin";
 export const statuses = [
   "Draft",

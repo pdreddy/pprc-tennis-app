@@ -27,6 +27,7 @@ import { auth, login, signup, googleLogin, emulator } from "./firebase";
 import { SessionProvider, useSession, useList } from "./context";
 import { EventCard, Field, Form, Empty, Panel, text } from "./ui";
 import { PlayerHome } from "./home";
+import { discoveryGroup, type DiscoveryGroup, type Event } from "@pprc/shared";
 const EventDetail = lazy(() =>
   import("./player").then((m) => ({ default: m.EventDetail })),
 );
@@ -393,11 +394,17 @@ function Discover({ home = false }: { home?: boolean }) {
     ["status", "!=", "Draft"],
   ]);
   const [filter, setFilter] = useState<Record<string, string>>({});
+  const [group, setGroup] = useState<"all" | DiscoveryGroup>("all");
+  const now = Date.now();
+  const groupCount = (g: DiscoveryGroup) =>
+    data.filter((e) => discoveryGroup(e as Partial<Event>, now) === g).length;
   const set = (key: string, value: string) =>
     setFilter((v) => ({ ...v, [key]: value }));
   const filtered = data
     .filter(
       (e) =>
+        (group === "all" ||
+          discoveryGroup(e as Partial<Event>, now) === group) &&
         (!filter.search ||
           `${e.name} ${e.description} ${e.location}`
             .toLowerCase()
@@ -499,6 +506,26 @@ function Discover({ home = false }: { home?: boolean }) {
           <Link to="/my-events" className="text-link">
             My registrations <ArrowUpRight size={16} />
           </Link>
+        </div>
+        <div className="group-tabs" role="group" aria-label="Event groups">
+          {(
+            [
+              ["all", "All", data.length],
+              ["upcoming", "Upcoming", groupCount("upcoming")],
+              ["active", "Active", groupCount("active")],
+              ["completed", "Completed", groupCount("completed")],
+            ] as const
+          ).map(([value, label, count]) => (
+            <button
+              key={value}
+              type="button"
+              className="group-tab"
+              aria-pressed={group === value}
+              onClick={() => setGroup(value)}
+            >
+              {label} <span className="filter-count">{count}</span>
+            </button>
+          ))}
         </div>
         <div className="filter-bar">
           <label className="search-field">

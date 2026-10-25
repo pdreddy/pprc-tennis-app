@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import { getDownloadURL, ref } from "firebase/storage";
 import { storage } from "./firebase";
-import type { Entity } from "@pprc/shared";
+import { registrationOpenNow, type Entity, type Event } from "@pprc/shared";
 export const money = (n: number) =>
   new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -259,6 +259,20 @@ export function EventCard({ event }: { event: Entity }) {
           {Math.max(0, event.capacity - (event.registeredCount ?? 0))} places
           available
         </p>
+        {registrationOpenNow(event as Partial<Event>, Date.now()) &&
+          event.registrationClose && (
+            <p className="muted">
+              Registration closes{" "}
+              {new Date(event.registrationClose).toLocaleString("en-US", {
+                month: "short",
+                day: "numeric",
+                hour: "numeric",
+                minute: "2-digit",
+                timeZone: event.timezone,
+                timeZoneName: "short",
+              })}
+            </p>
+          )}
         <div className="event-card-bottom">
           <span>
             <strong>{money(event.fee)}</strong>
