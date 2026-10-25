@@ -42,3 +42,9 @@ Full gate exited 0: 72 shared, 66 Firebase, nine flow browser, three shell brows
 The ladder is a complete additive vertical slice: event creation/policy/calendar, consent/registration/approval, initial snapshot/seed, private challenge/response/schedule negotiation, existing verified score/dispute history, deterministic standings replay, declines/strikes/weekly inactivity, waivers/exemptions, final freeze/review, separate ladder and points champions and explicitly enabled shared playoffs. Fourteen real Firebase ladder cases and two full mobile-aware Chromium journeys were added; all prior workflows remain enabled.
 
 Next: isolated staging/provider/Scheduler/recovery verification after required configuration and deployment approval; authorized reference-package audit when a package is available; public H2H/event leaderboards, club announcements and remaining player-experience backlog. The TRIACE 18.5 maximum remains pending organizer confirmation. No production deployment, live payment or real-player import was performed.
+
+## Milestone 5 evidence (slice 1)
+
+Court maintenance blocks are implemented and enforced by fixture generation, rescheduling and TRIACE/team scheduling, with audited club-admin management and a Courts admin panel. `./pprc.sh test-all` exited 0 on October 25, 2026 at implementation commit `884de66`: 102 shared, 84 Firebase integration, 13 browser, three shell, one PWA and four legacy tests. See COURT_MANAGEMENT.md and INTEGRATION_TEST_REPORT.md.
+
+Remaining Milestone 5 work: player availability, rescheduling requests, notification center and preferences, organizer reminders, organizer operations dashboard, calendar/ICS, and their emulator and browser tests.

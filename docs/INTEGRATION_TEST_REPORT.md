@@ -2,6 +2,12 @@
 
 Date: October 24, 2026. Feature branch: `feat/pprc-sports-triace`. Completed foundation commit: `4faa90a`; original baseline: `2b062c6`.
 
+## Milestone 5 slice 1 — court maintenance blocks
+
+`./pprc.sh test-all` exited **0** on October 25, 2026. Tested implementation commit: `884de66` (on `adfb728`). Actual results: **102 shared unit** (six new court-block cases), **84 Firebase integration across ten files** (four new court-block emulator cases: fixtures avoid a blocked court, direct schedule is rejected then accepted after release, unauthorized/inverted/foreign-court requests denied, court edits keep blocks), **13 browser flows** (two new: club admin blocks and releases a court; non-admin cannot see the form), three browser-shell, one production PWA and four legacy tests passed, with no skipped tests. Migration dry-run/apply/idempotence and Firestore/Auth backup/restore passed. Earlier failing run: the focused emulator run first failed on a fixture with too few teams for the group minimum; the fixture was corrected to four teams and the test rerun. The raw log was kept outside the repository and is not committed.
+
+Milestone 5 remains incomplete: player availability, rescheduling requests, notification center, reminders, organizer dashboard, calendar/ICS and their tests are not implemented. See COURT_MANAGEMENT.md, SCHEDULING_ENGINE.md and NOTIFICATION_ARCHITECTURE.md.
+
 ## Milestone 4 completed gate
 
 `./pprc.sh test-all` exited **0** on October 24, 2026. Tested implementation commit: `b4ec00441a80eb48d0b5d9133f933988b8522a01`. Actual results: **96 shared unit, 80 Firebase integration (nine files), 11 complete browser workflows, three browser-shell, one production PWA and four legacy tests passed**, with zero skipped tests. Actual migration dry-run/apply/reapply and Firestore/Auth export/import/restore passed. Raw log: `.local/validation/milestone4-final-full.log`.
