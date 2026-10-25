@@ -2,6 +2,14 @@
 
 Date: October 24, 2026. Feature branch: `feat/pprc-sports-triace`. Completed foundation commit: `4faa90a`; original baseline: `2b062c6`.
 
+## Completion pass — route audit, journeys and accessibility fixes
+
+`./pprc.sh test-all` exited **0** on October 25, 2026. Tested implementation commit: `ef8f9bd` (on `7b3fa96`). Actual results: **135 shared unit**, **92 Firebase integration (fifteen files)**, **29 browser flows** (new: route audit for guest, player and admin roles with axe WCAG 2.2 AA checks; two journey tests), three browser-shell, one production PWA and four legacy tests passed, with no skipped tests. Migration and backup/restore passed.
+
+Findings from the audit that were fixed: color contrast (filter bar select, panel text, empty states, count badges), and scrollable tables that could not be reached by keyboard. Route checks run on synthetic seeded data; they do not cover every control on each page, so the full UI functionality audit remains open.
+
+Core-flow note: the registration-to-score flow failed intermittently in full runs. The schedule request is now asserted to succeed, so any future rejection reports the server's reason. The failure did not reproduce in the final run, and the root cause of the earlier intermittent failure is not yet confirmed.
+
 ## Milestones 5 and 6 — end-of-milestone gate
 
 `./pprc.sh test-all` exited **0** on October 25, 2026. Tested implementation commit: `973c672` (on `4ef2b49`). Actual results: **135 shared unit**, **92 Firebase integration (fifteen files)**, **24 browser flows**, three browser-shell, one production PWA and four legacy tests passed, with no skipped tests. Migration and backup/restore passed.

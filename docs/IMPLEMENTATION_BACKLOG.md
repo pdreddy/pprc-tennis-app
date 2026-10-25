@@ -83,3 +83,7 @@ Coded, not run: ranking movement from week-close baselines; the match center gro
 
 `./pprc.sh test-all` exited 0 at commit `973c672`: 135 shared, 92 Firebase, 24 browser, three shell, one PWA and four legacy tests. Remaining: full UI functionality audit, accessibility and performance measurements, the Phase 14 scenario list, and team/captain lineup flows beyond the card view.
 
+## Completion pass — gate status
+
+`./pprc.sh test-all` exited 0 at commit `ef8f9bd`: 135 shared, 92 Firebase, 29 browser, three shell, one PWA and four legacy tests. Added route audit with axe WCAG 2.2 AA checks and two journey tests. Remaining: control-level UI functionality audit, manual keyboard and screen-reader checks, device performance measurements, and mobile lineup flow coverage.
+
