@@ -26,6 +26,7 @@ import {
 import { auth, login, signup, googleLogin, emulator } from "./firebase";
 import { SessionProvider, useSession, useList } from "./context";
 import { EventCard, Field, Form, Empty, Panel, text } from "./ui";
+import { PlayerHome } from "./home";
 const EventDetail = lazy(() =>
   import("./player").then((m) => ({ default: m.EventDetail })),
 );
@@ -145,7 +146,7 @@ function Layout() {
           }
         >
           <Routes>
-            <Route path="/" element={<Discover home />} />
+            <Route path="/" element={<HomeRoute />} />
             <Route path="/events" element={<Discover />} />
             <Route path="/events/:eventId" element={<EventDetail />} />
             <Route path="/events/:eventId/triace" element={<EventDetail />} />
@@ -376,6 +377,12 @@ function SignIn() {
     </div>
   );
 }
+// Signed-in players get their own dashboard; guests keep the public landing page.
+function HomeRoute() {
+  const { user, loading } = useSession();
+  if (loading) return <p role="status">Loading…</p>;
+  return user ? <PlayerHome /> : <Discover home />;
+}
 function Discover({ home = false }: { home?: boolean }) {
   const {
     data = [],
@@ -441,11 +448,6 @@ function Discover({ home = false }: { home?: boolean }) {
             Find your next event <ArrowUpRight size={19} />
           </a>
           <div className="hero-proof">
-            <span className="mini-avatars">
-              <i>JL</i>
-              <i>AM</i>
-              <i>RK</i>
-            </span>
             <span>
               All levels. One community.
               <br />
