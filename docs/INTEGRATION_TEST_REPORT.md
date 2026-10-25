@@ -2,6 +2,34 @@
 
 Date: October 24, 2026. Feature branch: `feat/pprc-sports-triace`. Completed foundation commit: `4faa90a`; original baseline: `2b062c6`.
 
+## October 25 independent Milestones 1–6 review and workspace redesign
+
+Pulled `origin/feat/pprc-sports-triace` with a fast-forward from `adfb728` to `52f40d11a5bc361b5ae79bcad748e6696ec38185` before reviewing. Final tested implementation: `7d2623808d3a702d589792c1a630900e5e8e590e`. `./pprc.sh test-all` exited **0** on October 25, 2026: **135 shared unit, 93 Firebase integration (15 files), 31 workflow browser, three browser-shell, one production PWA and four legacy tests**, zero skipped. Actual migration dry-run 3/apply 3/reapply 0 and Firestore/Auth export/stop/import/re-authentication/private-team restoration passed. Final raw log: `.local/validation/review-redesign-final-full-rerun.log`.
+
+### Review outcome
+
+[MASTER_REQUIREMENTS_REVIEW.md](MASTER_REQUIREMENTS_REVIEW.md) maps all **95** supplied DOCX identifiers to source/test selectors and outcomes: 34 local PASS, 47 PARTIAL, one FAIL against the document's automatic-assignment addition, one BLOCKED and 12 NOT VERIFIED. The confirmed ladder policy remains player initiated. Milestones 5 and 6 are **PARTIAL against the complete requests**; historical green milestone headings do not establish complete feature coverage. Major gaps: global cross-event court/player collision protection and reservation/allocation ledger; complete team availability/rescheduling; ranked recommendations; durable reminder/delivery job/retry coverage; all-control/manual device/accessibility/performance verification. Imported reference R1 observations were not independently reproduced without the package in this workspace.
+
+### Implemented and tested changes
+
+- Redesigned the real player home with original midnight/champagne tokens, responsive information cards, authorized activity counts, and an actionable next step selected from owned incoming challenges, pending payments and upcoming singles. No fabricated ratings, statistics, scores or charts. Completed/historically completed challenges leave the active list; match/team/challenge rows open existing workflows.
+- Added keyboard quick search over public tournaments and role-appropriate destinations, desktop navigation, actual unread indicator, skip link and route focus, offline/reconnect messaging and a waiting-worker update control. Shared native dialogs use unique title IDs and a body portal so header navigation CSS cannot hide their contents. Existing player/admin routes and score/registration workflows remain connected.
+- Fixed profile edits discarding stored quiet hours/reminder preferences and the profile form resetting in-app preference. Added a real Firebase regression case verifying persisted settings and unrelated-reader denial.
+- Fixed permission failures from broad published-participant match queries. Home and schedule reuse event-scoped queries derived from the owner's registrations. Firestore rules remain unchanged; failures remain visible instead of becoming fake zero counts.
+- Added two real browser tests for actual public tournament lookup, keyboard/modal/route focus, authorized unread counts, responsive desktop/mobile layouts, axe serious/critical checks, offline status, deep link and refresh. All 29 prior browser flows remain enabled. Synthetic [desktop](screenshots/pprc-workspace-desktop.png) and [mobile](screenshots/pprc-workspace-mobile.png) captures are committed review artifacts, not pixel-regression baselines.
+
+### Failed runs and corrections retained
+
+1. **Fresh baseline failed:** `.local/validation/review-baseline-full.log` passed 135 unit and all 29 browser flows, but Firebase had **86 passed / six failed**. The first positive concurrent ladder-challenge assertion failed; five dependent scenarios cascaded. The original assertion discarded the rejection reason. Diagnostic stacks are now included without changing the assertion, timing, business rules or contention test. Both focused ladder reruns and the final full run passed all 14 cases. **Root cause remains unproven; keep the reliability investigation open.** It is not labelled fixed merely because later runs are green.
+2. Focused UI testing found native dialog focus timing, a header descendant navigation rule hiding search results, and an existing broad-match-query authorization failure once records existed. Explicit focus after dialog opening, the shared dialog portal and event-scoped participant queries corrected these defects. A new test initially expected the wrong inbox capitalization; it now checks the actual existing heading. Data, focus, visibility and accessibility assertions remain strict. The focused rerun passed **seven browser cases** (`review-focused-browser-3.log`).
+3. The first redesigned full gate (`review-redesign-final-full.log`) passed 135 unit, shell/PWA/migration/restore, but workflow browser had **30 passed / one failed**, stopping before the final Firebase stage. KOC timed out waiting for encounter confirmation. The retained trace showed one lineup POST returning 200 and the other aborted (`status -1`) during full-page navigation. Helpers now wait for actual owned lineup persistence and persisted captain confirmation before navigating. Every original score/championship assertion remains. Focused KOC/doubles rerun passed **two**, then the mandatory complete rerun passed all suites.
+
+Focused Firebase validation passed **19** cases (14 ladder + five availability/settings) in `review-focused-firebase.log`. No critical check was mocked, removed, skipped or weakened. No production resource, live payment or real-player data was modified; legacy app/lib/seed source remains unchanged.
+
+### Measured limits and follow-up
+
+Production Vite output: initial JavaScript **843.86 kB**, gzip **220.04 kB**, with a >500 kB chunk warning. This is an artifact measurement, not field Core Web Vitals or a load-capacity certification. Route lazy loading remains; further Firebase/vendor loading work is open. Chromium offline shell and selected automated axe/keyboard checks passed; installed-device multi-version update, physical Safari/Android, manual screen-reader coverage, provider/Scheduler/cloud recovery and remote CI remain unverified. Production readiness remains **NO-GO** pending open requirements and reliability/provider checks.
+
 ## Completion pass — route audit, journeys and accessibility fixes
 
 `./pprc.sh test-all` exited **0** on October 25, 2026. Tested implementation commit: `ef8f9bd` (on `7b3fa96`). Actual results: **135 shared unit**, **92 Firebase integration (fifteen files)**, **29 browser flows** (new: route audit for guest, player and admin roles with axe WCAG 2.2 AA checks; two journey tests), three browser-shell, one production PWA and four legacy tests passed, with no skipped tests. Migration and backup/restore passed.

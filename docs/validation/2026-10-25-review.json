@@ -1,0 +1,62 @@
+{
+  "timestamp": "2026-10-25T00:57:35.625088-05:00",
+  "branch": "feat/pprc-sports-triace",
+  "pulled_base": "52f40d11a5bc361b5ae79bcad748e6696ec38185",
+  "tested_implementation_commit": "7d2623808d3a702d589792c1a630900e5e8e590e",
+  "full_gate": {
+    "command": "./pprc.sh test-all",
+    "exit_code": 0,
+    "integration_last": true,
+    "log": ".local/validation/review-redesign-final-full-rerun.log"
+  },
+  "suites": {
+    "unit": {
+      "passed": 135,
+      "files": 12
+    },
+    "firebase": {
+      "passed": 93,
+      "files": 15
+    },
+    "browser_flows": {
+      "passed": 31
+    },
+    "browser_shell": {
+      "passed": 3
+    },
+    "pwa": {
+      "passed": 1
+    },
+    "legacy": {
+      "passed": 4
+    }
+  },
+  "skipped": 0,
+  "migration": {
+    "dry": 3,
+    "apply": 3,
+    "reapply": 0
+  },
+  "backup_restore": "passed actual Auth/Firestore rehearsal",
+  "review": {
+    "identifiers": 95,
+    "pass": 34,
+    "partial": 47,
+    "fail_against_docx_addition": 1,
+    "blocked": 1,
+    "not_verified": 12,
+    "milestone5": "partial",
+    "milestone6": "partial",
+    "unreproduced_baseline_concurrency_failure": "open investigation"
+  },
+  "measured_build": {
+    "entry_js_kb": 843.86,
+    "entry_gzip_kb": 220.04,
+    "large_chunk_warning": true
+  },
+  "production_deployed": false,
+  "live_payments_enabled": false,
+  "real_player_data_modified": false,
+  "legacy_source_modified": false,
+  "remote_ci": "not verified"
+}
