@@ -185,6 +185,11 @@ test("new player → private-event denial → membership approval → paid regis
   await player.setViewportSize({ width: 390, height: 844 });
   await player
     .locator(".mobile-nav")
+    .getByRole("link", { name: "Profile", exact: true })
+    .click();
+  await expect(player).toHaveURL(/profile/);
+  await player
+    .getByRole("navigation", { name: "More places" })
     .getByRole("link", { name: "Club", exact: true })
     .click();
   await expect(player).toHaveURL(/clubs\/pprc/);
@@ -207,7 +212,7 @@ test("new player → private-event denial → membership approval → paid regis
   );
   const box = await player
     .locator(".mobile-nav")
-    .getByRole("link", { name: "Club", exact: true })
+    .getByRole("link", { name: "Rankings", exact: true })
     .boundingBox();
   expect(box!.height).toBeGreaterThanOrEqual(44);
   await Promise.all([

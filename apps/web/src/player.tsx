@@ -785,6 +785,12 @@ export function Profile() {
       <Link className="button secondary" to="/dashboard">
         View my performance
       </Link>
+      <nav className="quick-links" aria-label="More places">
+        <Link to="/teams">My teams</Link>
+        <Link to="/clubs/pprc">Club</Link>
+        <Link to="/players">Players</Link>
+        <Link to="/results">Results</Link>
+      </nav>
       <p className="lead">A little about you. A better match for everyone.</p>
       <OnboardingSteps />
       <Panel>

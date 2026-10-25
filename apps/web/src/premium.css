@@ -1013,3 +1013,26 @@ footer {
   background: #3d2830;
   border-color: #70404a;
 }
+
+/* Contextual links that replaced the former mobile Teams and Club tabs. */
+.quick-links {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 12px 0 18px;
+}
+.quick-links a {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid currentColor;
+  text-decoration: none;
+  font-weight: 600;
+}
+.quick-links a:focus-visible {
+  outline: 3px solid #efd4a0;
+  outline-offset: 2px;
+}

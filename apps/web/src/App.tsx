@@ -10,6 +10,8 @@ import {
 import { signOut } from "firebase/auth";
 import {
   CalendarDays,
+  Home,
+  Medal,
   Bell,
   Menu,
   X,
@@ -19,8 +21,6 @@ import {
   ChevronRight,
   Search,
   Trophy,
-  Users,
-  Building2,
   UserRound,
 } from "lucide-react";
 import { auth, login, signup, googleLogin, emulator } from "./firebase";
@@ -243,16 +243,22 @@ function Layout() {
         aria-label="Mobile navigation"
         onClick={() => setMenu(false)}
       >
+        {/* Primary destinations. Teams and Club are reached from Profile. */}
         {[
-          ["/events", "Events", CalendarDays],
-          ["/schedule", "Schedule", Trophy],
-          ["/teams", "Teams", Users],
-          ["/clubs/pprc", "Club", Building2],
-          ["/profile", "Me", UserRound],
+          ["/", "Home", Home],
+          ["/events", "Tournaments", Trophy],
+          ["/schedule", "Matches", CalendarDays],
+          ["/rankings", "Rankings", Medal],
+          ["/profile", "Profile", UserRound],
         ].map(([to, label, Icon]) => {
           const I = Icon as typeof CalendarDays;
           return (
-            <NavLink key={String(to)} to={String(to)}>
+            <NavLink
+              key={String(to)}
+              to={String(to)}
+              end={to === "/"}
+              aria-label={String(label)}
+            >
               <I size={21} />
               <span>{String(label)}</span>
             </NavLink>
