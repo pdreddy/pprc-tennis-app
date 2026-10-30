@@ -38,6 +38,16 @@ export type ApiDivision = {
   rules: Record<string, unknown>;
 };
 
+export type ApiRegistration = {
+  id: string;
+  club_id: string;
+  event_id: string;
+  user_id: string;
+  status: "pending" | "confirmed" | "waitlisted" | "withdrawn";
+  waitlist_position: number | null;
+  checked_in_at: string | null;
+};
+
 export async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = await auth.currentUser?.getIdToken();
   if (!token) throw new Error("Sign in before using the PPRC API");
@@ -68,5 +78,7 @@ export const getPublicApiEvent = (eventId: string) => publicApiRequest<ApiEvent>
 export const listPublicApiDivisions = (eventId: string) => publicApiRequest<ApiDivision[]>(`/v1/public/events/${eventId}/divisions`);
 export const getApiEvent = (eventId: string) => apiRequest<ApiEvent>(`/v1/events/${eventId}`);
 export const registerForApiEvent = (eventId: string) => apiRequest(`/v1/events/${eventId}/registrations`, { method: "POST" });
+export const listMyApiRegistrations = () => apiRequest<ApiRegistration[]>("/v1/me/registrations");
+export const withdrawApiRegistration = (registrationId: string) => apiRequest(`/v1/registrations/${registrationId}/withdraw`, { method: "POST" });
 export const listApiNotifications = () => apiRequest<ApiNotification[]>("/v1/notifications");
 export const markApiNotificationRead = (notificationId: string) => apiRequest(`/v1/notifications/${notificationId}/read`, { method: "POST" });
