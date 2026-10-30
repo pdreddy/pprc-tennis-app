@@ -83,10 +83,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 }
 export const useSession = () => useContext(Session);
 
-function toUiEvent(event: ApiEvent): Entity {
+export function toUiEvent(event: ApiEvent): Entity {
   const rules = event.rules ?? {};
   return {
     id: event.id,
+    clubId: event.club_id,
     name: event.name,
     startDate: event.starts_at,
     endDate: String(rules.endDate ?? event.starts_at),
@@ -111,6 +112,7 @@ function toUiDivision(division: ApiDivision): Entity {
   const rules = division.rules ?? {};
   return {
     id: division.id,
+    clubId: division.club_id,
     eventId: division.event_id,
     name: division.name,
     format: division.format,
@@ -129,6 +131,7 @@ function toUiDivision(division: ApiDivision): Entity {
 function toUiRegistration(registration: ApiRegistration): Entity {
   return {
     id: registration.id,
+    clubId: registration.club_id,
     eventId: registration.event_id,
     playerId: registration.user_id,
     state: registration.status === "confirmed" ? "Registered" : registration.status === "waitlisted" ? "Waitlisted" : registration.status,
@@ -140,6 +143,7 @@ function toUiRegistration(registration: ApiRegistration): Entity {
 function toUiNotification(notification: ApiNotification): Entity {
   return {
     id: notification.id,
+    clubId: notification.club_id,
     title: notification.title,
     body: notification.body,
     eventId: String(notification.data.eventId ?? ""),
