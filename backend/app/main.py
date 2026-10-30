@@ -54,6 +54,7 @@ from .schemas import (
     ChampionRead,
     CheckoutRead,
     NotificationRead,
+    StandingRead,
 )
 
 
@@ -658,6 +659,41 @@ async def list_teams(
     if division_id:
         statement = statement.where(Team.division_id == division_id)
     return list((await session.scalars(statement.order_by(Team.name))).all())
+
+
+@app.get("/v1/clubs/{club_id}/fixtures", response_model=list[FixtureRead])
+async def list_fixtures(
+    club_id: UUID,
+    division_id: UUID | None = None,
+    session: AsyncSession = Depends(get_session),
+    actor: Actor = Depends(current_actor),
+) -> list[Fixture]:
+    await require_role(session, club_id, actor.user_id, set(MembershipRole))
+    statement = select(Fixture).where(Fixture.club_id == club_id)
+    if division_id:
+        statement = statement.where(Fixture.division_id == division_id)
+    return list((await session.scalars(statement.order_by(Fixture.starts_at))).all())
+
+
+@app.get("/v1/divisions/{division_id}/standings", response_model=list[StandingRead])
+async def list_division_standings(
+    division_id: UUID,
+    session: AsyncSession = Depends(get_session),
+    actor: Actor = Depends(current_actor),
+) -> list[Standing]:
+    division = await session.get(Division, division_id)
+    if division is None:
+        raise HTTPException(status_code=404, detail="Division not found")
+    await require_role(session, division.club_id, actor.user_id, set(MembershipRole))
+    return list(
+        (
+            await session.scalars(
+                select(Standing)
+                .where(Standing.division_id == division_id, Standing.subject_type == "team")
+                .order_by(Standing.points.desc(), Standing.wins.desc(), Standing.subject_id)
+            )
+        ).all()
+    )
 
 
 @app.post("/v1/clubs/{club_id}/fixtures", response_model=FixtureRead, status_code=status.HTTP_201_CREATED)
