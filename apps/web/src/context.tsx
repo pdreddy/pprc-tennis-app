@@ -113,7 +113,7 @@ function toUiDivision(division: ApiDivision): Entity {
   return {
     id: division.id,
     clubId: division.club_id,
-    eventId: division.event_id,
+    eventId: division.event_id ?? undefined,
     name: division.name,
     format: division.format,
     capacity: division.capacity,
