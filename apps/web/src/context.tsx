@@ -51,20 +51,20 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       }),
     [qc],
   );
-  const profile = useQuery({
+  const profile = useQuery<Entity | undefined>({
       queryKey: ["profile", user?.uid],
-      queryFn: async () => apiEnabled
-        ? { id: user!.uid, displayName: user!.displayName ?? user!.email ?? user!.uid }
+      queryFn: async (): Promise<Entity | undefined> => apiEnabled
+        ? { id: user!.uid, clubId: apiClubId, displayName: user!.displayName ?? user!.email ?? user!.uid }
         : getOne("users", user!.uid),
       enabled: !!user,
     }),
-    member = useQuery({
+    member = useQuery<Entity | undefined>({
       queryKey: ["member", user?.uid],
-      queryFn: async () => {
+      queryFn: async (): Promise<Entity | undefined> => {
         if (!apiEnabled) return getOne("memberships", user!.uid);
         const membership = await getMyApiMembership();
         const role = membership.role === "organizer" ? "eventAdmin" : ["owner", "admin"].includes(membership.role) ? "clubAdmin" : membership.role;
-        return { id: membership.id, role, displayName: membership.display_name };
+        return { id: membership.id, clubId: membership.club_id, role, displayName: membership.display_name };
       },
       enabled: !!user && (!apiEnabled || Boolean(apiClubId)),
     });
