@@ -73,6 +73,10 @@ export type ApiDivisionInput = {
   rules: Record<string, unknown>;
 };
 
+export type ApiTeam = { id: string; club_id: string; division_id: string | null; name: string; captain_user_id: string; status: "pending" | "approved" | "rejected" };
+export type ApiFixture = { id: string; club_id: string; division_id: string; home_team_id: string; away_team_id: string; starts_at: string; score_home: number | null; score_away: number | null; winner_team_id: string | null; status: string; round_name: string; bracket_position: number | null };
+export type ApiStanding = { id: string; division_id: string | null; subject_id: string; played: number; wins: number; losses: number; points: number };
+
 export async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = await auth.currentUser?.getIdToken();
   if (!token) throw new Error("Sign in before using the PPRC API");
@@ -106,6 +110,15 @@ export const getMyApiMembership = () => apiRequest<ApiMembership>(`/v1/clubs/${a
 export const createApiEvent = (event: ApiEventInput) => apiRequest<ApiEvent>(`/v1/clubs/${apiClubId}/events`, { method: "POST", body: JSON.stringify(event) });
 export const updateApiEvent = (eventId: string, event: Partial<ApiEventInput> & { status?: ApiEvent["status"]; audit_reason: string }) => apiRequest<ApiEvent>(`/v1/events/${eventId}`, { method: "PATCH", body: JSON.stringify(event) });
 export const createApiDivision = (eventId: string, division: ApiDivisionInput) => apiRequest<ApiDivision>(`/v1/events/${eventId}/divisions`, { method: "POST", body: JSON.stringify(division) });
+export const listApiTeams = (divisionId?: string) => apiRequest<ApiTeam[]>(`/v1/clubs/${apiClubId}/teams${divisionId ? `?division_id=${divisionId}` : ""}`);
+export const createApiTeam = (team: { division_id: string; name: string; members: { user_id: string; rating: number; lineup_position: number }[] }) => apiRequest<ApiTeam>(`/v1/clubs/${apiClubId}/teams`, { method: "POST", body: JSON.stringify(team) });
+export const approveApiTeam = (teamId: string) => apiRequest<ApiTeam>(`/v1/teams/${teamId}/approve`, { method: "POST" });
+export const listApiFixtures = (divisionId: string) => apiRequest<ApiFixture[]>(`/v1/clubs/${apiClubId}/fixtures?division_id=${divisionId}`);
+export const createApiFixture = (fixture: { division_id: string; home_team_id: string; away_team_id: string; starts_at: string }) => apiRequest<ApiFixture>(`/v1/clubs/${apiClubId}/fixtures`, { method: "POST", body: JSON.stringify(fixture) });
+export const submitApiFixtureResult = (fixtureId: string, result: { score_home: number; score_away: number; home_singles_player_ids: string[]; away_singles_player_ids: string[] }) => apiRequest<ApiFixture>(`/v1/fixtures/${fixtureId}/result`, { method: "POST", body: JSON.stringify(result) });
+export const listApiStandings = (divisionId: string) => apiRequest<ApiStanding[]>(`/v1/divisions/${divisionId}/standings`);
+export const generateApiPlayoffs = (divisionId: string, input: { size: number; starts_at: string; final_starts_at?: string }) => apiRequest<ApiFixture[]>(`/v1/divisions/${divisionId}/playoffs/generate`, { method: "POST", body: JSON.stringify(input) });
+export const getApiChampion = (divisionId: string) => apiRequest<{ champion_team_id: string | null; champion_team_name: string | null }>(`/v1/divisions/${divisionId}/champion`);
 export const registerForApiEvent = (eventId: string) => apiRequest(`/v1/events/${eventId}/registrations`, { method: "POST" });
 export const listMyApiRegistrations = () => apiRequest<ApiRegistration[]>("/v1/me/registrations");
 export const withdrawApiRegistration = (registrationId: string) => apiRequest(`/v1/registrations/${registrationId}/withdraw`, { method: "POST" });
