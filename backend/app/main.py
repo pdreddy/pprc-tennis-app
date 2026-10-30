@@ -5,6 +5,7 @@ from uuid import UUID, uuid4
 
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -661,6 +662,20 @@ async def start_checkout(
     )
     if existing and existing.status == "paid":
         return CheckoutRead(payment_id=existing.id, status="paid", development=existing.provider == "development")
+    if event.entry_fee_cents == 0:
+        # Nothing to charge: record a zero-amount paid payment instead of calling Stripe.
+        free = existing or Payment(
+            club_id=event.club_id,
+            registration_id=registration.id,
+            provider="free",
+            provider_reference=f"free_{uuid4().hex}",
+            amount_cents=0,
+        )
+        free.status = "paid"
+        session.add(free)
+        await session.flush()
+        await session.commit()
+        return CheckoutRead(payment_id=free.id, status="paid", development=False)
     settings = get_settings()
     if not settings.stripe_secret_key:
         if not settings.allow_development_header:
@@ -693,7 +708,8 @@ async def start_checkout(
         if not existing:
             session.add(payment)
             await session.flush()
-        checkout = stripe.checkout.Session.create(
+        checkout = await run_in_threadpool(
+            stripe.checkout.Session.create,
             mode="payment",
             line_items=[
                 {
@@ -841,6 +857,17 @@ async def create_triace_team(
         )
         if prior_team:
             raise HTTPException(status_code=409, detail=f"{member.user_id} is already on an active TRIACE team")
+    if actor.user_id not in {member.user_id for member in payload.members}:
+        await require_role(session, club_id, actor.user_id, {MembershipRole.owner, MembershipRole.admin, MembershipRole.organizer})
+    duplicate_name = await session.scalar(
+        select(Team.id).where(
+            Team.division_id == division.id,
+            func.lower(Team.name) == payload.name.strip().lower(),
+            Team.status.in_([TeamStatus.pending, TeamStatus.approved]),
+        )
+    )
+    if duplicate_name:
+        raise HTTPException(status_code=409, detail="A team with this name already exists in the division")
     for member in payload.members:
         existing_member = await session.scalar(
             select(Membership).where(Membership.club_id == club_id, Membership.user_id == member.user_id)
@@ -857,8 +884,6 @@ async def create_triace_team(
                 )
             )
     await session.flush()
-    if actor.user_id not in {member.user_id for member in payload.members}:
-        await require_role(session, club_id, actor.user_id, {MembershipRole.owner, MembershipRole.admin, MembershipRole.organizer})
     total_rating = round(sum(member.rating for member in payload.members), 2)
     if total_rating < minimum:
         raise HTTPException(status_code=422, detail=f"Combined rating must be at least {minimum}")
