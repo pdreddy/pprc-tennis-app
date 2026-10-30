@@ -63,6 +63,7 @@ class RegistrationRead(ORMModel):
     user_id: str
     status: RegistrationStatus
     waitlist_position: int | None
+    checked_in_at: datetime | None
 
 
 class CheckoutRead(BaseModel):

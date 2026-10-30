@@ -91,6 +91,7 @@ class Registration(Timestamped, Base):
     user_id: Mapped[str] = mapped_column(String(128), index=True)
     status: Mapped[RegistrationStatus] = mapped_column(Enum(RegistrationStatus))
     waitlist_position: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    checked_in_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class Match(Timestamped, Base):

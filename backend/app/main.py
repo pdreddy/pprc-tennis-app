@@ -236,6 +236,15 @@ async def list_events(club_id: UUID, session: AsyncSession = Depends(get_session
     return list((await session.scalars(select(Event).where(Event.club_id == club_id).order_by(Event.starts_at))).all())
 
 
+@app.get("/v1/events/{event_id}", response_model=EventRead)
+async def get_event(event_id: UUID, session: AsyncSession = Depends(get_session), actor: Actor = Depends(current_actor)) -> Event:
+    event = await session.get(Event, event_id)
+    if event is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+    await require_role(session, event.club_id, actor.user_id, set(MembershipRole))
+    return event
+
+
 @app.post("/v1/events/{event_id}/publish", response_model=EventRead)
 async def publish_event(event_id: UUID, session: AsyncSession = Depends(get_session), actor: Actor = Depends(current_actor)) -> Event:
     event = await session.get(Event, event_id)
@@ -270,6 +279,51 @@ async def register(event_id: UUID, session: AsyncSession = Depends(get_session),
     await session.flush()
     await audit(session, event.club_id, actor.user_id, "registration.created", "registration", str(registration.id))
     await notify(session, event.club_id, actor.user_id, "registration", "Registration received", f"You are {registration.status.value} for {event.name}.", {"eventId": str(event.id), "registrationId": str(registration.id)})
+    await session.commit()
+    return registration
+
+
+@app.post("/v1/registrations/{registration_id}/withdraw", response_model=RegistrationRead)
+async def withdraw_registration(
+    registration_id: UUID,
+    session: AsyncSession = Depends(get_session),
+    actor: Actor = Depends(current_actor),
+) -> Registration:
+    registration = await session.get(Registration, registration_id)
+    if registration is None or registration.user_id != actor.user_id:
+        raise HTTPException(status_code=404, detail="Registration not found")
+    if registration.status == RegistrationStatus.withdrawn:
+        return registration
+    registration.status = RegistrationStatus.withdrawn
+    event = await session.get(Event, registration.event_id)
+    promoted = await session.scalar(
+        select(Registration)
+        .where(Registration.event_id == registration.event_id, Registration.status == RegistrationStatus.waitlisted)
+        .order_by(Registration.waitlist_position)
+    )
+    if promoted and event:
+        promoted.status = RegistrationStatus.confirmed
+        promoted.waitlist_position = None
+        await notify(session, event.club_id, promoted.user_id, "registration", "You are in", f"A place opened for {event.name}.", {"eventId": str(event.id), "registrationId": str(promoted.id)})
+    await audit(session, registration.club_id, actor.user_id, "registration.withdrawn", "registration", str(registration.id))
+    await session.commit()
+    return registration
+
+
+@app.post("/v1/registrations/{registration_id}/check-in", response_model=RegistrationRead)
+async def check_in_registration(
+    registration_id: UUID,
+    session: AsyncSession = Depends(get_session),
+    actor: Actor = Depends(current_actor),
+) -> Registration:
+    registration = await session.get(Registration, registration_id)
+    if registration is None:
+        raise HTTPException(status_code=404, detail="Registration not found")
+    await require_role(session, registration.club_id, actor.user_id, {MembershipRole.owner, MembershipRole.admin, MembershipRole.organizer})
+    if registration.status != RegistrationStatus.confirmed:
+        raise HTTPException(status_code=409, detail="Only confirmed registrations can check in")
+    registration.checked_in_at = datetime.now(timezone.utc)
+    await audit(session, registration.club_id, actor.user_id, "registration.checked_in", "registration", str(registration.id))
     await session.commit()
     return registration
 

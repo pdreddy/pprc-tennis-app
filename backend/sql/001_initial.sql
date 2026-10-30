@@ -23,6 +23,7 @@ create table if not exists registrations (
   status text not null check (status in ('pending','confirmed','waitlisted','withdrawn')), waitlist_position integer,
   created_at timestamptz not null default now(), updated_at timestamptz not null default now(), unique(event_id, user_id)
 );
+alter table registrations add column if not exists checked_in_at timestamptz;
 create table if not exists matches (
   id uuid primary key default gen_random_uuid(), club_id uuid not null references clubs(id) on delete cascade,
   event_id uuid not null references events(id) on delete cascade, player_one_id text not null, player_two_id text not null,
