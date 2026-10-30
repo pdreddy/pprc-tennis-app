@@ -49,7 +49,7 @@ The Firebase PWA remains the operating pilot. The FastAPI/PostgreSQL service is 
 | Complete FastAPI API coverage | In progress | Clubs, memberships, events, registration/waitlist are available; teams, TRIACE, schedules, standings, scores, payments, and notifications still need endpoints. |
 | Add TRIACE lifecycle API | In progress | Team registration, three-player roster validation, configurable combined-rating thresholds, admin approval, fixtures, singles-participation eligibility, result recording, standings recalculation, two- or four-team playoff bracket generation, winner advancement, and champion reporting are implemented. Full API integration tests remain. |
 | Add tournament administration API | Not started | Divisions, draws, scheduling, check-in, score confirmation, corrections, and audit views work end to end. |
-| Add FastAPI test suite | Not started | API authorization, tenant isolation, waitlist contention, score workflow, and TRIACE eligibility tests pass. |
+| Add FastAPI test suite | In progress | Dockerized TRIACE team-to-champion API smoke test is added. Authorization, tenant isolation, waitlist contention, and correction-path coverage remain. |
 | Build Firebase-to-PostgreSQL staging import | In progress | Existing importer runs against staging and produces a count/reconciliation report. |
 | Add PWA data-provider switch | Not started | Per-club feature flag selects Firebase or FastAPI without changing screens. |
 
@@ -93,6 +93,7 @@ This is a functional reference checklist only. PPRC uses original branding and i
 ```bash
 ./pprc.sh up
 ./pprc.sh test-all
+./pprc.sh test-api
 pnpm events:integration
 pnpm events:e2e
 pnpm events:ui

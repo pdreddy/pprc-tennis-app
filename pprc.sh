@@ -55,9 +55,15 @@ case "${1:-help}" in
     pnpm frontend:typecheck
     pnpm backend:build
     pnpm shared:test
-    python3 -m compileall -q backend/app
+    python3 -m compileall -q backend/app backend/tests backend/scripts
     docker compose config --quiet
     echo "Static checks and Compose configuration passed. Run './pprc.sh up' for the PostgreSQL/FastAPI smoke test."
+    ;;
+  test-api)
+    need docker; need curl
+    docker compose up -d --build
+    wait_for http://localhost:8000/health
+    docker compose --profile test run --rm api-tests
     ;;
   *)
     cat <<'USAGE'
@@ -66,6 +72,7 @@ Usage: ./pprc.sh <command>
   down              Stop the local FastAPI/PostgreSQL stack
   reset-local-data  Stop stack and delete only its local Docker volume
   test-all          Run PWA/shared/backend build checks plus FastAPI syntax checks
+  test-api          Start local containers and run the FastAPI TRIACE end-to-end test
 USAGE
     ;;
 esac

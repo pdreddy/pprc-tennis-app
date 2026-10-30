@@ -27,5 +27,15 @@ services:
       postgres:
         condition: service_healthy
 
+  api-tests:
+    build: ./backend
+    command: pytest -q
+    environment:
+      API_BASE_URL: http://api:8000
+    depends_on:
+      api:
+        condition: service_started
+    profiles: ["test"]
+
 volumes:
   pprc-postgres:
