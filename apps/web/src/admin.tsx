@@ -1,5 +1,6 @@
 import { ScoreForm } from "./scoring";
 import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Link,
   NavLink,
@@ -21,7 +22,7 @@ import {
 } from "lucide-react";
 import { ref, uploadBytes, getBlob } from "firebase/storage";
 import { storage } from "./firebase";
-import { apiEnabled } from "./api";
+import { apiEnabled, approveApiTeam, createApiFixture, createApiTeam, generateApiPlayoffs, getApiChampion, listApiFixtures, listApiStandings, listApiTeams, submitApiFixtureResult } from "./api";
 import {
   canManage,
   formats,
@@ -921,6 +922,13 @@ function TriaceEventOperations({ event, divisions }: { event: Entity; divisions:
   const action = useAction();
   const [message, setMessage] = useState("");
   const rules = (event.rules ?? {}) as Record<string, unknown>;
+  const division = divisions[0];
+  const qc = useQueryClient();
+  const teams = useQuery({ queryKey: ["triace", "teams", division?.id], queryFn: () => listApiTeams(division!.id), enabled: !!division });
+  const fixtures = useQuery({ queryKey: ["triace", "fixtures", division?.id], queryFn: () => listApiFixtures(division!.id), enabled: !!division });
+  const standings = useQuery({ queryKey: ["triace", "standings", division?.id], queryFn: () => listApiStandings(division!.id), enabled: !!division });
+  const champion = useQuery({ queryKey: ["triace", "champion", division?.id], queryFn: () => getApiChampion(division!.id), enabled: !!division });
+  const refresh = async () => qc.invalidateQueries({ queryKey: ["triace"] });
   const save = async (status: "published" | "closed" | "completed") => {
     await action("updateTriaceEvent", {
       eventId: event.id,
@@ -994,9 +1002,31 @@ function TriaceEventOperations({ event, divisions }: { event: Entity; divisions:
       <Panel title="Divisions">
         {divisions.map((division) => <div className="division-row" key={division.id}><strong>{division.name}</strong><span>{division.format} · {division.capacity} teams</span></div>)}
       </Panel>
-      <Panel title="Operations next">
-        <p>Team approval, fixtures, score entry, standings, and playoffs are managed by the TRIACE API. Their dedicated API-mode screens are the next delivery slice.</p>
-      </Panel>
+      {!division ? <Empty title="Create a TRIACE division first" /> : <>
+        <Panel title="Team registration and approval">
+          <Form label="Add a three-player team" onSubmit={async (form) => {
+            await createApiTeam({ division_id: division.id, name: text(form, "teamName"), members: [1, 2, 3].map((position) => ({ user_id: text(form, `player${position}`), rating: number(form, `rating${position}`), lineup_position: position })) });
+            await refresh(); setMessage("Team added for organizer approval.");
+          }}>
+            <Field label="Team name"><input name="teamName" required /></Field>
+            {[1, 2, 3].map((position) => <div className="form-grid" key={position}><Field label={`Player ${position} Firebase UID`}><input name={`player${position}`} required /></Field><Field label={`Player ${position} UTR`}><input name={`rating${position}`} type="number" min="0" max="20" step="0.01" required /></Field></div>)}
+          </Form>
+          {(teams.data ?? []).map((team) => <div className="division-row" key={team.id}><span><strong>{team.name}</strong> · {team.status}</span>{team.status === "pending" && <Action onClick={async () => { await approveApiTeam(team.id); await refresh(); }}>Approve team</Action>}</div>)}
+        </Panel>
+        <Panel title="Fixtures and scores">
+          <Form label="Schedule fixture" onSubmit={async (form) => { await createApiFixture({ division_id: division.id, home_team_id: text(form, "homeTeam"), away_team_id: text(form, "awayTeam"), starts_at: new Date(text(form, "startsAt")).toISOString() }); await refresh(); }}>
+            <Field label="Home team"><select name="homeTeam">{(teams.data ?? []).filter((team) => team.status === "approved").map((team) => <option value={team.id} key={team.id}>{team.name}</option>)}</select></Field>
+            <Field label="Away team"><select name="awayTeam">{(teams.data ?? []).filter((team) => team.status === "approved").map((team) => <option value={team.id} key={team.id}>{team.name}</option>)}</select></Field>
+            <Field label="Starts at"><input name="startsAt" type="datetime-local" required /></Field>
+          </Form>
+          {(fixtures.data ?? []).map((fixture) => <details key={fixture.id}><summary>{fixture.round_name} · {fixture.starts_at} · {fixture.status}</summary><Form label="Finalize result" onSubmit={async (form) => { await submitApiFixtureResult(fixture.id, { score_home: number(form, "homeScore"), score_away: number(form, "awayScore"), home_singles_player_ids: text(form, "homePlayers").split(",").map((value) => value.trim()).filter(Boolean), away_singles_player_ids: text(form, "awayPlayers").split(",").map((value) => value.trim()).filter(Boolean) }); await refresh(); }}><Field label="Home score"><input name="homeScore" type="number" min="0" required /></Field><Field label="Away score"><input name="awayScore" type="number" min="0" required /></Field><Field label="Home singles player UIDs (comma-separated)"><input name="homePlayers" required /></Field><Field label="Away singles player UIDs (comma-separated)"><input name="awayPlayers" required /></Field></Form></details>)}
+        </Panel>
+        <Panel title="Standings and playoffs">
+          <div className="table-scroll"><table><thead><tr><th>Team</th><th>P</th><th>W</th><th>L</th><th>Points</th></tr></thead><tbody>{(standings.data ?? []).map((row) => <tr key={row.id}><td>{(teams.data ?? []).find((team) => team.id === row.subject_id)?.name ?? row.subject_id}</td><td>{row.played}</td><td>{row.wins}</td><td>{row.losses}</td><td>{row.points}</td></tr>)}</tbody></table></div>
+          <Form label="Generate playoff bracket" onSubmit={async (form) => { await generateApiPlayoffs(division.id, { size: number(form, "size"), starts_at: new Date(text(form, "startsAt")).toISOString() }); await refresh(); }}><Field label="Playoff teams"><select name="size" defaultValue={String(rules.playoffSize ?? 4)}><option value="2">2</option><option value="4">4</option></select></Field><Field label="First playoff start"><input name="startsAt" type="datetime-local" required /></Field></Form>
+          {champion.data?.champion_team_name && <p className="notice">Champion: {champion.data.champion_team_name}</p>}
+        </Panel>
+      </>}
     </div>
   );
 }
