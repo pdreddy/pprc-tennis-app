@@ -103,8 +103,10 @@ def triace_rule_values(event_rules: dict, division_rules: dict) -> tuple[float, 
     playoff_size = int(division_rules.get("playoffSize", event_rules.get("playoffSize", 4)))
     if team_size != 3:
         raise HTTPException(status_code=422, detail="TRIACE requires exactly three players per team")
-    if not 0 <= minimum <= maximum <= 20:
-        raise HTTPException(status_code=422, detail="Combined UTR bounds must be between 0 and 20")
+    # Individual roster ratings are capped at 20 by TeamMemberInput. A TRIACE
+    # team is three players, so its configurable combined range is 0–60.
+    if not 0 <= minimum <= maximum <= 60:
+        raise HTTPException(status_code=422, detail="Combined UTR bounds must be between 0 and 60")
     if not 0 < participation <= 1:
         raise HTTPException(status_code=422, detail="Singles participation percentage must be greater than 0 and at most 100%")
     if playoff_size not in {2, 4}:
