@@ -45,6 +45,7 @@ from .schemas import (
     FixtureRead,
     FixtureResult,
     FixtureCorrection,
+    FixtureDispute,
     MembershipCreate,
     MembershipRead,
     RegistrationRead,
@@ -56,6 +57,7 @@ from .schemas import (
     ChampionRead,
     CheckoutRead,
     NotificationRead,
+    AuditLogRead,
     StandingRead,
 )
 
@@ -99,6 +101,82 @@ def triace_rule_values(event_rules: dict, division_rules: dict) -> tuple[float, 
     if playoff_size not in {2, 4}:
         raise HTTPException(status_code=422, detail="TRIACE playoffs support two or four teams")
     return minimum, maximum, participation, playoff_size
+
+
+def triace_rubber_detail(payload: FixtureResult, fixture: Fixture, home_members: dict[str, int | None], away_members: dict[str, int | None]) -> dict:
+    """Validate the detailed TRIACE result and keep its per-rubber record durable."""
+    rubbers = [item.model_dump() for item in payload.rubbers]
+    if not rubbers:
+        if fixture.round_name.startswith("playoff"):
+            raise HTTPException(status_code=422, detail="TRIACE playoff results require two singles, two doubles, and one super tiebreak")
+        return {}
+    kinds = [item["kind"] for item in rubbers]
+    required = ["singles", "singles", "doubles", "doubles", "super_tiebreak"]
+    if fixture.round_name.startswith("playoff") and sorted(kinds) != sorted(required):
+        raise HTTPException(status_code=422, detail="Playoff results require exactly two singles, two doubles, and one super tiebreak")
+    home_wins = away_wins = 0
+    for item in rubbers:
+        if item["home_score"] == item["away_score"]:
+            raise HTTPException(status_code=422, detail="Individual TRIACE rubbers cannot end in a tie")
+        home_ids, away_ids = set(item["home_player_ids"]), set(item["away_player_ids"])
+        expected = 2 if item["kind"] == "doubles" else 1
+        if len(home_ids) != expected or len(away_ids) != expected:
+            raise HTTPException(status_code=422, detail=f"{item['kind']} requires {expected} player(s) per side")
+        if not home_ids.issubset(home_members) or not away_ids.issubset(away_members):
+            raise HTTPException(status_code=422, detail="Rubber players must be active members of their assigned team")
+        if item["kind"] == "singles" and (home_members[next(iter(home_ids))] not in {1, 2} or away_members[next(iter(away_ids))] not in {1, 2}):
+            raise HTTPException(status_code=422, detail="TRIACE singles must be played by lineup position P1 or P2")
+        if item["kind"] == "doubles":
+            allowed_pairs = ({1, 3}, {2, 3})
+            if {home_members[user_id] for user_id in home_ids} not in allowed_pairs or {away_members[user_id] for user_id in away_ids} not in allowed_pairs:
+                raise HTTPException(status_code=422, detail="TRIACE doubles must pair P1+P3 or P2+P3")
+        if item["kind"] == "super_tiebreak" and max(item["home_score"], item["away_score"]) < 10:
+            raise HTTPException(status_code=422, detail="The super tiebreak winner must reach 10 points")
+        if item["home_score"] > item["away_score"]:
+            home_wins += 1
+        else:
+            away_wins += 1
+    if home_wins != payload.score_home or away_wins != payload.score_away:
+        raise HTTPException(status_code=422, detail="Fixture totals must equal the submitted rubber wins")
+    return {"rubbers": rubbers}
+
+
+async def apply_fixture_result(session: AsyncSession, fixture: Fixture, payload: FixtureResult, actor_id: str, *, finalized: bool) -> None:
+    if payload.score_home == payload.score_away:
+        raise HTTPException(status_code=422, detail="TRIACE fixture results cannot end in a tie")
+    home_members = {member.user_id: member.lineup_position for member in (await session.scalars(select(TeamMember).where(TeamMember.team_id == fixture.home_team_id, TeamMember.active.is_(True)))).all()}
+    away_members = {member.user_id: member.lineup_position for member in (await session.scalars(select(TeamMember).where(TeamMember.team_id == fixture.away_team_id, TeamMember.active.is_(True)))).all()}
+    home_players, away_players = set(payload.home_singles_player_ids), set(payload.away_singles_player_ids)
+    if len(home_players) != len(payload.home_singles_player_ids) or len(away_players) != len(payload.away_singles_player_ids):
+        raise HTTPException(status_code=422, detail="A player can appear only once per team fixture")
+    if not home_players.issubset(home_members) or not away_players.issubset(away_members):
+        raise HTTPException(status_code=422, detail="Singles players must be active members of their assigned team")
+    detail = triace_rubber_detail(payload, fixture, home_members, away_members)
+    detail.update({"reportedBy": actor_id, "reportedAt": datetime.now(timezone.utc).isoformat(), "dispute": None})
+    fixture.score_home, fixture.score_away = payload.score_home, payload.score_away
+    fixture.winner_team_id = fixture.home_team_id if payload.score_home > payload.score_away else fixture.away_team_id
+    fixture.result_detail = detail
+    fixture.status = FixtureStatus.finalized if finalized else FixtureStatus.reported
+    await session.execute(PlayerAppearance.__table__.delete().where(PlayerAppearance.fixture_id == fixture.id))
+    for team_id, player_ids in ((fixture.home_team_id, home_players), (fixture.away_team_id, away_players)):
+        for user_id in player_ids:
+            session.add(PlayerAppearance(club_id=fixture.club_id, division_id=fixture.division_id, fixture_id=fixture.id, team_id=team_id, user_id=user_id))
+    if finalized:
+        await rebuild_team_standings(session, fixture.club_id, fixture.division_id)
+
+
+async def create_playoff_final_if_ready(session: AsyncSession, fixture: Fixture) -> None:
+    if fixture.round_name != "playoff_semifinal":
+        return
+    semifinals = list((await session.scalars(select(Fixture).where(Fixture.division_id == fixture.division_id, Fixture.round_name == "playoff_semifinal").order_by(Fixture.bracket_position))).all())
+    final_exists = await session.scalar(select(Fixture).where(Fixture.division_id == fixture.division_id, Fixture.round_name == "playoff_final"))
+    if len(semifinals) == 2 and all(item.status == FixtureStatus.finalized and item.winner_team_id for item in semifinals) and final_exists is None:
+        session.add(Fixture(
+            club_id=fixture.club_id, division_id=fixture.division_id,
+            home_team_id=semifinals[0].winner_team_id, away_team_id=semifinals[1].winner_team_id,
+            starts_at=max(item.starts_at for item in semifinals) + timedelta(days=7),
+            round_name="playoff_final", bracket_position=3,
+        ))
 
 
 async def rebuild_team_standings(session: AsyncSession, club_id: UUID, division_id: UUID) -> None:
@@ -259,6 +337,22 @@ async def get_my_membership(club_id: UUID, session: AsyncSession = Depends(get_s
     return membership
 
 
+@app.get("/v1/clubs/{club_id}/audit-logs", response_model=list[AuditLogRead])
+async def list_audit_logs(
+    club_id: UUID,
+    entity_id: str | None = None,
+    limit: int = 200,
+    session: AsyncSession = Depends(get_session),
+    actor: Actor = Depends(current_actor),
+) -> list[AuditLog]:
+    """Staff-only immutable operational history, optionally narrowed to one entity."""
+    await require_role(session, club_id, actor.user_id, {MembershipRole.owner, MembershipRole.admin, MembershipRole.organizer})
+    statement = select(AuditLog).where(AuditLog.club_id == club_id)
+    if entity_id:
+        statement = statement.where(AuditLog.entity_id == entity_id)
+    return list((await session.scalars(statement.order_by(AuditLog.created_at.desc()).limit(min(max(limit, 1), 500)))).all())
+
+
 @app.post("/v1/clubs/{club_id}/events", response_model=EventRead, status_code=status.HTTP_201_CREATED)
 async def create_event(club_id: UUID, payload: EventCreate, session: AsyncSession = Depends(get_session), actor: Actor = Depends(current_actor)) -> Event:
     await require_role(session, club_id, actor.user_id, {MembershipRole.owner, MembershipRole.admin, MembershipRole.organizer})
@@ -359,10 +453,15 @@ async def update_event(
     division = await session.scalar(select(Division).where(Division.event_id == event.id))
     proposed_rules = payload.rules if payload.rules is not None else event.rules
     if division and division.format == "triace_team_round_robin":
-        triace_rule_values(proposed_rules, division.rules)
+        proposed_division_rules = dict(division.rules)
+        if payload.rules is not None:
+            for key in ("teamMinRating", "teamMaxRating", "minSinglesParticipationPct", "playoffSize"):
+                if key in payload.rules:
+                    proposed_division_rules[key] = payload.rules[key]
+        triace_rule_values(proposed_rules, proposed_division_rules)
         proposed_capacity = payload.capacity if payload.capacity is not None else event.capacity
-        if proposed_capacity < division.capacity:
-            raise HTTPException(status_code=422, detail="Event team capacity cannot be lower than its TRIACE division capacity")
+        division.rules = proposed_division_rules
+        division.capacity = proposed_capacity
     for field, value in payload.model_dump(exclude_none=True, exclude={"audit_reason"}).items():
         setattr(event, field, value)
     await audit(session, event.club_id, actor.user_id, "event.updated", "event", str(event.id), payload.audit_reason)
@@ -863,51 +962,97 @@ async def record_fixture_result(
         raise HTTPException(status_code=409, detail="Completed events cannot accept score changes")
     if fixture.status == FixtureStatus.finalized:
         raise HTTPException(status_code=409, detail="Finalized scores require the correction endpoint and an audit reason")
-    if payload.score_home == payload.score_away:
-        raise HTTPException(status_code=422, detail="TRIACE fixture results cannot end in a tie")
-    home_members = set((await session.scalars(select(TeamMember.user_id).where(TeamMember.team_id == fixture.home_team_id, TeamMember.active.is_(True)))).all())
-    away_members = set((await session.scalars(select(TeamMember.user_id).where(TeamMember.team_id == fixture.away_team_id, TeamMember.active.is_(True)))).all())
-    home_players, away_players = set(payload.home_singles_player_ids), set(payload.away_singles_player_ids)
-    if len(home_players) != len(payload.home_singles_player_ids) or len(away_players) != len(payload.away_singles_player_ids):
-        raise HTTPException(status_code=422, detail="A player can appear only once per team fixture")
-    if not home_players.issubset(home_members) or not away_players.issubset(away_members):
-        raise HTTPException(status_code=422, detail="Singles players must be active members of their assigned team")
-    fixture.score_home = payload.score_home
-    fixture.score_away = payload.score_away
-    fixture.winner_team_id = fixture.home_team_id if payload.score_home > payload.score_away else fixture.away_team_id
-    fixture.status = FixtureStatus.finalized
-    await session.execute(PlayerAppearance.__table__.delete().where(PlayerAppearance.fixture_id == fixture.id))
-    for team_id, player_ids in ((fixture.home_team_id, home_players), (fixture.away_team_id, away_players)):
-        for user_id in player_ids:
-            session.add(PlayerAppearance(club_id=fixture.club_id, division_id=fixture.division_id, fixture_id=fixture.id, team_id=team_id, user_id=user_id))
-    await rebuild_team_standings(session, fixture.club_id, fixture.division_id)
-    if fixture.round_name == "playoff_semifinal":
-        semifinals = list(
-            (
-                await session.scalars(
-                    select(Fixture).where(
-                        Fixture.division_id == fixture.division_id,
-                        Fixture.round_name == "playoff_semifinal",
-                    ).order_by(Fixture.bracket_position)
-                )
-            ).all()
-        )
-        final_exists = await session.scalar(
-            select(Fixture).where(Fixture.division_id == fixture.division_id, Fixture.round_name == "playoff_final")
-        )
-        if len(semifinals) == 2 and all(item.status == FixtureStatus.finalized and item.winner_team_id for item in semifinals) and final_exists is None:
-            session.add(
-                Fixture(
-                    club_id=fixture.club_id,
-                    division_id=fixture.division_id,
-                    home_team_id=semifinals[0].winner_team_id,
-                    away_team_id=semifinals[1].winner_team_id,
-                    starts_at=max(item.starts_at for item in semifinals) + timedelta(days=7),
-                    round_name="playoff_final",
-                    bracket_position=3,
-                )
-            )
+    await apply_fixture_result(session, fixture, payload, actor.user_id, finalized=True)
+    await create_playoff_final_if_ready(session, fixture)
     await audit(session, fixture.club_id, actor.user_id, "fixture.finalized", "fixture", str(fixture.id))
+    await session.commit()
+    return fixture
+
+
+@app.post("/v1/fixtures/{fixture_id}/report-result", response_model=FixtureRead)
+async def report_fixture_result(
+    fixture_id: UUID,
+    payload: FixtureResult,
+    session: AsyncSession = Depends(get_session),
+    actor: Actor = Depends(current_actor),
+) -> Fixture:
+    """A captain submits a score; the opposing captain must confirm or dispute it."""
+    fixture = await session.get(Fixture, fixture_id)
+    if fixture is None:
+        raise HTTPException(status_code=404, detail="Fixture not found")
+    home, away = await session.get(Team, fixture.home_team_id), await session.get(Team, fixture.away_team_id)
+    if actor.user_id not in {home.captain_user_id, away.captain_user_id}:
+        raise HTTPException(status_code=403, detail="Only a participating team captain can report this score")
+    division = await session.get(Division, fixture.division_id)
+    event = await session.get(Event, division.event_id) if division and division.event_id else None
+    if event and event.status == EventStatus.completed:
+        raise HTTPException(status_code=409, detail="Completed events cannot accept score changes")
+    if fixture.status == FixtureStatus.finalized:
+        raise HTTPException(status_code=409, detail="Finalized scores require an organizer correction")
+    if fixture.status == FixtureStatus.reported and fixture.result_detail.get("reportedBy") != actor.user_id:
+        raise HTTPException(status_code=409, detail="Awaiting the opposing captain's confirmation or dispute")
+    await apply_fixture_result(session, fixture, payload, actor.user_id, finalized=False)
+    other = away if actor.user_id == home.captain_user_id else home
+    await notify(session, fixture.club_id, other.captain_user_id, "fixture", "Score awaiting confirmation", f"{home.name} vs {away.name} needs your confirmation.", {"fixtureId": str(fixture.id)})
+    await audit(session, fixture.club_id, actor.user_id, "fixture.reported", "fixture", str(fixture.id))
+    await session.commit()
+    return fixture
+
+
+@app.post("/v1/fixtures/{fixture_id}/confirm-result", response_model=FixtureRead)
+async def confirm_fixture_result(
+    fixture_id: UUID,
+    session: AsyncSession = Depends(get_session),
+    actor: Actor = Depends(current_actor),
+) -> Fixture:
+    fixture = await session.get(Fixture, fixture_id)
+    if fixture is None:
+        raise HTTPException(status_code=404, detail="Fixture not found")
+    if fixture.status != FixtureStatus.reported:
+        raise HTTPException(status_code=409, detail="Only a reported score can be confirmed")
+    division = await session.get(Division, fixture.division_id)
+    event = await session.get(Event, division.event_id) if division and division.event_id else None
+    if event and event.status == EventStatus.completed:
+        raise HTTPException(status_code=409, detail="Completed events cannot accept score changes")
+    home, away = await session.get(Team, fixture.home_team_id), await session.get(Team, fixture.away_team_id)
+    reporter = fixture.result_detail.get("reportedBy")
+    expected = away.captain_user_id if reporter == home.captain_user_id else home.captain_user_id
+    if actor.user_id != expected:
+        raise HTTPException(status_code=403, detail="The opposing captain must confirm this result")
+    fixture.status = FixtureStatus.finalized
+    fixture.result_detail = {**fixture.result_detail, "confirmedBy": actor.user_id, "confirmedAt": datetime.now(timezone.utc).isoformat(), "dispute": None}
+    await rebuild_team_standings(session, fixture.club_id, fixture.division_id)
+    await create_playoff_final_if_ready(session, fixture)
+    await audit(session, fixture.club_id, actor.user_id, "fixture.confirmed", "fixture", str(fixture.id))
+    await session.commit()
+    return fixture
+
+
+@app.post("/v1/fixtures/{fixture_id}/dispute-result", response_model=FixtureRead)
+async def dispute_fixture_result(
+    fixture_id: UUID,
+    payload: FixtureDispute,
+    session: AsyncSession = Depends(get_session),
+    actor: Actor = Depends(current_actor),
+) -> Fixture:
+    fixture = await session.get(Fixture, fixture_id)
+    if fixture is None:
+        raise HTTPException(status_code=404, detail="Fixture not found")
+    if fixture.status != FixtureStatus.reported:
+        raise HTTPException(status_code=409, detail="Only a reported score can be disputed")
+    division = await session.get(Division, fixture.division_id)
+    event = await session.get(Event, division.event_id) if division and division.event_id else None
+    if event and event.status == EventStatus.completed:
+        raise HTTPException(status_code=409, detail="Completed events cannot accept score changes")
+    home, away = await session.get(Team, fixture.home_team_id), await session.get(Team, fixture.away_team_id)
+    reporter = fixture.result_detail.get("reportedBy")
+    expected = away.captain_user_id if reporter == home.captain_user_id else home.captain_user_id
+    if actor.user_id != expected:
+        raise HTTPException(status_code=403, detail="The opposing captain must raise a dispute")
+    fixture.result_detail = {**fixture.result_detail, "dispute": {"by": actor.user_id, "reason": payload.reason, "at": datetime.now(timezone.utc).isoformat()}}
+    await notify(session, fixture.club_id, home.captain_user_id, "fixture", "Score disputed", f"{home.name} vs {away.name} needs organizer review.", {"fixtureId": str(fixture.id)})
+    await notify(session, fixture.club_id, away.captain_user_id, "fixture", "Score disputed", f"{home.name} vs {away.name} needs organizer review.", {"fixtureId": str(fixture.id)})
+    await audit(session, fixture.club_id, actor.user_id, "fixture.disputed", "fixture", str(fixture.id), payload.reason)
     await session.commit()
     return fixture
 
@@ -929,23 +1074,7 @@ async def correct_fixture_result(
         raise HTTPException(status_code=409, detail="Completed events cannot accept score changes")
     if fixture.status != FixtureStatus.finalized:
         raise HTTPException(status_code=409, detail="Only finalized fixtures require a correction")
-    if payload.score_home == payload.score_away:
-        raise HTTPException(status_code=422, detail="TRIACE fixture results cannot end in a tie")
-    home_members = set((await session.scalars(select(TeamMember.user_id).where(TeamMember.team_id == fixture.home_team_id, TeamMember.active.is_(True)))).all())
-    away_members = set((await session.scalars(select(TeamMember.user_id).where(TeamMember.team_id == fixture.away_team_id, TeamMember.active.is_(True)))).all())
-    home_players, away_players = set(payload.home_singles_player_ids), set(payload.away_singles_player_ids)
-    if len(home_players) != len(payload.home_singles_player_ids) or len(away_players) != len(payload.away_singles_player_ids):
-        raise HTTPException(status_code=422, detail="A player can appear only once per team fixture")
-    if not home_players.issubset(home_members) or not away_players.issubset(away_members):
-        raise HTTPException(status_code=422, detail="Singles players must be active members of their assigned team")
-    fixture.score_home = payload.score_home
-    fixture.score_away = payload.score_away
-    fixture.winner_team_id = fixture.home_team_id if payload.score_home > payload.score_away else fixture.away_team_id
-    await session.execute(PlayerAppearance.__table__.delete().where(PlayerAppearance.fixture_id == fixture.id))
-    for team_id, player_ids in ((fixture.home_team_id, home_players), (fixture.away_team_id, away_players)):
-        for user_id in player_ids:
-            session.add(PlayerAppearance(club_id=fixture.club_id, division_id=fixture.division_id, fixture_id=fixture.id, team_id=team_id, user_id=user_id))
-    await rebuild_team_standings(session, fixture.club_id, fixture.division_id)
+    await apply_fixture_result(session, fixture, payload, actor.user_id, finalized=True)
     await audit(session, fixture.club_id, actor.user_id, "fixture.corrected", "fixture", str(fixture.id), payload.audit_reason)
     await session.commit()
     return fixture
