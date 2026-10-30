@@ -74,8 +74,9 @@ export type ApiDivisionInput = {
 };
 
 export type ApiTeam = { id: string; club_id: string; division_id: string | null; name: string; captain_user_id: string; status: "pending" | "approved" | "rejected" };
-export type ApiFixture = { id: string; club_id: string; division_id: string; home_team_id: string; away_team_id: string; starts_at: string; score_home: number | null; score_away: number | null; winner_team_id: string | null; status: string; round_name: string; bracket_position: number | null };
+export type ApiFixture = { id: string; club_id: string; division_id: string; home_team_id: string; away_team_id: string; starts_at: string; score_home: number | null; score_away: number | null; winner_team_id: string | null; status: string; result_detail: Record<string, unknown>; round_name: string; bracket_position: number | null };
 export type ApiStanding = { id: string; division_id: string | null; subject_id: string; played: number; wins: number; losses: number; points: number };
+export type ApiAuditLog = { id: string; club_id: string; actor_id: string; action: string; entity_type: string; entity_id: string; detail: string | null; created_at: string };
 
 export async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = await auth.currentUser?.getIdToken();
@@ -117,6 +118,9 @@ export const approveApiTeam = (teamId: string) => apiRequest<ApiTeam>(`/v1/teams
 export const listApiFixtures = (divisionId: string) => apiRequest<ApiFixture[]>(`/v1/clubs/${apiClubId}/fixtures?division_id=${divisionId}`);
 export const createApiFixture = (fixture: { division_id: string; home_team_id: string; away_team_id: string; starts_at: string }) => apiRequest<ApiFixture>(`/v1/clubs/${apiClubId}/fixtures`, { method: "POST", body: JSON.stringify(fixture) });
 export const submitApiFixtureResult = (fixtureId: string, result: { score_home: number; score_away: number; home_singles_player_ids: string[]; away_singles_player_ids: string[] }) => apiRequest<ApiFixture>(`/v1/fixtures/${fixtureId}/result`, { method: "POST", body: JSON.stringify(result) });
+export const reportApiFixtureResult = (fixtureId: string, result: { score_home: number; score_away: number; home_singles_player_ids: string[]; away_singles_player_ids: string[]; rubbers?: { kind: "singles" | "doubles" | "super_tiebreak"; home_player_ids: string[]; away_player_ids: string[]; home_score: number; away_score: number }[] }) => apiRequest<ApiFixture>(`/v1/fixtures/${fixtureId}/report-result`, { method: "POST", body: JSON.stringify(result) });
+export const confirmApiFixtureResult = (fixtureId: string) => apiRequest<ApiFixture>(`/v1/fixtures/${fixtureId}/confirm-result`, { method: "POST" });
+export const disputeApiFixtureResult = (fixtureId: string, reason: string) => apiRequest<ApiFixture>(`/v1/fixtures/${fixtureId}/dispute-result`, { method: "POST", body: JSON.stringify({ reason }) });
 export const correctApiFixtureResult = (fixtureId: string, result: { score_home: number; score_away: number; home_singles_player_ids: string[]; away_singles_player_ids: string[]; audit_reason: string }) => apiRequest<ApiFixture>(`/v1/fixtures/${fixtureId}/correct-result`, { method: "POST", body: JSON.stringify(result) });
 export const listApiStandings = (divisionId: string) => apiRequest<ApiStanding[]>(`/v1/divisions/${divisionId}/standings`);
 export const generateApiPlayoffs = (divisionId: string, input: { size: number; starts_at: string; final_starts_at?: string }) => apiRequest<ApiFixture[]>(`/v1/divisions/${divisionId}/playoffs/generate`, { method: "POST", body: JSON.stringify(input) });
@@ -126,3 +130,4 @@ export const listMyApiRegistrations = () => apiRequest<ApiRegistration[]>("/v1/m
 export const withdrawApiRegistration = (registrationId: string) => apiRequest(`/v1/registrations/${registrationId}/withdraw`, { method: "POST" });
 export const listApiNotifications = () => apiRequest<ApiNotification[]>("/v1/notifications");
 export const markApiNotificationRead = (notificationId: string) => apiRequest(`/v1/notifications/${notificationId}/read`, { method: "POST" });
+export const listApiAuditLogs = (entityId?: string) => apiRequest<ApiAuditLog[]>(`/v1/clubs/${apiClubId}/audit-logs${entityId ? `?entity_id=${encodeURIComponent(entityId)}` : ""}`);
