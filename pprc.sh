@@ -28,6 +28,8 @@ case "${1:-help}" in
     pnpm install --frozen-lockfile
     docker compose up -d --build
     wait_for http://localhost:8000/health
+    docker compose exec -T postgres psql -U pprc -d pprc < backend/sql/001_initial.sql
+    docker compose exec -T postgres psql -U pprc -d pprc < backend/sql/002_multiclub_tournament.sql
     start_background firebase pnpm events:emulators
     wait_for http://localhost:4000
     pnpm events:seed

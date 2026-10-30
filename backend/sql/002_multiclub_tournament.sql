@@ -55,10 +55,14 @@ alter table standings enable row level security;
 alter table notifications enable row level security;
 
 create or replace function public.is_club_member(target_club uuid) returns boolean language sql stable as $$
-  select exists (select 1 from memberships where club_id = target_club and user_id = auth.jwt() ->> 'sub');
+  select exists (
+    select 1 from memberships
+    where club_id = target_club
+      and user_id = current_setting('request.jwt.claim.sub', true)
+  );
 $$;
 
 drop policy if exists "club members can read teams" on teams;
 create policy "club members can read teams" on teams for select using (public.is_club_member(club_id));
 drop policy if exists "users read own notifications" on notifications;
-create policy "users read own notifications" on notifications for select using (user_id = auth.jwt() ->> 'sub');
+create policy "users read own notifications" on notifications for select using (user_id = current_setting('request.jwt.claim.sub', true));
