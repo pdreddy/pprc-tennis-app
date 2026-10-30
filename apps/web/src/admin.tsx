@@ -1398,6 +1398,22 @@ const defaultDivision = {
   groupSize: 4,
   qualifiers: 2,
 };
+const triaceDivision = {
+  ...defaultDivision,
+  name: "TRIACE Open",
+  format: "triace_team_round_robin",
+  capacity: 18,
+  minRating: 12,
+  maxRating: 18.5,
+  groupSize: 9,
+  qualifiers: 2,
+  teamSize: 3,
+  teamMinRating: 12,
+  teamMaxRating: 18.5,
+  minSinglesParticipationPct: 0.4,
+  encounterFormat: "2 singles, 2 doubles, 1 super tiebreak; first to 3 points",
+  eligibilityNotes: "Three-player teams. Combined UTR 12.0–18.5. Every player must appear in singles on at least 40% of team match days to qualify for playoffs.",
+};
 export function EventWizard() {
   const { member, user } = useSession(),
     action = useAction(),
@@ -1411,12 +1427,14 @@ export function EventWizard() {
   const [cover, setCover] = useState<File | null>(null);
   const [step, setStep] = useState(0),
     [divisions, setDivisions] = useState<any[]>([{ ...defaultDivision }]),
+    [eventType, setEventType] = useState("Tournament"),
     [template, setTemplate] = useState<Entity | undefined>();
   const [loaded, setLoaded] = useState(false);
   if (apiEnabled) return <TriaceEventSetup />;
   const source = template?.event ?? existing.event;
   if (source && !loaded) {
     setLoaded(true);
+    setEventType(source.eventType ?? "Tournament");
     setDivisions(
       (template?.divisions ?? existing.divisions).map((d: Entity) => ({
         ...d,
@@ -1516,7 +1534,7 @@ export function EventWizard() {
               buffer: number(f, "buffer"),
               dailyStartHour: number(f, "dailyStartHour"),
               dailyEndHour: number(f, "dailyEndHour"),
-              eventType: text(f, "eventType"),
+              eventType,
               ageGroup: text(f, "ageGroup"),
               genderCategory: text(f, "genderCategory"),
               divisionSummary: divisions.map((d) => d.name).join(" · "),
@@ -1565,9 +1583,14 @@ export function EventWizard() {
               <Field label="Event type">
                 <select
                   name="eventType"
-                  defaultValue={source?.eventType ?? "Tournament"}
+                  value={eventType}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setEventType(next);
+                    if (next === "TRIACE 2.0") setDivisions([{ ...triaceDivision }]);
+                  }}
                 >
-                  {["Tournament", "Round robin", "Social"].map((t) => (
+                  {["Tournament", "Round robin", "TRIACE 2.0", "Social"].map((t) => (
                     <option key={t}>{t}</option>
                   ))}
                 </select>
@@ -1638,6 +1661,11 @@ export function EventWizard() {
                 </select>
               </Field>
             </div>
+            {eventType === "TRIACE 2.0" && (
+              <p className="notice">
+                TRIACE defaults are loaded: three-player teams, combined UTR 12.0–18.5, round robin, the top two teams per group advancing, and a best-of-five playoff encounter with two singles, two doubles, and a 10-point super tiebreak.
+              </p>
+            )}
             <Field label="Cover image (JPEG, PNG or WebP; under 5 MB)">
               <input
                 type="file"
