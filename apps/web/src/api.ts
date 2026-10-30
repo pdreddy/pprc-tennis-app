@@ -48,6 +48,31 @@ export type ApiRegistration = {
   checked_in_at: string | null;
 };
 
+export type ApiMembership = {
+  id: string;
+  club_id: string;
+  user_id: string;
+  display_name: string;
+  role: "owner" | "admin" | "organizer" | "player" | "support";
+};
+
+export type ApiEventInput = {
+  name: string;
+  starts_at: string;
+  capacity: number;
+  entry_fee_cents: number;
+  rules: Record<string, unknown>;
+};
+
+export type ApiDivisionInput = {
+  name: string;
+  format: string;
+  capacity: number;
+  min_rating?: number;
+  max_rating?: number;
+  rules: Record<string, unknown>;
+};
+
 export async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = await auth.currentUser?.getIdToken();
   if (!token) throw new Error("Sign in before using the PPRC API");
@@ -77,6 +102,10 @@ export const listPublicApiEvents = () => publicApiRequest<ApiEvent[]>(`/v1/publi
 export const getPublicApiEvent = (eventId: string) => publicApiRequest<ApiEvent>(`/v1/public/events/${eventId}`);
 export const listPublicApiDivisions = (eventId: string) => publicApiRequest<ApiDivision[]>(`/v1/public/events/${eventId}/divisions`);
 export const getApiEvent = (eventId: string) => apiRequest<ApiEvent>(`/v1/events/${eventId}`);
+export const getMyApiMembership = () => apiRequest<ApiMembership>(`/v1/clubs/${apiClubId}/memberships/me`);
+export const createApiEvent = (event: ApiEventInput) => apiRequest<ApiEvent>(`/v1/clubs/${apiClubId}/events`, { method: "POST", body: JSON.stringify(event) });
+export const updateApiEvent = (eventId: string, event: Partial<ApiEventInput> & { status?: ApiEvent["status"]; audit_reason: string }) => apiRequest<ApiEvent>(`/v1/events/${eventId}`, { method: "PATCH", body: JSON.stringify(event) });
+export const createApiDivision = (eventId: string, division: ApiDivisionInput) => apiRequest<ApiDivision>(`/v1/events/${eventId}/divisions`, { method: "POST", body: JSON.stringify(division) });
 export const registerForApiEvent = (eventId: string) => apiRequest(`/v1/events/${eventId}/registrations`, { method: "POST" });
 export const listMyApiRegistrations = () => apiRequest<ApiRegistration[]>("/v1/me/registrations");
 export const withdrawApiRegistration = (registrationId: string) => apiRequest(`/v1/registrations/${registrationId}/withdraw`, { method: "POST" });
