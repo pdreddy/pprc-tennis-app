@@ -1,22 +1,16 @@
 from contextlib import asynccontextmanager
-from pathlib import Path
 from uuid import UUID
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Response, status
+from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .config import get_settings
 from .database import engine, get_session
+from .auth import Actor, current_actor
 from .models import AuditLog, Base, Club, Event, EventStatus, Membership, MembershipRole, Registration, RegistrationStatus
 from .schemas import ClubCreate, ClubRead, EventCreate, EventRead, MembershipCreate, MembershipRead, RegistrationRead
-
-
-async def actor_id(x_pprc_user: str | None = Header(default=None)) -> str:
-    if not x_pprc_user:
-        raise HTTPException(status_code=401, detail="X-PPRC-User header is required")
-    return x_pprc_user
 
 
 async def audit(session: AsyncSession, club_id: UUID, actor: str, action: str, entity_type: str, entity_id: str) -> None:
@@ -49,26 +43,26 @@ async def health() -> dict[str, str]:
 
 
 @app.post("/v1/clubs", response_model=ClubRead, status_code=status.HTTP_201_CREATED)
-async def create_club(payload: ClubCreate, session: AsyncSession = Depends(get_session), actor: str = Depends(actor_id)) -> Club:
+async def create_club(payload: ClubCreate, session: AsyncSession = Depends(get_session), actor: Actor = Depends(current_actor)) -> Club:
     if await session.scalar(select(Club).where(Club.slug == payload.slug)):
         raise HTTPException(status_code=409, detail="Club slug already exists")
     club = Club(**payload.model_dump())
     session.add(club)
     await session.flush()
-    session.add(Membership(club_id=club.id, user_id=actor, display_name=actor, role=MembershipRole.owner))
-    await audit(session, club.id, actor, "club.created", "club", str(club.id))
+    session.add(Membership(club_id=club.id, user_id=actor.user_id, display_name=actor.name or actor.email or actor.user_id, role=MembershipRole.owner))
+    await audit(session, club.id, actor.user_id, "club.created", "club", str(club.id))
     await session.commit()
     return club
 
 
 @app.get("/v1/clubs", response_model=list[ClubRead])
-async def list_clubs(session: AsyncSession = Depends(get_session), _: str = Depends(actor_id)) -> list[Club]:
-    return list((await session.scalars(select(Club).order_by(Club.name))).all())
+async def list_clubs(session: AsyncSession = Depends(get_session), actor: Actor = Depends(current_actor)) -> list[Club]:
+    return list((await session.scalars(select(Club).join(Membership).where(Membership.user_id == actor.user_id).order_by(Club.name))).all())
 
 
 @app.post("/v1/clubs/{club_id}/memberships", response_model=MembershipRead, status_code=status.HTTP_201_CREATED)
-async def add_membership(club_id: UUID, payload: MembershipCreate, session: AsyncSession = Depends(get_session), actor: str = Depends(actor_id)) -> Membership:
-    await require_role(session, club_id, actor, {MembershipRole.owner, MembershipRole.admin})
+async def add_membership(club_id: UUID, payload: MembershipCreate, session: AsyncSession = Depends(get_session), actor: Actor = Depends(current_actor)) -> Membership:
+    await require_role(session, club_id, actor.user_id, {MembershipRole.owner, MembershipRole.admin})
     member = Membership(club_id=club_id, **payload.model_dump())
     session.add(member)
     try:
@@ -76,49 +70,50 @@ async def add_membership(club_id: UUID, payload: MembershipCreate, session: Asyn
     except Exception as exc:
         await session.rollback()
         raise HTTPException(status_code=409, detail="Membership already exists") from exc
-    await audit(session, club_id, actor, "membership.created", "membership", str(member.id))
+    await audit(session, club_id, actor.user_id, "membership.created", "membership", str(member.id))
     await session.commit()
     return member
 
 
 @app.post("/v1/clubs/{club_id}/events", response_model=EventRead, status_code=status.HTTP_201_CREATED)
-async def create_event(club_id: UUID, payload: EventCreate, session: AsyncSession = Depends(get_session), actor: str = Depends(actor_id)) -> Event:
-    await require_role(session, club_id, actor, {MembershipRole.owner, MembershipRole.admin, MembershipRole.organizer})
+async def create_event(club_id: UUID, payload: EventCreate, session: AsyncSession = Depends(get_session), actor: Actor = Depends(current_actor)) -> Event:
+    await require_role(session, club_id, actor.user_id, {MembershipRole.owner, MembershipRole.admin, MembershipRole.organizer})
     event = Event(club_id=club_id, **payload.model_dump())
     session.add(event)
     await session.flush()
-    await audit(session, club_id, actor, "event.created", "event", str(event.id))
+    await audit(session, club_id, actor.user_id, "event.created", "event", str(event.id))
     await session.commit()
     return event
 
 
 @app.get("/v1/clubs/{club_id}/events", response_model=list[EventRead])
-async def list_events(club_id: UUID, session: AsyncSession = Depends(get_session), _: str = Depends(actor_id)) -> list[Event]:
+async def list_events(club_id: UUID, session: AsyncSession = Depends(get_session), actor: Actor = Depends(current_actor)) -> list[Event]:
+    await require_role(session, club_id, actor.user_id, set(MembershipRole))
     return list((await session.scalars(select(Event).where(Event.club_id == club_id).order_by(Event.starts_at))).all())
 
 
 @app.post("/v1/events/{event_id}/publish", response_model=EventRead)
-async def publish_event(event_id: UUID, session: AsyncSession = Depends(get_session), actor: str = Depends(actor_id)) -> Event:
+async def publish_event(event_id: UUID, session: AsyncSession = Depends(get_session), actor: Actor = Depends(current_actor)) -> Event:
     event = await session.get(Event, event_id)
     if event is None:
         raise HTTPException(status_code=404, detail="Event not found")
-    await require_role(session, event.club_id, actor, {MembershipRole.owner, MembershipRole.admin, MembershipRole.organizer})
+    await require_role(session, event.club_id, actor.user_id, {MembershipRole.owner, MembershipRole.admin, MembershipRole.organizer})
     event.status = EventStatus.published
-    await audit(session, event.club_id, actor, "event.published", "event", str(event.id))
+    await audit(session, event.club_id, actor.user_id, "event.published", "event", str(event.id))
     await session.commit()
     return event
 
 
 @app.post("/v1/events/{event_id}/registrations", response_model=RegistrationRead, status_code=status.HTTP_201_CREATED)
-async def register(event_id: UUID, session: AsyncSession = Depends(get_session), actor: str = Depends(actor_id)) -> Registration:
+async def register(event_id: UUID, session: AsyncSession = Depends(get_session), actor: Actor = Depends(current_actor)) -> Registration:
     event = await session.get(Event, event_id)
     if event is None:
         raise HTTPException(status_code=404, detail="Event not found")
     if event.status != EventStatus.published:
         raise HTTPException(status_code=409, detail="Event is not open for registration")
-    if not await session.scalar(select(Membership).where(Membership.club_id == event.club_id, Membership.user_id == actor)):
+    if not await session.scalar(select(Membership).where(Membership.club_id == event.club_id, Membership.user_id == actor.user_id)):
         raise HTTPException(status_code=403, detail="Join this club before registering")
-    if await session.scalar(select(Registration).where(Registration.event_id == event_id, Registration.user_id == actor)):
+    if await session.scalar(select(Registration).where(Registration.event_id == event_id, Registration.user_id == actor.user_id)):
         raise HTTPException(status_code=409, detail="Already registered")
     confirmed = await session.scalar(select(func.count()).select_from(Registration).where(Registration.event_id == event_id, Registration.status == RegistrationStatus.confirmed))
     waitlist_position = None
@@ -126,9 +121,9 @@ async def register(event_id: UUID, session: AsyncSession = Depends(get_session),
     if confirmed >= event.capacity:
         registration_status = RegistrationStatus.waitlisted
         waitlist_position = int(await session.scalar(select(func.count()).select_from(Registration).where(Registration.event_id == event_id, Registration.status == RegistrationStatus.waitlisted))) + 1
-    registration = Registration(club_id=event.club_id, event_id=event.id, user_id=actor, status=registration_status, waitlist_position=waitlist_position)
+    registration = Registration(club_id=event.club_id, event_id=event.id, user_id=actor.user_id, status=registration_status, waitlist_position=waitlist_position)
     session.add(registration)
     await session.flush()
-    await audit(session, event.club_id, actor, "registration.created", "registration", str(registration.id))
+    await audit(session, event.club_id, actor.user_id, "registration.created", "registration", str(registration.id))
     await session.commit()
     return registration

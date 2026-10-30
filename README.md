@@ -31,6 +31,8 @@ chmod +x pprc.sh
 
 For Supabase, create a project, set `DATABASE_URL` to its pooler connection string, apply `backend/sql/001_initial.sql`, and set `PPRC_BOOTSTRAP_SCHEMA=false`. Production authentication should validate Firebase/Supabase JWTs at the FastAPI boundary; the development-only `X-PPRC-User` header is intentionally explicit and must not be exposed publicly.
 
+Apply `backend/sql/002_multiclub_tournament.sql` after the initial migration for seasons, TRIACE teams, divisions, courts, schedules, standings, notifications, and Supabase RLS. To import the existing Firebase PPRC pilot into a staging PostgreSQL database, set `FIREBASE_SERVICE_ACCOUNT` to a local service-account JSON file and run `python backend/scripts/import_firestore.py`. Run the importer only against a staging copy first, compare membership/event/registration counts, and schedule the production cutover after that reconciliation succeeds.
+
 The original Next.js prototype below remains intact. Its `app/`, `lib/`, and SQLite `data/` paths are independent of the new Events module. Existing root `dev`, `test`, `seed`, `build` commands still refer to that prototype. Never run its seed command to initialize Events.
 
 ## Run locally

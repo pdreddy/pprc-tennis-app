@@ -5,6 +5,7 @@ description = "Multi-club PPRC API"
 requires-python = ">=3.12"
 dependencies = [
   "asyncpg>=0.30.0",
+  "firebase-admin>=6.6.0",
   "fastapi>=0.115.0",
   "pydantic-settings>=2.6.0",
   "sqlalchemy[asyncio]>=2.0.36",
@@ -17,7 +18,6 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 packages = ["app"]
-
 [project.optional-dependencies]
 dev = ["httpx>=0.28.0", "pytest>=8.3.0", "pytest-asyncio>=0.24.0", "ruff>=0.8.0"]
 

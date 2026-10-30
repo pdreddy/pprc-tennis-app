@@ -49,12 +49,13 @@ case "${1:-help}" in
     docker compose down -v
     ;;
   test-all)
-    need pnpm; need python3
+    need pnpm; need python3; need docker
     pnpm frontend:typecheck
     pnpm backend:build
     pnpm shared:test
     python3 -m compileall -q backend/app
-    echo "Static checks passed. Run './pprc.sh up' for the PostgreSQL/FastAPI smoke test."
+    docker compose config --quiet
+    echo "Static checks and Compose configuration passed. Run './pprc.sh up' for the PostgreSQL/FastAPI smoke test."
     ;;
   *)
     cat <<'USAGE'
