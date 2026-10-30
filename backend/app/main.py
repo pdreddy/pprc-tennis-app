@@ -38,6 +38,7 @@ from .schemas import (
     DivisionCreate,
     DivisionRead,
     EventCreate,
+    EventUpdate,
     EventRead,
     FixtureCreate,
     FixtureRead,
@@ -56,8 +57,16 @@ from .schemas import (
 )
 
 
-async def audit(session: AsyncSession, club_id: UUID, actor: str, action: str, entity_type: str, entity_id: str) -> None:
-    session.add(AuditLog(club_id=club_id, actor_id=actor, action=action, entity_type=entity_type, entity_id=entity_id))
+async def audit(
+    session: AsyncSession,
+    club_id: UUID,
+    actor: str,
+    action: str,
+    entity_type: str,
+    entity_id: str,
+    detail: str | None = None,
+) -> None:
+    session.add(AuditLog(club_id=club_id, actor_id=actor, action=action, entity_type=entity_type, entity_id=entity_id, detail=detail))
 
 
 async def notify(session: AsyncSession, club_id: UUID, user_id: str, kind: str, title: str, body: str, data: dict | None = None) -> None:
@@ -219,6 +228,16 @@ async def add_membership(club_id: UUID, payload: MembershipCreate, session: Asyn
     return member
 
 
+@app.get("/v1/clubs/{club_id}/memberships/me", response_model=MembershipRead)
+async def get_my_membership(club_id: UUID, session: AsyncSession = Depends(get_session), actor: Actor = Depends(current_actor)) -> Membership:
+    membership = await session.scalar(
+        select(Membership).where(Membership.club_id == club_id, Membership.user_id == actor.user_id)
+    )
+    if membership is None:
+        raise HTTPException(status_code=404, detail="Club membership not found")
+    return membership
+
+
 @app.post("/v1/clubs/{club_id}/events", response_model=EventRead, status_code=status.HTTP_201_CREATED)
 async def create_event(club_id: UUID, payload: EventCreate, session: AsyncSession = Depends(get_session), actor: Actor = Depends(current_actor)) -> Event:
     await require_role(session, club_id, actor.user_id, {MembershipRole.owner, MembershipRole.admin, MembershipRole.organizer})
@@ -276,6 +295,24 @@ async def get_event(event_id: UUID, session: AsyncSession = Depends(get_session)
     if event is None:
         raise HTTPException(status_code=404, detail="Event not found")
     await require_role(session, event.club_id, actor.user_id, set(MembershipRole))
+    return event
+
+
+@app.patch("/v1/events/{event_id}", response_model=EventRead)
+async def update_event(
+    event_id: UUID,
+    payload: EventUpdate,
+    session: AsyncSession = Depends(get_session),
+    actor: Actor = Depends(current_actor),
+) -> Event:
+    event = await session.get(Event, event_id)
+    if event is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+    await require_role(session, event.club_id, actor.user_id, {MembershipRole.owner, MembershipRole.admin, MembershipRole.organizer})
+    for field, value in payload.model_dump(exclude_none=True, exclude={"audit_reason"}).items():
+        setattr(event, field, value)
+    await audit(session, event.club_id, actor.user_id, "event.updated", "event", str(event.id), payload.audit_reason)
+    await session.commit()
     return event
 
 
