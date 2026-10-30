@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { useSession, useEvent, useList, useAction } from "./context";
 import { db, storage, enablePush, getOne } from "./firebase";
-import { apiEnabled, getPublicApiEvent } from "./api";
+import { apiEnabled, createApiTeam, getPublicApiEvent } from "./api";
 import {
   Panel,
   Dialog,
@@ -147,8 +147,7 @@ export function EventDetail() {
                     {event.status === "Registration Open" ? (
                       <Link
                         className="button primary small"
-                        to={`/register/${event.id}/${d.id}`}
-                      >
+                        to={d.format === "triace_team_round_robin" ? `/triace/${event.id}/${d.id}/register` : `/register/${event.id}/${d.id}`}
                         Register <ArrowUpRight size={15} />
                       </Link>
                     ) : (
@@ -393,6 +392,40 @@ export function Registration() {
             </p>
           </Form>
         )}
+      </Panel>
+    </div>
+  );
+}
+export function TriaceTeamRegistration() {
+  const { eventId = "", divisionId = "" } = useParams();
+  const { event, divisions, error } = useEvent(eventId);
+  const navigate = useNavigate();
+  const division = divisions.find((item) => item.id === divisionId);
+  if (error) return <div className="page error">{error.message}</div>;
+  if (!event || !division) return <div className="page" role="status">Loading TRIACE registration…</div>;
+  if (!apiEnabled) return <div className="page"><Empty title="TRIACE registration is available through the PPRC API" /></div>;
+  return (
+    <div className="page narrow">
+      <Link className="text-link" to={`/events/${eventId}`}>← Event details</Link>
+      <p className="eyebrow">TRIACE TEAM ENTRY</p>
+      <h1>Register your three-player team</h1>
+      <p className="lead">Your team is submitted for organizer approval. Eligible players are added to the club as players when the pending roster is created.</p>
+      <Panel title={`${event.name} · ${division.name}`}>
+        <Form label="Submit team for approval" onSubmit={async (form) => {
+          await createApiTeam({
+            division_id: divisionId,
+            name: text(form, "teamName"),
+            members: [1, 2, 3].map((position) => ({ user_id: text(form, `player${position}Uid`), rating: number(form, `player${position}Rating`), lineup_position: position })),
+          });
+          navigate(`/events/${eventId}`);
+        }}>
+          <Field label="Team name"><input name="teamName" minLength={2} required /></Field>
+          {[1, 2, 3].map((position) => <div className="form-grid" key={position}>
+            <Field label={`Player ${position} PPRC user ID`}><input name={`player${position}Uid`} required /></Field>
+            <Field label={`Player ${position} UTR`}><input name={`player${position}Rating`} type="number" min="0" max="20" step="0.01" required /></Field>
+          </div>)}
+          <p className="muted">Combined UTR must meet the event rule. The organizer will approve eligible teams before fixtures are created.</p>
+        </Form>
       </Panel>
     </div>
   );
