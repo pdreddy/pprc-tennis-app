@@ -14,6 +14,7 @@ export const formats = [
   "single-elimination",
   "round-robin",
   "round-robin-playoffs",
+  "triace_team_round_robin",
 ] as const;
 export const registrationStates = [
   "Pending Payment",
@@ -241,7 +242,7 @@ export const eventSchema = z
       .max(50)
       .default([]),
     eventType: z
-      .enum(["Tournament", "Round robin", "Social"])
+      .enum(["Tournament", "Round robin", "TRIACE 2.0", "Social"])
       .default("Tournament"),
     ageGroup: z.enum(["Adult", "Junior", "All ages"]).default("All ages"),
     genderCategory: z.enum(["Open", "Male", "Female"]).default("Open"),
