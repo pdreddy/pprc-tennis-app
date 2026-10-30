@@ -78,3 +78,76 @@ def test_ladder_challenge_moves_ranks():
     request("POST", f"/v1/competition-matches/{challenge['id']}/confirm", players[1])
     ladder = request("GET", f"/v1/divisions/{division['id']}/entries", owner)
     assert [e["user_id"] for e in ladder if e["status"] == "active"] == [players[0], players[3], players[1], players[2]]
+
+
+def play_all_ready(owner: str, division_id: str, limit: int = 12):
+    for _ in range(limit):
+        ready = [m for m in request("GET", f"/v1/divisions/{division_id}/competition-matches", owner) if m["status"] == "scheduled"]
+        if not ready:
+            return
+        for match in ready:
+            request("POST", f"/v1/competition-matches/{match['id']}/result", owner, json={"score_one": 6, "score_two": 1})
+
+
+def test_double_elimination_runs_to_grand_final():
+    owner, club_id = setup()
+    _, division = make_tournament(owner, club_id, "double_elimination")
+    players = [f"de-{uuid.uuid4().hex[:6]}-{i}" for i in range(5)]
+    for seed, player in enumerate(players, start=1):
+        request("POST", f"/v1/divisions/{division['id']}/entries", owner, json={"user_id": player, "seed": seed})
+    request("POST", f"/v1/divisions/{division['id']}/draw", owner, json={})
+    play_all_ready(owner, division["id"])
+    matches = request("GET", f"/v1/divisions/{division['id']}/competition-matches", owner)
+    final = next(m for m in matches if m["round_name"] == "grand_final")
+    assert final["status"] == "finalized" and final["winner_id"] == players[0]
+    assert not [m for m in matches if m["status"] in {"scheduled", "reported", "pending"} and m["round_name"] != "grand_final_reset"]
+
+
+def test_swiss_generates_rounds_without_rematches():
+    owner, club_id = setup()
+    _, division = make_tournament(owner, club_id, "swiss")
+    players = [f"sw-{uuid.uuid4().hex[:6]}-{i}" for i in range(4)]
+    for player in players:
+        request("POST", f"/v1/divisions/{division['id']}/entries", owner, json={"user_id": player})
+    first = request("POST", f"/v1/divisions/{division['id']}/draw", owner, json={})
+    assert len(first) == 2
+    request_error("POST", f"/v1/divisions/{division['id']}/swiss/next-round", owner, json={})  # round 1 unfinished
+    play_all_ready(owner, division["id"], 1)
+    second = request("POST", f"/v1/divisions/{division['id']}/swiss/next-round", owner, json={})
+    seen = {frozenset((m["player_one_id"], m["player_two_id"])) for m in first}
+    assert all(frozenset((m["player_one_id"], m["player_two_id"])) not in seen for m in second)
+    play_all_ready(owner, division["id"], 1)
+    assert request_error("POST", f"/v1/divisions/{division['id']}/swiss/next-round", owner, json={}).status_code == 409
+
+
+def test_late_withdrawal_awards_walkovers_and_manual_walkover():
+    owner, club_id = setup()
+    _, division = make_tournament(owner, club_id, "round_robin")
+    players = [f"wo-{uuid.uuid4().hex[:6]}-{i}" for i in range(4)]
+    for player in players:
+        request("POST", f"/v1/divisions/{division['id']}/entries", owner, json={"user_id": player})
+    matches = request("POST", f"/v1/divisions/{division['id']}/draw", owner, json={})
+    entries = request("GET", f"/v1/divisions/{division['id']}/entries", owner)
+    leaving = next(e for e in entries if e["user_id"] == players[3])
+    request("POST", f"/v1/entries/{leaving['id']}/withdraw", owner)
+    after = request("GET", f"/v1/divisions/{division['id']}/competition-matches", owner)
+    involving = [m for m in after if players[3] in {m["player_one_id"], m["player_two_id"]}]
+    assert len(involving) == 3 and all(m["status"] == "finalized" and m["winner_id"] != players[3] for m in involving)
+    remaining = next(m for m in after if m["status"] == "scheduled")
+    request("POST", f"/v1/competition-matches/{remaining['id']}/walkover", owner, json={"winner_id": remaining["player_one_id"], "reason": "Opponent no-show"})
+
+
+def test_doubles_entries_need_a_partner_and_partner_can_report():
+    owner, club_id = setup()
+    _, division = make_tournament(owner, club_id, "round_robin", rules={"entryType": "doubles"})
+    tag = uuid.uuid4().hex[:6]
+    a1, a2, b1, b2 = (f"db-{tag}-{i}" for i in range(4))
+    request_error("POST", f"/v1/divisions/{division['id']}/entries", owner, json={"user_id": a1})
+    request("POST", f"/v1/divisions/{division['id']}/entries", owner, json={"user_id": a1, "partner_user_id": a2})
+    request("POST", f"/v1/divisions/{division['id']}/entries", owner, json={"user_id": b1, "partner_user_id": b2})
+    request_error("POST", f"/v1/divisions/{division['id']}/entries", owner, json={"user_id": f"x-{tag}", "partner_user_id": a2})  # partner already entered
+    match = request("POST", f"/v1/divisions/{division['id']}/draw", owner, json={})[0]
+    reported = request("POST", f"/v1/competition-matches/{match['id']}/result", a2, json={"score_one": 6, "score_two": 2})
+    assert reported["status"] == "reported"
+    request_error("POST", f"/v1/competition-matches/{match['id']}/confirm", a1)  # same side
+    assert request("POST", f"/v1/competition-matches/{match['id']}/confirm", b2)["status"] == "finalized"

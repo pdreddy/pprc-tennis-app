@@ -163,18 +163,20 @@ export const tournamentFormats = [
   { key: "triace_team_round_robin", label: "TRIACE 2.0", description: "Three-player teams play a round robin, then playoffs.", individual: false },
   { key: "round_robin", label: "Round robin", description: "Everyone plays everyone once; the table decides the winner.", individual: true },
   { key: "single_elimination", label: "Single elimination", description: "Seeded knockout bracket with byes. Lose once and you are out.", individual: true },
+  { key: "double_elimination", label: "Double elimination", description: "Winners and losers brackets: out after two losses, with a grand final reset.", individual: true },
+  { key: "swiss", label: "Swiss", description: "A fixed number of rounds; each round pairs players with similar records.", individual: true },
   { key: "ladder", label: "Ladder", description: "Ongoing ranking. Challenge players above you and take their rank by winning.", individual: true },
 ] as const;
 export type TournamentFormat = (typeof tournamentFormats)[number]["key"];
 export const isIndividualFormat = (format: unknown) => tournamentFormats.some((item) => item.individual && item.key === format);
 
-export type ApiEntry = { id: string; division_id: string; user_id: string; display_name: string; seed: number | null; rating: number | null; rank: number | null; status: string };
+export type ApiEntry = { id: string; division_id: string; user_id: string; display_name: string; seed: number | null; rating: number | null; rank: number | null; status: string; partner_user_id: string | null; partner_name: string | null };
 export type ApiCompetitionMatch = { id: string; division_id: string; round_number: number; round_name: string; position: number; player_one_id: string | null; player_two_id: string | null; winner_id: string | null; score_one: number | null; score_two: number | null; score_text: string | null; status: string; reported_by: string | null; starts_at: string | null };
 export type ApiPlayerStanding = { subject_id: string; display_name: string; played: number; wins: number; losses: number; points: number };
 
 export const createApiTournament = (event: ApiEventInput, division: ApiDivisionInput) => apiRequest<ApiEvent>(`/v1/clubs/${apiClubId}/tournaments`, { method: "POST", body: JSON.stringify({ event, division }) });
 export const listApiEntries = (divisionId: string) => apiRequest<ApiEntry[]>(`/v1/divisions/${divisionId}/entries`);
-export const addApiEntry = (divisionId: string, entry: { user_id?: string; display_name?: string; rating?: number; seed?: number } = {}) => apiRequest<ApiEntry>(`/v1/divisions/${divisionId}/entries`, { method: "POST", body: JSON.stringify(entry) });
+export const addApiEntry = (divisionId: string, entry: { user_id?: string; display_name?: string; rating?: number; seed?: number; partner_user_id?: string; partner_name?: string } = {}) => apiRequest<ApiEntry>(`/v1/divisions/${divisionId}/entries`, { method: "POST", body: JSON.stringify(entry) });
 export const withdrawApiEntry = (entryId: string) => apiRequest<ApiEntry>(`/v1/entries/${entryId}/withdraw`, { method: "POST" });
 export const generateApiDraw = (divisionId: string, startsAt?: string) => apiRequest<ApiCompetitionMatch[]>(`/v1/divisions/${divisionId}/draw`, { method: "POST", body: JSON.stringify({ starts_at: startsAt ?? null }) });
 export const listApiCompetitionMatches = (divisionId: string) => apiRequest<ApiCompetitionMatch[]>(`/v1/divisions/${divisionId}/competition-matches`);
@@ -184,3 +186,5 @@ export const confirmApiCompetitionResult = (matchId: string) => apiRequest<ApiCo
 export const disputeApiCompetitionResult = (matchId: string, reason: string) => apiRequest<ApiCompetitionMatch>(`/v1/competition-matches/${matchId}/dispute`, { method: "POST", body: JSON.stringify({ reason }) });
 export const createApiLadderChallenge = (divisionId: string, opponentId: string) => apiRequest<ApiCompetitionMatch>(`/v1/divisions/${divisionId}/ladder/challenges`, { method: "POST", body: JSON.stringify({ opponent_id: opponentId }) });
 export const cancelApiLadderChallenge = (matchId: string) => apiRequest<void>(`/v1/competition-matches/${matchId}/cancel`, { method: "POST" });
+export const generateApiSwissRound = (divisionId: string) => apiRequest<ApiCompetitionMatch[]>(`/v1/divisions/${divisionId}/swiss/next-round`, { method: "POST", body: JSON.stringify({}) });
+export const awardApiWalkover = (matchId: string, winnerId: string, reason: string) => apiRequest<ApiCompetitionMatch>(`/v1/competition-matches/${matchId}/walkover`, { method: "POST", body: JSON.stringify({ winner_id: winnerId, reason }) });

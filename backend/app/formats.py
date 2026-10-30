@@ -23,11 +23,22 @@ INDIVIDUAL_FORMATS: dict[str, FormatInfo] = {
         "single_elimination", "Single elimination", "Seeded knockout bracket with byes; lose once and you are out.",
         True, {},
     ),
+    "double_elimination": FormatInfo(
+        "double_elimination", "Double elimination",
+        "Winners and losers brackets: a player is out after two losses. Grand final with a reset.",
+        True, {},
+    ),
+    "swiss": FormatInfo(
+        "swiss", "Swiss", "A fixed number of rounds; each round pairs players with similar records.",
+        True, {"pointsPerWin": 2, "swissRounds": 0},
+    ),
     "ladder": FormatInfo(
         "ladder", "Ladder", "Ongoing ranking: challenge players above you and take their rank by winning.",
-        True, {"challengeRange": 3},
+        True, {"challengeRange": 3, "challengeExpiryDays": 14, "challengeExpiryAction": "cancel"},
     ),
 }
+ENTRY_TYPES = {"singles", "doubles"}
+DEAD = "~bye"  # slot that will never receive a player
 
 FORMAT_CATALOG = [
     {"key": "triace_team_round_robin", "label": "TRIACE 2.0", "individual": False,
@@ -95,11 +106,17 @@ def ladder_after_win(order: list[str], challenger: str, defender: str) -> list[s
     return updated
 
 
-def round_robin_table(players: list[str], results: list[tuple[str, str, str]], points_per_win: int = 2) -> list[dict]:
+def round_robin_table(players: list[str], results: list[tuple[str, str | None, str]], points_per_win: int = 2) -> list[dict]:
     """`results` are (player_one, player_two, winner). Sorted by points, wins, head-to-head, then name."""
     table = {p: {"subject_id": p, "played": 0, "wins": 0, "losses": 0, "points": 0} for p in players}
     beaten: dict[str, set[str]] = {p: set() for p in players}
     for one, two, winner in results:
+        if two is None:  # a bye counts as a played win
+            table.setdefault(winner, {"subject_id": winner, "played": 0, "wins": 0, "losses": 0, "points": 0})
+            table[winner]["played"] += 1
+            table[winner]["wins"] += 1
+            table[winner]["points"] += points_per_win
+            continue
         loser = two if winner == one else one
         for player in (one, two):
             table.setdefault(player, {"subject_id": player, "played": 0, "wins": 0, "losses": 0, "points": 0})
@@ -116,3 +133,98 @@ def round_robin_table(players: list[str], results: list[tuple[str, str, str]], p
         if a["points"] == b["points"] and a["wins"] == b["wins"] and a["subject_id"] in beaten.get(b["subject_id"], set()):
             rows[index], rows[index + 1] = b, a
     return rows
+
+
+def double_elimination_graph(size: int) -> list[dict]:
+    """Node list for a double-elimination bracket of `size` (a power of two, >= 2).
+
+    Each node has bracket (W, L, GF, GR), round, position, and (index, slot) routes for the
+    winner and loser. GF is the grand final; GR is the reset played only if the losers-bracket
+    finalist wins the grand final.
+    """
+    if size < 2 or size & (size - 1):
+        raise ValueError("size must be a power of two >= 2")
+    k = size.bit_length() - 1
+    nodes: list[dict] = []
+    index: dict[tuple[str, int, int], int] = {}
+
+    def add(bracket: str, round_number: int, position: int) -> None:
+        index[(bracket, round_number, position)] = len(nodes)
+        nodes.append({"bracket": bracket, "round": round_number, "position": position, "winner_to": None, "loser_to": None})
+
+    for r in range(1, k + 1):
+        for p in range(size >> r):
+            add("W", r, p)
+    for j in range(1, k):
+        for round_number in (2 * j - 1, 2 * j):
+            for p in range(size >> (j + 1)):
+                add("L", round_number, p)
+    add("GF", 1, 0)
+    add("GR", 1, 0)
+    grand = index[("GF", 1, 0)]
+    for r in range(1, k + 1):
+        for p in range(size >> r):
+            node = nodes[index[("W", r, p)]]
+            node["winner_to"] = (index[("W", r + 1, p // 2)], p % 2) if r < k else (grand, 0)
+            if r == 1:
+                node["loser_to"] = (grand, 1) if k == 1 else (index[("L", 1, p // 2)], p % 2)
+            else:
+                node["loser_to"] = (index[("L", 2 * (r - 1), p)], 1)
+    for j in range(1, k):
+        for p in range(size >> (j + 1)):
+            nodes[index[("L", 2 * j - 1, p)]]["winner_to"] = (index[("L", 2 * j, p)], 0)
+            even = nodes[index[("L", 2 * j, p)]]
+            even["winner_to"] = (index[("L", 2 * j + 1, p // 2)], p % 2) if j < k - 1 else (grand, 1)
+    return nodes
+
+
+def settle_step(one: str | None, two: str | None) -> tuple[str, str | None]:
+    """Decide what a bracket match with these two slots should become."""
+    if one is None or two is None:
+        return "wait", None
+    if one == DEAD and two == DEAD:
+        return "dead", DEAD
+    if one == DEAD:
+        return "bye", two
+    if two == DEAD:
+        return "bye", one
+    return "scheduled", None
+
+
+def swiss_round_count(players: int) -> int:
+    rounds = 1
+    while 2**rounds < players:
+        rounds += 1
+    return rounds
+
+
+def swiss_pairings(order: list[str], wins: dict[str, int], played: set[frozenset], had_bye: set[str]) -> tuple[list[tuple[str, str]], str | None]:
+    """Pair players by record (ties broken by `order`), avoiding rematches; odd fields give one bye."""
+    ranked = sorted(order, key=lambda p: (-wins.get(p, 0), order.index(p)))
+    bye = None
+    if len(ranked) % 2:
+        candidates = [p for p in reversed(ranked) if p not in had_bye] or [ranked[-1]]
+        bye = candidates[0]
+        ranked.remove(bye)
+    budget = [20000]
+
+    def solve(remaining: list[str], banned: set[frozenset]) -> list[tuple[str, str]] | None:
+        if not remaining:
+            return []
+        budget[0] -= 1
+        if budget[0] < 0:
+            return None
+        first = remaining[0]
+        for i in range(1, len(remaining)):
+            other = remaining[i]
+            if frozenset((first, other)) in banned:
+                continue
+            rest = solve(remaining[1:i] + remaining[i + 1:], banned)
+            if rest is not None:
+                return [(first, other), *rest]
+        return None
+
+    pairs = solve(ranked, played)
+    if pairs is None:  # no rematch-free pairing exists; allow repeats rather than stall the event
+        pairs = solve(ranked, set()) or [(ranked[i], ranked[i + 1]) for i in range(0, len(ranked), 2)]
+    return pairs, bye

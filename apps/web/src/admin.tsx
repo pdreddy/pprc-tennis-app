@@ -1782,6 +1782,10 @@ export function EventWizard() {
                       {formats.map((f) => (
                         <option key={f}>{f}</option>
                       ))}
+                      {/* The Firebase draw engine cannot run these; they need the PPRC API backend. */}
+                      {["double-elimination", "swiss", "ladder"].map((f) => (
+                        <option key={f} value={f} disabled>{f} (requires API mode)</option>
+                      ))}
                     </select>
                   </Field>
                   {[
@@ -2114,8 +2118,14 @@ function IndividualTournamentSetup({ format }: { format: string }) {
             allowWaitlist: form.get("allowWaitlist") === "on",
           };
           const divisionRules: Record<string, unknown> = {};
-          if (format === "ladder") divisionRules.challengeRange = number(form, "challengeRange");
-          if (format === "round_robin") divisionRules.pointsPerWin = number(form, "pointsPerWin");
+          divisionRules.entryType = text(form, "entryType");
+          if (format === "ladder") {
+            divisionRules.challengeRange = number(form, "challengeRange");
+            divisionRules.challengeExpiryDays = number(form, "challengeExpiryDays");
+            divisionRules.challengeExpiryAction = text(form, "challengeExpiryAction");
+          }
+          if (format === "round_robin" || format === "swiss") divisionRules.pointsPerWin = number(form, "pointsPerWin");
+          if (format === "swiss") divisionRules.swissRounds = number(form, "swissRounds");
           const capacity = number(form, "capacity");
           const result = await action("createTournament", {
             event: {
@@ -2144,12 +2154,28 @@ function IndividualTournamentSetup({ format }: { format: string }) {
           <Field label="Location"><input name="location" defaultValue="Prosper, TX" required /></Field>
           <Field label={format === "ladder" ? "Ladder opens" : "First match date and time"}><input name="startsAt" type="datetime-local" required /></Field>
           <Field label="Registration closes"><input name="registrationClose" type="datetime-local" required /></Field>
-          <Field label="Players (capacity)"><input name="capacity" type="number" min="2" max="256" defaultValue="16" required /></Field>
+          <Field label="Entries (players or pairs)"><input name="capacity" type="number" min="2" max="256" defaultValue="16" required /></Field>
           <Field label="Entry fee (USD)"><input name="fee" type="number" min="0" step="0.01" defaultValue="0" required /></Field>
           <Field label="Minimum UTR (optional)"><input name="minRating" type="number" min="0" max="20" step="0.1" /></Field>
           <Field label="Maximum UTR (optional)"><input name="maxRating" type="number" min="0" max="20" step="0.1" /></Field>
           {format === "ladder" && <Field label="Challenge range (places above)"><input name="challengeRange" type="number" min="1" max="10" defaultValue="3" required /></Field>}
-          {format === "round_robin" && <Field label="Points per win"><input name="pointsPerWin" type="number" min="1" max="10" defaultValue="2" required /></Field>}
+          {(format === "round_robin" || format === "swiss") && <Field label="Points per win"><input name="pointsPerWin" type="number" min="1" max="10" defaultValue="2" required /></Field>}
+          {format === "swiss" && <Field label="Rounds" hint="0 = automatic (log2 of players, rounded up)"><input name="swissRounds" type="number" min="0" max="12" defaultValue="0" required /></Field>}
+          {format === "ladder" && <Field label="Challenge expiry (days, 0 = never)"><input name="challengeExpiryDays" type="number" min="0" max="90" defaultValue="14" required /></Field>}
+          {format === "ladder" && (
+            <Field label="When a challenge expires">
+              <select name="challengeExpiryAction" defaultValue="cancel">
+                <option value="cancel">Cancel the challenge</option>
+                <option value="defender_forfeits">Award it to the challenger</option>
+              </select>
+            </Field>
+          )}
+          <Field label="Entries">
+            <select name="entryType" defaultValue="singles">
+              <option value="singles">Singles (individual players)</option>
+              <option value="doubles">Doubles (pairs)</option>
+            </select>
+          </Field>
           <Field label="Time zone"><input name="timezone" defaultValue="America/Chicago" required /></Field>
         </div>
         <Field label="Description"><textarea name="description" defaultValue={`${label} at Prosper Premier Racquet Club.`} required /></Field>

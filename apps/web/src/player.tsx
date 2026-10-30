@@ -91,7 +91,7 @@ export function EventDetail() {
         <div>
           {tab === "Competition" && competition && (
             sessionUser
-              ? <CompetitionBoard division={competition} staff={false} />
+              ? <CompetitionBoard division={competition} staff={false} open={event.status === "Registration Open"} />
               : <p className="notice">Sign in and register to see the draw, standings and your matches.</p>
           )}
           {tab === "Overview" && (

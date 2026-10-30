@@ -266,6 +266,8 @@ class EntryCreate(BaseModel):
     display_name: str | None = Field(default=None, min_length=1, max_length=160)
     rating: float | None = Field(default=None, ge=0, le=20)
     seed: int | None = Field(default=None, ge=1, le=1024)
+    partner_user_id: str | None = Field(default=None, min_length=1, max_length=128)
+    partner_name: str | None = Field(default=None, min_length=1, max_length=160)
 
 
 class EntryRead(ORMModel):
@@ -277,6 +279,8 @@ class EntryRead(ORMModel):
     rating: float | None
     rank: int | None
     status: str
+    partner_user_id: str | None
+    partner_name: str | None
 
 
 class CompetitionMatchRead(ORMModel):
@@ -319,3 +323,8 @@ class PlayerStandingRead(BaseModel):
     wins: int
     losses: int
     points: int
+
+
+class WalkoverRequest(BaseModel):
+    winner_id: str = Field(min_length=1, max_length=128)
+    reason: str = Field(min_length=5, max_length=500)

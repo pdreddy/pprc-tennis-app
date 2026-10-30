@@ -246,6 +246,8 @@ class DivisionEntry(Base):
     seed: Mapped[int | None] = mapped_column(Integer, nullable=True)
     rating: Mapped[float | None] = mapped_column(Numeric(4, 2), nullable=True)
     rank: Mapped[int | None] = mapped_column(Integer, nullable=True)  # ladder position, 1 = top
+    partner_user_id: Mapped[str | None] = mapped_column(String(128), nullable=True)  # doubles partner
+    partner_name: Mapped[str | None] = mapped_column(String(160), nullable=True)
     status: Mapped[str] = mapped_column(String(16), default="active")  # active | withdrawn
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -270,4 +272,6 @@ class CompetitionMatch(Base):
     starts_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     next_match_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("competition_matches.id", ondelete="SET NULL"), nullable=True)
     next_slot: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    loser_match_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("competition_matches.id", ondelete="SET NULL"), nullable=True)
+    loser_slot: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
