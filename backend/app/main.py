@@ -236,6 +236,40 @@ async def list_events(club_id: UUID, session: AsyncSession = Depends(get_session
     return list((await session.scalars(select(Event).where(Event.club_id == club_id).order_by(Event.starts_at))).all())
 
 
+@app.get("/v1/public/clubs/{slug}/events", response_model=list[EventRead])
+async def list_public_events(slug: str, session: AsyncSession = Depends(get_session)) -> list[Event]:
+    """Public catalogue: only published events, with no membership or payment data."""
+    club = await session.scalar(select(Club).where(Club.slug == slug))
+    if club is None:
+        raise HTTPException(status_code=404, detail="Club not found")
+    return list(
+        (
+            await session.scalars(
+                select(Event)
+                .where(Event.club_id == club.id, Event.status == EventStatus.published)
+                .order_by(Event.starts_at)
+            )
+        ).all()
+    )
+
+
+@app.get("/v1/public/events/{event_id}", response_model=EventRead)
+async def get_public_event(event_id: UUID, session: AsyncSession = Depends(get_session)) -> Event:
+    """A public event page may only expose events that have been published."""
+    event = await session.get(Event, event_id)
+    if event is None or event.status != EventStatus.published:
+        raise HTTPException(status_code=404, detail="Event not found")
+    return event
+
+
+@app.get("/v1/public/events/{event_id}/divisions", response_model=list[DivisionRead])
+async def list_public_event_divisions(event_id: UUID, session: AsyncSession = Depends(get_session)) -> list[Division]:
+    event = await session.get(Event, event_id)
+    if event is None or event.status != EventStatus.published:
+        raise HTTPException(status_code=404, detail="Event not found")
+    return list((await session.scalars(select(Division).where(Division.event_id == event.id).order_by(Division.name))).all())
+
+
 @app.get("/v1/events/{event_id}", response_model=EventRead)
 async def get_event(event_id: UUID, session: AsyncSession = Depends(get_session), actor: Actor = Depends(current_actor)) -> Event:
     event = await session.get(Event, event_id)
@@ -264,8 +298,16 @@ async def register(event_id: UUID, session: AsyncSession = Depends(get_session),
         raise HTTPException(status_code=404, detail="Event not found")
     if event.status != EventStatus.published:
         raise HTTPException(status_code=409, detail="Event is not open for registration")
-    if not await session.scalar(select(Membership).where(Membership.club_id == event.club_id, Membership.user_id == actor.user_id)):
-        raise HTTPException(status_code=403, detail="Join this club before registering")
+    membership = await session.scalar(
+        select(Membership).where(Membership.club_id == event.club_id, Membership.user_id == actor.user_id)
+    )
+    if membership is None:
+        # Published PPRC events are open to authenticated players.  The first
+        # registration establishes the least-privileged club membership.
+        membership = Membership(club_id=event.club_id, user_id=actor.user_id, display_name=actor.user_id)
+        session.add(membership)
+        await session.flush()
+        await audit(session, event.club_id, actor.user_id, "membership.self_joined", "membership", str(membership.id))
     if await session.scalar(select(Registration).where(Registration.event_id == event_id, Registration.user_id == actor.user_id)):
         raise HTTPException(status_code=409, detail="Already registered")
     confirmed = await session.scalar(select(func.count()).select_from(Registration).where(Registration.event_id == event_id, Registration.status == RegistrationStatus.confirmed))
@@ -281,6 +323,20 @@ async def register(event_id: UUID, session: AsyncSession = Depends(get_session),
     await notify(session, event.club_id, actor.user_id, "registration", "Registration received", f"You are {registration.status.value} for {event.name}.", {"eventId": str(event.id), "registrationId": str(registration.id)})
     await session.commit()
     return registration
+
+
+@app.get("/v1/me/registrations", response_model=list[RegistrationRead])
+async def list_my_registrations(session: AsyncSession = Depends(get_session), actor: Actor = Depends(current_actor)) -> list[Registration]:
+    """The signed-in player's registrations across every club they belong to."""
+    return list(
+        (
+            await session.scalars(
+                select(Registration)
+                .where(Registration.user_id == actor.user_id)
+                .order_by(Registration.created_at.desc())
+            )
+        ).all()
+    )
 
 
 @app.post("/v1/registrations/{registration_id}/withdraw", response_model=RegistrationRead)
