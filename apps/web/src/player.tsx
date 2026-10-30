@@ -148,6 +148,7 @@ export function EventDetail() {
                       <Link
                         className="button primary small"
                         to={d.format === "triace_team_round_robin" ? `/triace/${event.id}/${d.id}/register` : `/register/${event.id}/${d.id}`}
+                      >
                         Register <ArrowUpRight size={15} />
                       </Link>
                     ) : (
