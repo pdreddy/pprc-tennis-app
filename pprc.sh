@@ -31,6 +31,7 @@ case "${1:-help}" in
     docker compose exec -T postgres psql -U pprc -d pprc < backend/sql/001_initial.sql
     docker compose exec -T postgres psql -U pprc -d pprc < backend/sql/002_multiclub_tournament.sql
     docker compose exec -T postgres psql -U pprc -d pprc < backend/sql/003_tenant_rls.sql
+    docker compose exec -T postgres psql -U pprc -d pprc < backend/sql/004_triace_score_workflow.sql
     start_background firebase pnpm events:emulators
     wait_for http://localhost:4000
     pnpm events:seed
@@ -67,7 +68,20 @@ case "${1:-help}" in
     docker compose exec -T postgres psql -U pprc -d pprc < backend/sql/001_initial.sql
     docker compose exec -T postgres psql -U pprc -d pprc < backend/sql/002_multiclub_tournament.sql
     docker compose exec -T postgres psql -U pprc -d pprc < backend/sql/003_tenant_rls.sql
+    docker compose exec -T postgres psql -U pprc -d pprc < backend/sql/004_triace_score_workflow.sql
     docker compose --profile test run --rm api-tests
+    ;;
+  verify-local)
+    need docker; need pnpm; need python3; need curl
+    pnpm install --frozen-lockfile
+    # Use Playwright's managed Chromium so this never depends on /usr/bin/chromium.
+    pnpm exec playwright install chromium
+    pnpm pprc:check
+    "$0" test-api
+    pnpm events:integration
+    pnpm events:e2e
+    pnpm events:ui
+    echo "All local PPRC checks passed. Start the app with: $0 up"
     ;;
   *)
     cat <<'USAGE'
@@ -77,6 +91,7 @@ Usage: ./pprc.sh <command>
   reset-local-data  Stop stack and delete only its local Docker volume
   test-all          Run PWA/shared/backend build checks plus FastAPI syntax checks
   test-api          Apply local API migrations and run FastAPI black-box tests
+  verify-local      Install dependencies and run all API, Firebase, browser, and static checks
 USAGE
     ;;
 esac
