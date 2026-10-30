@@ -3,7 +3,9 @@
 Run only against an exported/staging Firebase project. It is idempotent for the
 PPRC club and records no credentials in the repository.
 """
+import argparse
 import asyncio
+import json
 import os
 import sys
 import uuid
@@ -11,7 +13,7 @@ from pathlib import Path
 
 import firebase_admin
 from firebase_admin import credentials, firestore
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.database import SessionLocal  # noqa: E402
@@ -33,10 +35,43 @@ def value(data: dict, key: str, default=None):
     return item.to_datetime() if hasattr(item, "to_datetime") else item
 
 
-async def import_pprc() -> None:
+async def firebase_counts(db: firestore.Client) -> dict[str, int]:
+    return {
+        "memberships": sum(1 for _ in db.collection("memberships").stream()),
+        "events": sum(1 for _ in db.collection("events").stream()),
+        "registrations": sum(1 for _ in db.collection("registrations").stream()),
+    }
+
+
+async def target_counts(session, club_id: uuid.UUID) -> dict[str, int]:
+    return {
+        "memberships": int(await session.scalar(select(func.count()).select_from(Membership).where(Membership.club_id == club_id)) or 0),
+        "events": int(await session.scalar(select(func.count()).select_from(Event).where(Event.club_id == club_id)) or 0),
+        "registrations": int(await session.scalar(select(func.count()).select_from(Registration).where(Registration.club_id == club_id)) or 0),
+    }
+
+
+async def import_pprc(apply: bool, report_path: Path | None) -> dict:
     db = source()
     club_id = uuid.uuid5(CLUB_NAMESPACE, "pprc")
+    source_counts = await firebase_counts(db)
+    report: dict = {
+        "club_id": str(club_id),
+        "source": source_counts,
+        "target_before": {},
+        "target_after": {},
+        "applied": apply,
+        "reconciled": False,
+    }
     async with SessionLocal() as session:
+        report["target_before"] = await target_counts(session, club_id)
+        if not apply:
+            report["target_after"] = report["target_before"]
+            report["reconciled"] = source_counts == report["target_before"]
+            if report_path:
+                report_path.write_text(json.dumps(report, indent=2) + "\n")
+            return report
+
         club = await session.get(Club, club_id)
         if club is None:
             club = Club(id=club_id, slug="pprc", name="Prosper Premier Racquet Club", sport="tennis")
@@ -69,8 +104,7 @@ async def import_pprc() -> None:
         await session.flush()
         for document in db.collection("registrations").stream():
             data = document.to_dict() or {}
-            source_event_id = data.get("eventId")
-            event_id = event_ids.get(source_event_id)
+            event_id = event_ids.get(data.get("eventId"))
             user_id = data.get("userId") or data.get("playerId")
             if not event_id or not user_id:
                 continue
@@ -81,8 +115,21 @@ async def import_pprc() -> None:
             session.add(Registration(club_id=club_id, event_id=event_id, user_id=user_id, status=registration_status, waitlist_position=data.get("waitlistPosition")))
 
         await session.commit()
-    print("Imported PPRC memberships, events, and registrations. Validate totals before cutover.")
+        report["target_after"] = await target_counts(session, club_id)
+    report["reconciled"] = source_counts == report["target_after"]
+    if report_path:
+        report_path.write_text(json.dumps(report, indent=2) + "\n")
+    return report
 
 
 if __name__ == "__main__":
-    asyncio.run(import_pprc())
+    parser = argparse.ArgumentParser(description="Create a Firebase-to-PostgreSQL PPRC reconciliation report")
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--dry-run", action="store_true", help="Read both sources and write counts without changes")
+    mode.add_argument("--apply", action="store_true", help="Run idempotent import into the configured staging database")
+    parser.add_argument("--report", type=Path, help="Path to a JSON reconciliation report")
+    args = parser.parse_args()
+    result = asyncio.run(import_pprc(apply=args.apply, report_path=args.report))
+    print(json.dumps(result, indent=2))
+    if not result["reconciled"]:
+        raise SystemExit("Counts do not reconcile; do not cut over this club.")
