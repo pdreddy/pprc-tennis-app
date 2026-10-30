@@ -14,10 +14,14 @@ import {
   listPublicApiDivisions,
   listPublicApiEvents,
   listMyApiRegistrations,
+  listApiNotifications,
+  markApiNotificationRead,
   registerForApiEvent,
   withdrawApiRegistration,
   type ApiDivision,
   type ApiEvent,
+  type ApiNotification,
+  type ApiRegistration,
 } from "./api";
 import { canManage, type Entity, type Event } from "@pprc/shared";
 const Session = createContext<{
@@ -106,7 +110,7 @@ function toUiDivision(division: ApiDivision): Entity {
   };
 }
 
-function toUiRegistration(registration: import("./api").ApiRegistration): Entity {
+function toUiRegistration(registration: ApiRegistration): Entity {
   return {
     id: registration.id,
     eventId: registration.event_id,
@@ -114,6 +118,17 @@ function toUiRegistration(registration: import("./api").ApiRegistration): Entity
     state: registration.status === "confirmed" ? "Registered" : registration.status === "waitlisted" ? "Waitlisted" : registration.status,
     checkIn: registration.checked_in_at ? "Checked in" : "Not checked in",
     waitlistPosition: registration.waitlist_position,
+  };
+}
+
+function toUiNotification(notification: ApiNotification): Entity {
+  return {
+    id: notification.id,
+    title: notification.title,
+    body: notification.body,
+    eventId: String(notification.data.eventId ?? ""),
+    read: Boolean(notification.read_at),
+    createdAt: notification.created_at,
   };
 }
 
@@ -127,6 +142,11 @@ export function useAction() {
     }
     if (apiEnabled && name === "cancelRegistration") {
       const result = await withdrawApiRegistration(String(data.registrationId));
+      await qc.invalidateQueries();
+      return result;
+    }
+    if (apiEnabled && name === "markNotificationRead") {
+      const result = await markApiNotificationRead(String(data.notificationId));
       await qc.invalidateQueries();
       return result;
     }
@@ -150,6 +170,9 @@ export function useList(
       }
       if (apiEnabled && collection === "registrations") {
         return (await listMyApiRegistrations()).map(toUiRegistration);
+      }
+      if (apiEnabled && collection === "notifications") {
+        return (await listApiNotifications()).map(toUiNotification);
       }
       return getList(collection, filters);
     },
