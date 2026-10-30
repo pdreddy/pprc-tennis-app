@@ -175,6 +175,20 @@ class Fixture(Timestamped, Base):
     score_away: Mapped[int | None] = mapped_column(Integer, nullable=True)
     winner_team_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("teams.id", ondelete="SET NULL"), nullable=True)
     status: Mapped[FixtureStatus] = mapped_column(Enum(FixtureStatus), default=FixtureStatus.scheduled)
+    round_name: Mapped[str] = mapped_column(String(64), default="regular")
+    bracket_position: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class PlayerAppearance(Base):
+    __tablename__ = "player_appearances"
+    __table_args__ = (UniqueConstraint("fixture_id", "user_id", name="uq_fixture_player_appearance"),)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    club_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("clubs.id", ondelete="CASCADE"), index=True)
+    division_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("divisions.id", ondelete="CASCADE"), index=True)
+    fixture_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("fixtures.id", ondelete="CASCADE"), index=True)
+    team_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("teams.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[str] = mapped_column(String(128), index=True)
+    singles_played: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
 class Standing(Base):

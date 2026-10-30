@@ -26,8 +26,16 @@ create table if not exists fixtures (
   starts_at timestamptz not null, score_home integer, score_away integer,
   winner_team_id uuid references teams(id) on delete set null,
   status text not null default 'scheduled' check (status in ('scheduled','reported','finalized')),
+  round_name text not null default 'regular', bracket_position integer,
   created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
   check (home_team_id <> away_team_id)
+);
+create table if not exists player_appearances (
+  id uuid primary key default gen_random_uuid(), club_id uuid not null references clubs(id) on delete cascade,
+  division_id uuid not null references divisions(id) on delete cascade,
+  fixture_id uuid not null references fixtures(id) on delete cascade,
+  team_id uuid not null references teams(id) on delete cascade, user_id text not null,
+  singles_played boolean not null default true, unique(fixture_id, user_id)
 );
 create table if not exists courts (
   id uuid primary key default gen_random_uuid(), club_id uuid not null references clubs(id) on delete cascade,
@@ -53,6 +61,7 @@ create table if not exists notifications (
 
 create index if not exists teams_club_division_idx on teams(club_id, division_id);
 create index if not exists fixtures_division_starts_idx on fixtures(division_id, starts_at);
+create index if not exists player_appearances_team_fixture_idx on player_appearances(team_id, fixture_id);
 create index if not exists schedules_club_starts_idx on schedules(club_id, starts_at);
 create index if not exists notifications_user_created_idx on notifications(user_id, created_at desc);
 
@@ -62,6 +71,7 @@ alter table divisions enable row level security;
 alter table teams enable row level security;
 alter table team_members enable row level security;
 alter table fixtures enable row level security;
+alter table player_appearances enable row level security;
 alter table courts enable row level security;
 alter table schedules enable row level security;
 alter table standings enable row level security;

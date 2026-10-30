@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+from math import ceil
 from uuid import UUID
 
 from fastapi import Depends, FastAPI, HTTPException, status
@@ -26,6 +27,7 @@ from .models import (
     Team,
     TeamMember,
     TeamStatus,
+    PlayerAppearance,
 )
 from .schemas import (
     ClubCreate,
@@ -42,6 +44,8 @@ from .schemas import (
     RegistrationRead,
     TeamCreate,
     TeamRead,
+    TeamEligibilityRead,
+    PlayoffSeedRead,
 )
 
 
@@ -96,6 +100,52 @@ async def rebuild_team_standings(session: AsyncSession, club_id: UUID, division_
                 **values,
             )
         )
+
+
+async def team_eligibility(session: AsyncSession, team: Team) -> TeamEligibilityRead:
+    """TRIACE rule: every active team member must play singles on the configured share of team match days."""
+    if team.division_id is None:
+        return TeamEligibilityRead(team_id=team.id, eligible=False, required_singles_days=0, player_singles_days={}, missing_player_ids=[])
+    division = await session.get(Division, team.division_id)
+    threshold = float((division.rules if division else {}).get("minSinglesParticipationPct", 0.4))
+    fixtures = list(
+        (
+            await session.scalars(
+                select(Fixture).where(
+                    Fixture.division_id == team.division_id,
+                    Fixture.status == FixtureStatus.finalized,
+                    (Fixture.home_team_id == team.id) | (Fixture.away_team_id == team.id),
+                )
+            )
+        ).all()
+    )
+    required = ceil(len({fixture.starts_at.date() for fixture in fixtures}) * threshold)
+    members = list((await session.scalars(select(TeamMember).where(TeamMember.team_id == team.id, TeamMember.active.is_(True)))).all())
+    appearances = list(
+        (
+            await session.scalars(
+                select(PlayerAppearance).where(
+                    PlayerAppearance.team_id == team.id,
+                    PlayerAppearance.singles_played.is_(True),
+                )
+            )
+        ).all()
+    )
+    fixture_ids = {fixture.id: fixture.starts_at.date() for fixture in fixtures}
+    days: dict[str, set] = {member.user_id: set() for member in members}
+    for appearance in appearances:
+        match_day = fixture_ids.get(appearance.fixture_id)
+        if match_day:
+            days.setdefault(appearance.user_id, set()).add(match_day)
+    totals = {user_id: len(value) for user_id, value in days.items()}
+    missing = [member.user_id for member in members if totals.get(member.user_id, 0) < required]
+    return TeamEligibilityRead(
+        team_id=team.id,
+        eligible=bool(members) and bool(fixtures) and not missing,
+        required_singles_days=required,
+        player_singles_days=totals,
+        missing_player_ids=missing,
+    )
 
 
 @asynccontextmanager
@@ -322,11 +372,77 @@ async def record_fixture_result(
     await require_role(session, fixture.club_id, actor.user_id, {MembershipRole.owner, MembershipRole.admin, MembershipRole.organizer})
     if payload.score_home == payload.score_away:
         raise HTTPException(status_code=422, detail="TRIACE fixture results cannot end in a tie")
+    home_members = set((await session.scalars(select(TeamMember.user_id).where(TeamMember.team_id == fixture.home_team_id, TeamMember.active.is_(True)))).all())
+    away_members = set((await session.scalars(select(TeamMember.user_id).where(TeamMember.team_id == fixture.away_team_id, TeamMember.active.is_(True)))).all())
+    home_players, away_players = set(payload.home_singles_player_ids), set(payload.away_singles_player_ids)
+    if len(home_players) != len(payload.home_singles_player_ids) or len(away_players) != len(payload.away_singles_player_ids):
+        raise HTTPException(status_code=422, detail="A player can appear only once per team fixture")
+    if not home_players.issubset(home_members) or not away_players.issubset(away_members):
+        raise HTTPException(status_code=422, detail="Singles players must be active members of their assigned team")
     fixture.score_home = payload.score_home
     fixture.score_away = payload.score_away
     fixture.winner_team_id = fixture.home_team_id if payload.score_home > payload.score_away else fixture.away_team_id
     fixture.status = FixtureStatus.finalized
+    await session.execute(PlayerAppearance.__table__.delete().where(PlayerAppearance.fixture_id == fixture.id))
+    for team_id, player_ids in ((fixture.home_team_id, home_players), (fixture.away_team_id, away_players)):
+        for user_id in player_ids:
+            session.add(PlayerAppearance(club_id=fixture.club_id, division_id=fixture.division_id, fixture_id=fixture.id, team_id=team_id, user_id=user_id))
     await rebuild_team_standings(session, fixture.club_id, fixture.division_id)
     await audit(session, fixture.club_id, actor.user_id, "fixture.finalized", "fixture", str(fixture.id))
     await session.commit()
     return fixture
+
+
+@app.post("/v1/teams/{team_id}/approve", response_model=TeamRead)
+async def approve_team(
+    team_id: UUID,
+    session: AsyncSession = Depends(get_session),
+    actor: Actor = Depends(current_actor),
+) -> Team:
+    team = await session.get(Team, team_id)
+    if team is None:
+        raise HTTPException(status_code=404, detail="Team not found")
+    await require_role(session, team.club_id, actor.user_id, {MembershipRole.owner, MembershipRole.admin, MembershipRole.organizer})
+    members = list((await session.scalars(select(TeamMember).where(TeamMember.team_id == team.id, TeamMember.active.is_(True)))).all())
+    if len(members) != 3:
+        raise HTTPException(status_code=422, detail="TRIACE approval requires exactly three active team members")
+    team.status = TeamStatus.approved
+    await audit(session, team.club_id, actor.user_id, "triace.team.approved", "team", str(team.id))
+    await session.commit()
+    return team
+
+
+@app.get("/v1/teams/{team_id}/eligibility", response_model=TeamEligibilityRead)
+async def get_team_eligibility(
+    team_id: UUID,
+    session: AsyncSession = Depends(get_session),
+    actor: Actor = Depends(current_actor),
+) -> TeamEligibilityRead:
+    team = await session.get(Team, team_id)
+    if team is None:
+        raise HTTPException(status_code=404, detail="Team not found")
+    await require_role(session, team.club_id, actor.user_id, set(MembershipRole))
+    return await team_eligibility(session, team)
+
+
+@app.get("/v1/divisions/{division_id}/playoff-seeds", response_model=list[PlayoffSeedRead])
+async def list_playoff_seeds(
+    division_id: UUID,
+    session: AsyncSession = Depends(get_session),
+    actor: Actor = Depends(current_actor),
+) -> list[PlayoffSeedRead]:
+    division = await session.get(Division, division_id)
+    if division is None:
+        raise HTTPException(status_code=404, detail="Division not found")
+    await require_role(session, division.club_id, actor.user_id, set(MembershipRole))
+    teams = list((await session.scalars(select(Team).where(Team.division_id == division.id, Team.status == TeamStatus.approved))).all())
+    standing_rows = list((await session.scalars(select(Standing).where(Standing.division_id == division.id, Standing.subject_type == "team"))).all())
+    standings = {row.subject_id: row for row in standing_rows}
+    ranked: list[tuple[Team, Standing | None, TeamEligibilityRead]] = []
+    for team in teams:
+        ranked.append((team, standings.get(str(team.id)), await team_eligibility(session, team)))
+    ranked.sort(key=lambda item: (not item[2].eligible, -(item[1].points if item[1] else 0), -(item[1].wins if item[1] else 0), item[0].name.lower()))
+    return [
+        PlayoffSeedRead(seed=index, team_id=team.id, team_name=team.name, points=standing.points if standing else 0, eligible=eligibility.eligible)
+        for index, (team, standing, eligibility) in enumerate(ranked, start=1)
+    ]

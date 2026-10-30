@@ -115,6 +115,8 @@ class FixtureCreate(BaseModel):
 class FixtureResult(BaseModel):
     score_home: int = Field(ge=0, le=99)
     score_away: int = Field(ge=0, le=99)
+    home_singles_player_ids: list[str] = Field(min_length=1, max_length=2)
+    away_singles_player_ids: list[str] = Field(min_length=1, max_length=2)
 
 
 class FixtureRead(ORMModel):
@@ -128,3 +130,21 @@ class FixtureRead(ORMModel):
     score_away: int | None
     winner_team_id: UUID | None
     status: FixtureStatus
+    round_name: str
+    bracket_position: int | None
+
+
+class TeamEligibilityRead(BaseModel):
+    team_id: UUID
+    eligible: bool
+    required_singles_days: int
+    player_singles_days: dict[str, int]
+    missing_player_ids: list[str]
+
+
+class PlayoffSeedRead(BaseModel):
+    seed: int
+    team_id: UUID
+    team_name: str
+    points: int
+    eligible: bool
