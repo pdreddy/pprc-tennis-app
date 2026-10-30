@@ -356,6 +356,13 @@ async def update_event(
     if event is None:
         raise HTTPException(status_code=404, detail="Event not found")
     await require_role(session, event.club_id, actor.user_id, {MembershipRole.owner, MembershipRole.admin, MembershipRole.organizer})
+    division = await session.scalar(select(Division).where(Division.event_id == event.id))
+    proposed_rules = payload.rules if payload.rules is not None else event.rules
+    if division and division.format == "triace_team_round_robin":
+        triace_rule_values(proposed_rules, division.rules)
+        proposed_capacity = payload.capacity if payload.capacity is not None else event.capacity
+        if proposed_capacity < division.capacity:
+            raise HTTPException(status_code=422, detail="Event team capacity cannot be lower than its TRIACE division capacity")
     for field, value in payload.model_dump(exclude_none=True, exclude={"audit_reason"}).items():
         setattr(event, field, value)
     await audit(session, event.club_id, actor.user_id, "event.updated", "event", str(event.id), payload.audit_reason)
@@ -815,6 +822,8 @@ async def create_fixture(
     teams = [await session.get(Team, team_id) for team_id in (payload.home_team_id, payload.away_team_id)]
     if division is None or division.club_id != club_id or any(team is None or team.club_id != club_id or team.division_id != division.id for team in teams):
         raise HTTPException(status_code=422, detail="Fixture teams must belong to the selected club and division")
+    if any(team.status != TeamStatus.approved for team in teams):
+        raise HTTPException(status_code=422, detail="Only approved teams can be scheduled")
     if payload.home_team_id == payload.away_team_id:
         raise HTTPException(status_code=422, detail="A team cannot play itself")
     conflict = await session.scalar(
@@ -848,6 +857,10 @@ async def record_fixture_result(
     if fixture is None:
         raise HTTPException(status_code=404, detail="Fixture not found")
     await require_role(session, fixture.club_id, actor.user_id, {MembershipRole.owner, MembershipRole.admin, MembershipRole.organizer})
+    division = await session.get(Division, fixture.division_id)
+    event = await session.get(Event, division.event_id) if division and division.event_id else None
+    if event and event.status == EventStatus.completed:
+        raise HTTPException(status_code=409, detail="Completed events cannot accept score changes")
     if fixture.status == FixtureStatus.finalized:
         raise HTTPException(status_code=409, detail="Finalized scores require the correction endpoint and an audit reason")
     if payload.score_home == payload.score_away:
@@ -910,6 +923,10 @@ async def correct_fixture_result(
     if fixture is None:
         raise HTTPException(status_code=404, detail="Fixture not found")
     await require_role(session, fixture.club_id, actor.user_id, {MembershipRole.owner, MembershipRole.admin, MembershipRole.organizer})
+    division = await session.get(Division, fixture.division_id)
+    event = await session.get(Event, division.event_id) if division and division.event_id else None
+    if event and event.status == EventStatus.completed:
+        raise HTTPException(status_code=409, detail="Completed events cannot accept score changes")
     if fixture.status != FixtureStatus.finalized:
         raise HTTPException(status_code=409, detail="Only finalized fixtures require a correction")
     if payload.score_home == payload.score_away:
@@ -995,6 +1012,9 @@ async def generate_playoffs(
     if division is None:
         raise HTTPException(status_code=404, detail="Division not found")
     await require_role(session, division.club_id, actor.user_id, {MembershipRole.owner, MembershipRole.admin, MembershipRole.organizer})
+    event = await session.get(Event, division.event_id) if division.event_id else None
+    if event is None or event.status != EventStatus.closed:
+        raise HTTPException(status_code=409, detail="Close TRIACE registration before generating playoffs")
     if await session.scalar(select(Fixture).where(Fixture.division_id == division.id, Fixture.round_name.in_(["playoff_semifinal", "playoff_final"]))):
         raise HTTPException(status_code=409, detail="Playoff bracket already exists")
     eligible = [item for item in await ranked_playoff_teams(session, division) if item[2].eligible]
