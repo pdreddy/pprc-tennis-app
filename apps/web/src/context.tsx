@@ -12,6 +12,7 @@ import {
   apiEnabled,
   apiClubId,
   createApiDivision,
+  createApiTriaceEvent,
   createApiEvent,
   getPublicApiEvent,
   getApiEvent,
@@ -166,10 +167,9 @@ export function useAction() {
       return result;
     }
     if (apiEnabled && name === "createTriaceEvent") {
-      const event = await createApiEvent(data.event as import("./api").ApiEventInput);
-      for (const division of data.divisions as import("./api").ApiDivisionInput[]) {
-        await createApiDivision(event.id, division);
-      }
+      const divisions = data.divisions as import("./api").ApiDivisionInput[];
+      if (divisions.length !== 1) throw new Error("TRIACE setup requires exactly one initial division");
+      const event = await createApiTriaceEvent(data.event as import("./api").ApiEventInput, divisions[0]);
       await qc.invalidateQueries();
       return { eventId: event.id };
     }
