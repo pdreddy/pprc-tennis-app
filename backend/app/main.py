@@ -1,5 +1,5 @@
 from contextlib import asynccontextmanager
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from math import ceil
 from uuid import UUID, uuid4
 
@@ -30,6 +30,7 @@ from .models import (
     TeamStatus,
     PlayerAppearance,
     Payment,
+    Notification,
 )
 from .schemas import (
     ClubCreate,
@@ -51,11 +52,16 @@ from .schemas import (
     PlayoffGenerate,
     ChampionRead,
     CheckoutRead,
+    NotificationRead,
 )
 
 
 async def audit(session: AsyncSession, club_id: UUID, actor: str, action: str, entity_type: str, entity_id: str) -> None:
     session.add(AuditLog(club_id=club_id, actor_id=actor, action=action, entity_type=entity_type, entity_id=entity_id))
+
+
+async def notify(session: AsyncSession, club_id: UUID, user_id: str, kind: str, title: str, body: str, data: dict | None = None) -> None:
+    session.add(Notification(club_id=club_id, user_id=user_id, kind=kind, title=title, body=body, data=data or {}))
 
 
 async def require_role(session: AsyncSession, club_id: UUID, actor: str, roles: set[MembershipRole]) -> Membership:
@@ -263,8 +269,35 @@ async def register(event_id: UUID, session: AsyncSession = Depends(get_session),
     session.add(registration)
     await session.flush()
     await audit(session, event.club_id, actor.user_id, "registration.created", "registration", str(registration.id))
+    await notify(session, event.club_id, actor.user_id, "registration", "Registration received", f"You are {registration.status.value} for {event.name}.", {"eventId": str(event.id), "registrationId": str(registration.id)})
     await session.commit()
     return registration
+
+
+@app.get("/v1/notifications", response_model=list[NotificationRead])
+async def list_notifications(
+    unread_only: bool = False,
+    session: AsyncSession = Depends(get_session),
+    actor: Actor = Depends(current_actor),
+) -> list[Notification]:
+    statement = select(Notification).where(Notification.user_id == actor.user_id)
+    if unread_only:
+        statement = statement.where(Notification.read_at.is_(None))
+    return list((await session.scalars(statement.order_by(Notification.created_at.desc()))).all())
+
+
+@app.post("/v1/notifications/{notification_id}/read", response_model=NotificationRead)
+async def mark_notification_read(
+    notification_id: UUID,
+    session: AsyncSession = Depends(get_session),
+    actor: Actor = Depends(current_actor),
+) -> Notification:
+    item = await session.get(Notification, notification_id)
+    if item is None or item.user_id != actor.user_id:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    item.read_at = datetime.now(timezone.utc)
+    await session.commit()
+    return item
 
 
 @app.post("/v1/registrations/{registration_id}/checkout", response_model=CheckoutRead)
@@ -497,6 +530,8 @@ async def create_fixture(
     fixture = Fixture(club_id=club_id, **payload.model_dump())
     session.add(fixture)
     await session.flush()
+    for team in teams:
+        await notify(session, club_id, team.captain_user_id, "fixture", "Match scheduled", f"{team.name} has a scheduled TRIACE fixture.", {"fixtureId": str(fixture.id)})
     await audit(session, club_id, actor.user_id, "fixture.created", "fixture", str(fixture.id))
     await session.commit()
     return fixture
@@ -577,6 +612,7 @@ async def approve_team(
         raise HTTPException(status_code=422, detail="TRIACE approval requires exactly three active team members")
     team.status = TeamStatus.approved
     await audit(session, team.club_id, actor.user_id, "triace.team.approved", "team", str(team.id))
+    await notify(session, team.club_id, team.captain_user_id, "triace", "Team approved", f"{team.name} is approved for competition.", {"teamId": str(team.id)})
     await session.commit()
     return team
 

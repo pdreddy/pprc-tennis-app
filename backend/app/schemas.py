@@ -72,6 +72,18 @@ class CheckoutRead(BaseModel):
     checkout_url: str | None = None
 
 
+class NotificationRead(ORMModel):
+    id: UUID
+    club_id: UUID
+    user_id: str
+    kind: str
+    title: str
+    body: str
+    data: dict
+    read_at: datetime | None
+    created_at: datetime
+
+
 class DivisionCreate(BaseModel):
     name: str = Field(min_length=2, max_length=160)
     format: str = Field(default="round_robin", max_length=48)

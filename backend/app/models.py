@@ -191,6 +191,19 @@ class PlayerAppearance(Base):
     singles_played: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
+class Notification(Base):
+    __tablename__ = "notifications"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    club_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("clubs.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[str] = mapped_column(String(128), index=True)
+    kind: Mapped[str] = mapped_column(String(80))
+    title: Mapped[str] = mapped_column(String(180))
+    body: Mapped[str] = mapped_column(Text)
+    data: Mapped[dict] = mapped_column(JSONB, default=dict)
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class Standing(Base):
     __tablename__ = "standings"
     __table_args__ = (UniqueConstraint("event_id", "division_id", "subject_type", "subject_id", name="uq_standing_subject"),)

@@ -46,7 +46,7 @@ The Firebase PWA remains the operating pilot. The FastAPI/PostgreSQL service is 
 |---|---|---|
 | Apply PostgreSQL migrations locally | In progress | `001_initial.sql` and `002_multiclub_tournament.sql` run idempotently. |
 | Validate tenant isolation | Not started | A user from Club A cannot read or change Club B data. |
-| Complete FastAPI API coverage | In progress | Clubs, memberships, events, registration/waitlist are available; teams, TRIACE, schedules, standings, scores, payments, and notifications still need endpoints. |
+| Complete FastAPI API coverage | In progress | Clubs, memberships, events, registration/waitlist, TRIACE teams/fixtures/standings/playoffs, checkout/webhooks, and in-app notifications are available. Draws, court scheduling, check-in, score corrections, and exports remain. |
 | Add TRIACE lifecycle API | In progress | Team registration, three-player roster validation, configurable combined-rating thresholds, admin approval, fixtures, singles-participation eligibility, result recording, standings recalculation, two- or four-team playoff bracket generation, winner advancement, and champion reporting are implemented. Full API integration tests remain. |
 | Add tournament administration API | Not started | Divisions, draws, scheduling, check-in, score confirmation, corrections, and audit views work end to end. |
 | Add FastAPI test suite | In progress | Dockerized TRIACE team-to-champion API smoke test is added. Authorization, tenant isolation, waitlist contention, and correction-path coverage remain. |
@@ -79,7 +79,7 @@ This is a functional reference checklist only. PPRC uses original branding and i
 | Register, waiver, payment state, waitlist | Done | In progress |
 | Event schedule and match history | Done | Not started |
 | Draws, results, standings | Done | Not started |
-| Player notifications | Done in-app | Not started for API |
+| Player notifications | Done in-app | In-app FastAPI notification feed and read state are implemented; email/push delivery remains. |
 | Admin event setup and publish | Done | In progress |
 | Registration approval and seeding | Done | Not started |
 | Draw generation and schedule | Done | Not started |
