@@ -1,1 +1,8 @@
-LS0gVFJJQUNFIHNjb3JlIHN1Ym1pc3Npb24sIG9wcG9zaW5nLWNhcHRhaW4gY29uZmlybWF0aW9uLCBhbmQgZGlzcHV0ZSBtZXRhZGF0YS4KLS0gU2FmZSBvbiBib3RoIGEgZnJlc2ggZGF0YWJhc2UgYW5kIGEgZGF0YWJhc2UgYWxyZWFkeSB1c2luZyBtaWdyYXRpb25zIDAwMS0wMDMuCmFsdGVyIHRhYmxlIGZpeHR1cmVzCiAgYWRkIGNvbHVtbiBpZiBub3QgZXhpc3RzIHJlc3VsdF9kZXRhaWwganNvbmIgbm90IG51bGwgZGVmYXVsdCAne30nOjpqc29uYjsKCmNyZWF0ZSBpbmRleCBpZiBub3QgZXhpc3RzIGZpeHR1cmVzX3JlcG9ydGVkX2lkeAogIG9uIGZpeHR1cmVzIChjbHViX2lkLCBzdGF0dXMpCiAgd2hlcmUgc3RhdHVzID0gJ3JlcG9ydGVkJzsK
+-- TRIACE score submission, opposing-captain confirmation, and dispute metadata.
+-- Safe on both a fresh database and a database already using migrations 001-003.
+alter table fixtures
+  add column if not exists result_detail jsonb not null default '{}'::jsonb;
+
+create index if not exists fixtures_reported_idx
+  on fixtures (club_id, status)
+  where status = 'reported';
