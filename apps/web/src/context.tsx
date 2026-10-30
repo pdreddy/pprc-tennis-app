@@ -14,6 +14,7 @@ import {
   createApiDivision,
   createApiEvent,
   getPublicApiEvent,
+  getApiEvent,
   listPublicApiDivisions,
   listPublicApiEvents,
   listMyApiRegistrations,
@@ -210,7 +211,11 @@ export function useEvent(id: string) {
   const { user, member, loading } = useSession();
   const e = useQuery({
     queryKey: ["event", apiEnabled ? "api" : "firebase", id, user?.uid],
-    queryFn: async () => apiEnabled ? toUiEvent(await getPublicApiEvent(id)) : getOne("events", id),
+    queryFn: async () => {
+      if (!apiEnabled) return getOne("events", id);
+      const isAdmin = ["clubAdmin", "eventAdmin"].includes(String(member?.role));
+      return toUiEvent(await (isAdmin ? getApiEvent(id) : getPublicApiEvent(id)));
+    },
     enabled: !!id && !loading,
   });
   const admin = canManage(member?.role, user?.uid ?? "", e.data as Event);
