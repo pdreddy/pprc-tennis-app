@@ -151,3 +151,25 @@ def test_doubles_entries_need_a_partner_and_partner_can_report():
     assert reported["status"] == "reported"
     request_error("POST", f"/v1/competition-matches/{match['id']}/confirm", a1)  # same side
     assert request("POST", f"/v1/competition-matches/{match['id']}/confirm", b2)["status"] == "finalized"
+
+
+def test_groups_knockout_snake_draw_then_bracket():
+    owner, club_id = setup()
+    _, division = make_tournament(owner, club_id, "groups_knockout", rules={"groupSize": 4, "advancePerGroup": 2})
+    players = [f"gk-{uuid.uuid4().hex[:6]}-{i}" for i in range(8)]
+    for seed, player in enumerate(players, start=1):
+        request("POST", f"/v1/divisions/{division['id']}/entries", owner, json={"user_id": player, "seed": seed})
+    matches = request("POST", f"/v1/divisions/{division['id']}/draw", owner, json={})
+    assert len(matches) == 12 and {m["round_name"] for m in matches} == {"group_A", "group_B"}
+    entries = {e["user_id"]: e["group_label"] for e in request("GET", f"/v1/divisions/{division['id']}/entries", owner)}
+    assert [entries[p] for p in players] == ["A", "B", "B", "A", "A", "B", "B", "A"]  # snake: 1->A, 2->B, 3->B, 4->A ...
+    request_error("POST", f"/v1/divisions/{division['id']}/groups/advance", owner, json={})  # group play unfinished
+    play_all_ready(owner, division["id"])
+    bracket = request("POST", f"/v1/divisions/{division['id']}/groups/advance", owner, json={})
+    assert {m["round_name"] for m in bracket} == {"semifinal", "final"}
+    request_error("POST", f"/v1/divisions/{division['id']}/groups/advance", owner, json={})
+    play_all_ready(owner, division["id"])
+    final = next(m for m in request("GET", f"/v1/divisions/{division['id']}/competition-matches", owner) if m["round_name"] == "final")
+    assert final["status"] == "finalized"
+    table = request("GET", f"/v1/divisions/{division['id']}/player-standings", owner)
+    assert {row["group"] for row in table} == {"A", "B"}

@@ -158,3 +158,28 @@ def test_swiss_avoids_rematches_and_gives_one_bye():
     assert frozenset(("a", "b")) not in {frozenset(p) for p in pairs}
     _, next_bye = swiss_pairings(order, {}, set(), {"e"})
     assert next_bye == "d"
+
+
+# ---- snake groups ---------------------------------------------------------------------------
+from app.formats import group_count_for, knockout_seeds, snake_groups
+
+
+def test_snake_groups_balance_seeds():
+    groups = snake_groups([f"s{i}" for i in range(1, 13)], 3)
+    assert groups == [["s1", "s6", "s7", "s12"], ["s2", "s5", "s8", "s11"], ["s3", "s4", "s9", "s10"]]
+
+
+def test_snake_groups_uneven_field():
+    groups = snake_groups([f"s{i}" for i in range(1, 8)], 3)
+    assert [len(g) for g in groups] == [3, 2, 2] and groups[0] == ["s1", "s6", "s7"]
+
+
+def test_group_count():
+    assert group_count_for(16, 4) == 4
+    assert group_count_for(10, 4) == 2 or group_count_for(10, 4) == 3
+    assert group_count_for(5, 4, 4) == 2  # never fewer than two per group
+    assert group_count_for(8, 4, 1) == 1
+
+
+def test_knockout_seeds_order():
+    assert knockout_seeds([["a1", "a2"], ["b1", "b2"]]) == ["a1", "b1", "a2", "b2"]

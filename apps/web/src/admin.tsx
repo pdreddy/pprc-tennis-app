@@ -2125,6 +2125,11 @@ function IndividualTournamentSetup({ format }: { format: string }) {
             divisionRules.challengeExpiryAction = text(form, "challengeExpiryAction");
           }
           if (format === "round_robin" || format === "swiss") divisionRules.pointsPerWin = number(form, "pointsPerWin");
+          if (format === "groups_knockout") {
+            divisionRules.groupSize = number(form, "groupSize");
+            divisionRules.groupCount = number(form, "groupCount");
+            divisionRules.advancePerGroup = number(form, "advancePerGroup");
+          }
           if (format === "swiss") divisionRules.swissRounds = number(form, "swissRounds");
           const capacity = number(form, "capacity");
           const result = await action("createTournament", {
@@ -2159,7 +2164,14 @@ function IndividualTournamentSetup({ format }: { format: string }) {
           <Field label="Minimum UTR (optional)"><input name="minRating" type="number" min="0" max="20" step="0.1" /></Field>
           <Field label="Maximum UTR (optional)"><input name="maxRating" type="number" min="0" max="20" step="0.1" /></Field>
           {format === "ladder" && <Field label="Challenge range (places above)"><input name="challengeRange" type="number" min="1" max="10" defaultValue="3" required /></Field>}
-          {(format === "round_robin" || format === "swiss") && <Field label="Points per win"><input name="pointsPerWin" type="number" min="1" max="10" defaultValue="2" required /></Field>}
+          {(format === "round_robin" || format === "swiss" || format === "groups_knockout") && <Field label="Points per win"><input name="pointsPerWin" type="number" min="1" max="10" defaultValue="2" required /></Field>}
+          {format === "groups_knockout" && (
+            <>
+              <Field label="Players per group"><input name="groupSize" type="number" min="3" max="8" defaultValue="4" required /></Field>
+              <Field label="Number of groups" hint="0 = automatic from group size"><input name="groupCount" type="number" min="0" max="16" defaultValue="0" required /></Field>
+              <Field label="Advance per group"><input name="advancePerGroup" type="number" min="1" max="4" defaultValue="2" required /></Field>
+            </>
+          )}
           {format === "swiss" && <Field label="Rounds" hint="0 = automatic (log2 of players, rounded up)"><input name="swissRounds" type="number" min="0" max="12" defaultValue="0" required /></Field>}
           {format === "ladder" && <Field label="Challenge expiry (days, 0 = never)"><input name="challengeExpiryDays" type="number" min="0" max="90" defaultValue="14" required /></Field>}
           {format === "ladder" && (

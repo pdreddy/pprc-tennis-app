@@ -281,6 +281,7 @@ class EntryRead(ORMModel):
     status: str
     partner_user_id: str | None
     partner_name: str | None
+    group_label: str | None
 
 
 class CompetitionMatchRead(ORMModel):
@@ -323,6 +324,7 @@ class PlayerStandingRead(BaseModel):
     wins: int
     losses: int
     points: int
+    group: str | None = None
 
 
 class WalkoverRequest(BaseModel):

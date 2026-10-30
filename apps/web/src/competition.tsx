@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   addApiEntry,
+  advanceApiGroups,
   awardApiWalkover,
   cancelApiLadderChallenge,
   confirmApiCompetitionResult,
@@ -24,12 +25,14 @@ const roundLabel = (name: string) => {
   const numbered = /^(winners|losers)_round_(\d+)$/.exec(name);
   if (numbered) return `${numbered[1] === "winners" ? "Winners" : "Losers"} round ${numbered[2]}`;
   if (name.startsWith("round_")) return `Round ${name.slice(6)}`;
+  const group = /^group_(.+)$/.exec(name);
+  if (group) return `Group ${group[1]}`;
   if (name === "grand_final") return "Grand final";
   if (name === "grand_final_reset") return "Grand final reset";
   return name.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
 };
 // Winners bracket, then losers bracket, then the grand final.
-const bracketRank = (name: string) => (name.startsWith("losers_") ? 1 : name.startsWith("grand_") ? 2 : 0);
+const bracketRank = (name: string) => (name.startsWith("group_") ? -1 : name.startsWith("losers_") ? 1 : name.startsWith("grand_") ? 2 : 0);
 const entryLabel = (entry: ApiEntry) => (entry.partner_user_id ? `${entry.display_name} / ${entry.partner_name ?? entry.partner_user_id}` : entry.display_name);
 const rule = (division: Entity, key: string) => (division.rules as Record<string, unknown> | undefined)?.[key];
 
@@ -47,7 +50,8 @@ export function CompetitionBoard({ division, staff, open = false }: { division: 
   const refresh = () => qc.invalidateQueries({ queryKey: ["competition", id] });
   const entries = useQuery({ queryKey: ["competition", id, "entries"], queryFn: () => listApiEntries(id) });
   const matches = useQuery({ queryKey: ["competition", id, "matches"], queryFn: () => listApiCompetitionMatches(id) });
-  const tabled = format === "round_robin" || format === "swiss";
+  const tabled = format === "round_robin" || format === "swiss" || format === "groups_knockout";
+  const grouped = format === "groups_knockout";
   const standings = useQuery({ queryKey: ["competition", id, "standings"], queryFn: () => listApiPlayerStandings(id), enabled: tabled });
   const active = (entries.data ?? []).filter((entry) => entry.status === "active");
   const labels = new Map<string, string>();
@@ -77,21 +81,26 @@ export function CompetitionBoard({ division, staff, open = false }: { division: 
           {tabled && (
             <Panel title="Standings">
               {(standings.data ?? []).length === 0 ? <Empty title="No players yet" /> : (
-                <div className="table-scroll"><table><thead><tr><th>{doubles ? "Pair" : "Player"}</th><th>P</th><th>W</th><th>L</th><th>Points</th></tr></thead><tbody>
-                  {(standings.data ?? []).map((row) => <tr key={row.subject_id}><td>{name(row.subject_id)}</td><td>{row.played}</td><td>{row.wins}</td><td>{row.losses}</td><td>{row.points}</td></tr>)}
-                </tbody></table></div>
+                [...new Set((standings.data ?? []).map((row) => row.group ?? ""))].map((group) => (
+                  <div className="table-scroll" key={group}>
+                    {grouped && <h3>Group {group}</h3>}
+                    <table><thead><tr><th>{doubles ? "Pair" : "Player"}</th><th>P</th><th>W</th><th>L</th><th>Points</th></tr></thead><tbody>
+                      {(standings.data ?? []).filter((row) => (row.group ?? "") === group).map((row) => <tr key={row.subject_id}><td>{name(row.subject_id)}</td><td>{row.played}</td><td>{row.wins}</td><td>{row.losses}</td><td>{row.points}</td></tr>)}
+                    </tbody></table>
+                  </div>
+                ))
               )}
               {format === "swiss" && drawn && <p className="hint">Round {lastRound} of {swissTotal || "?"}</p>}
             </Panel>
           )}
-          <MatchList title={format === "round_robin" ? "Schedule and results" : format === "swiss" ? "Rounds" : "Bracket"} matches={allMatches} name={name} staff={staff} refresh={refresh} />
+          <MatchList title={format === "round_robin" ? "Schedule and results" : format === "swiss" ? "Rounds" : format === "groups_knockout" ? "Group matches and knockout" : "Bracket"} matches={allMatches} name={name} staff={staff} refresh={refresh} />
         </>
       )}
       <Panel title={`${doubles ? "Pairs" : "Players"} (${active.length}/${String(division.capacity)})`}>
         {active.length === 0 && <Empty title="Nobody has entered yet" />}
         {active.map((entry) => (
           <div className="division-row" key={entry.id}>
-            <span><strong>{entryLabel(entry)}</strong>{entry.seed ? ` · seed ${entry.seed}` : ""}{entry.rating != null ? ` · UTR ${entry.rating}` : ""}</span>
+            <span><strong>{entryLabel(entry)}</strong>{entry.group_label ? ` · group ${entry.group_label}` : ""}{entry.seed ? ` · seed ${entry.seed}` : ""}{entry.rating != null ? ` · UTR ${entry.rating}` : ""}</span>
             {(staff || entry.user_id === user?.uid || entry.partner_user_id === user?.uid) && (
               <Action onClick={async () => {
                 const warning = drawn && format !== "ladder" ? " Their unfinished matches will be awarded to the opponents as walkovers." : "";
@@ -132,12 +141,17 @@ export function CompetitionBoard({ division, staff, open = false }: { division: 
           )}
           {!drawn && (
             <Action variant="primary" onClick={async () => { await generateApiDraw(id); await refresh(); }}>
-              {format === "ladder" ? "Seed ladder by seed and UTR" : format === "round_robin" ? "Generate round-robin schedule" : format === "swiss" ? "Generate round 1" : "Generate bracket"}
+              {format === "ladder" ? "Seed ladder by seed and UTR" : format === "round_robin" ? "Generate round-robin schedule" : format === "swiss" ? "Generate round 1" : format === "groups_knockout" ? "Snake-draw groups and schedule matches" : "Generate bracket"}
             </Action>
           )}
           {format === "swiss" && drawn && lastRound < swissTotal && (
             <Action variant="primary" disabled={!roundDone} onClick={async () => { await generateApiSwissRound(id); await refresh(); }}>
               {roundDone ? `Generate round ${lastRound + 1}` : "Finish round " + lastRound + " to continue"}
+            </Action>
+          )}
+          {grouped && drawn && !allMatches.some((match) => !match.round_name.startsWith("group_")) && (
+            <Action variant="primary" disabled={!allMatches.every((match) => match.status === "finalized")} onClick={async () => { await advanceApiGroups(id); await refresh(); }}>
+              {allMatches.every((match) => match.status === "finalized") ? `Advance top ${String(rule(division, "advancePerGroup") ?? 2)} per group to knockout` : "Finish all group matches to continue"}
             </Action>
           )}
           {drawn && format !== "ladder" && format !== "swiss" && <p className="notice">The draw is locked. Withdrawals and no-shows are handled as walkovers.</p>}

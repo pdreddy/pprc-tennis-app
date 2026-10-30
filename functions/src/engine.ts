@@ -879,7 +879,12 @@ export async function execute(
             },
             () => [],
           );
-          players.forEach((p, i) => groups[i % groups.length].push(p));
+          // Snake draw (1-2-3-3-2-1-...) keeps group strength balanced.
+          players.forEach((p, i) => {
+            const row = Math.floor(i / groups.length),
+              col = i % groups.length;
+            groups[row % 2 ? groups.length - 1 - col : col].push(p);
+          });
           if (groups.some((g) => g.length < 2))
             fail("Groups need at least two players");
           make(

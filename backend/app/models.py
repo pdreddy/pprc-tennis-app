@@ -248,6 +248,7 @@ class DivisionEntry(Base):
     rank: Mapped[int | None] = mapped_column(Integer, nullable=True)  # ladder position, 1 = top
     partner_user_id: Mapped[str | None] = mapped_column(String(128), nullable=True)  # doubles partner
     partner_name: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    group_label: Mapped[str | None] = mapped_column(String(8), nullable=True)  # groups + knockout
     status: Mapped[str] = mapped_column(String(16), default="active")  # active | withdrawn
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

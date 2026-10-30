@@ -31,3 +31,4 @@ TRIACE 2.0, round robin, single elimination, double elimination, Swiss and ladde
 - Ladder expiry is applied lazily when the ladder is viewed or challenged, not by a background job. Ladder scores cannot be corrected after ranks move.
 - The legacy Firebase wizard lists double elimination, Swiss and ladder as disabled (`requires API mode`) because the Firebase draw engine cannot run them.
 - Verified here: `tests/test_formats.py` (27 checks, incl. full double-elimination simulations up to 24 players), `py_compile`, ruff, and a partial `tsc` pass. `tests/test_individual_flow.py` (all formats, walkovers, doubles) needs the Docker stack and has not been run.
+- **Groups + knockout:** snake-drawn groups, round robin per group, top N advance to a seeded knockout (migration `007`). Round 1 of the knockout can pair two players from the same group. The legacy Firebase `round-robin-playoffs` draw now also uses a snake draw.

@@ -28,6 +28,11 @@ INDIVIDUAL_FORMATS: dict[str, FormatInfo] = {
         "Winners and losers brackets: a player is out after two losses. Grand final with a reset.",
         True, {},
     ),
+    "groups_knockout": FormatInfo(
+        "groups_knockout", "Groups + knockout",
+        "Seeds are snake-drawn into groups, each group plays a round robin, and the top finishers enter a knockout bracket.",
+        True, {"pointsPerWin": 2, "groupSize": 4, "groupCount": 0, "advancePerGroup": 2},
+    ),
     "swiss": FormatInfo(
         "swiss", "Swiss", "A fixed number of rounds; each round pairs players with similar records.",
         True, {"pointsPerWin": 2, "swissRounds": 0},
@@ -228,3 +233,32 @@ def swiss_pairings(order: list[str], wins: dict[str, int], played: set[frozenset
     if pairs is None:  # no rematch-free pairing exists; allow repeats rather than stall the event
         pairs = solve(ranked, set()) or [(ranked[i], ranked[i + 1]) for i in range(0, len(ranked), 2)]
     return pairs, bye
+
+
+def snake_groups(ordered: list[str], group_count: int) -> list[list[str]]:
+    """Deal seeds across groups in a snake: 1-2-3-3-2-1-1-2-3... so group strength stays balanced."""
+    if group_count < 1:
+        raise ValueError("group_count must be at least 1")
+    groups: list[list[str]] = [[] for _ in range(group_count)]
+    for index, player in enumerate(ordered):
+        row, column = divmod(index, group_count)
+        groups[column if row % 2 == 0 else group_count - 1 - column].append(player)
+    return groups
+
+
+def group_count_for(players: int, group_size: int, requested: int = 0) -> int:
+    """Groups to use: the requested count, else players / size; never fewer than two players per group."""
+    count = requested if requested > 0 else round(players / max(group_size, 2))
+    return max(1, min(count, players // 2))
+
+
+def group_label(index: int) -> str:
+    return chr(ord("A") + index) if index < 26 else f"G{index + 1}"
+
+
+def knockout_seeds(qualifiers_by_group: list[list[str]]) -> list[str]:
+    """Group winners first, then runners-up, and so on, so winners meet runners-up early."""
+    seeds: list[str] = []
+    for rank in range(max((len(group) for group in qualifiers_by_group), default=0)):
+        seeds.extend(group[rank] for group in qualifiers_by_group if rank < len(group))
+    return seeds

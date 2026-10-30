@@ -15,6 +15,10 @@ from .formats import (
     FORMAT_CATALOG,
     INDIVIDUAL_FORMATS,
     double_elimination_graph,
+    group_count_for,
+    group_label,
+    knockout_seeds,
+    snake_groups,
     elimination_round_name,
     elimination_rounds,
     ladder_after_win,
@@ -62,8 +66,9 @@ def validate_individual_rules(format_key: str, rules: dict) -> dict:
         checks = [
             merged["entryType"] in ENTRY_TYPES,
             format_key != "ladder" or 1 <= int(merged["challengeRange"]) <= 10,
-            format_key not in {"round_robin", "swiss"} or 1 <= int(merged["pointsPerWin"]) <= 10,
+            format_key not in {"round_robin", "swiss", "groups_knockout"} or 1 <= int(merged["pointsPerWin"]) <= 10,
             format_key != "swiss" or 0 <= int(merged["swissRounds"]) <= 12,
+            format_key != "groups_knockout" or (3 <= int(merged["groupSize"]) <= 8 and 0 <= int(merged["groupCount"]) <= 16 and 1 <= int(merged["advancePerGroup"]) <= 4),
             format_key != "ladder" or 0 <= int(merged["challengeExpiryDays"]) <= 90,
             format_key != "ladder" or merged["challengeExpiryAction"] in {"cancel", "defender_forfeits"},
         ]
@@ -376,32 +381,17 @@ async def generate_draw(division_id: UUID, payload: DrawGenerate, session: Async
         matches = swiss_round(division, 1, players, {}, set(), set(), when(0))
         session.add_all(matches)
     elif division.format == "single_elimination":
-        rounds = elimination_rounds(players)
-        grid: list[list[CompetitionMatch]] = []
-        for round_number, pairs in enumerate(rounds, start=1):
-            grid.append([new_match(
-                division, round_number=round_number, round_name=elimination_round_name(round_number, len(rounds)), position=position,
-                player_one_id=one, player_two_id=two, status="pending", starts_at=when(round_number - 1),
-            ) for position, (one, two) in enumerate(pairs)])
-        for round_index, row in enumerate(grid[:-1]):
-            for position, match in enumerate(row):
-                match.next_match_id = grid[round_index + 1][position // 2].id
-                match.next_slot = position % 2
-        # Later rounds are inserted first so next_match_id always points at an existing row.
-        session.add_all([match for row in reversed(grid) for match in row])
-        await session.flush()
-        for match in grid[0]:
-            if match.player_one_id and match.player_two_id:
-                match.status = "scheduled"
-            else:
-                # A bye: the lone player advances without playing.
-                winner = match.player_one_id or match.player_two_id
-                match.status, match.winner_id = "bye", winner
-                nxt = next(m for m in grid[1] if m.id == match.next_match_id)
-                place(nxt, match.next_slot or 0, winner)
-                if nxt.player_one_id and nxt.player_two_id:
-                    nxt.status = "scheduled"
-        matches = [match for row in grid for match in row]
+        matches = await build_elimination(session, division, players, 0, when)
+    elif division.format == "groups_knockout":
+        count = group_count_for(len(players), int(division.rules.get("groupSize", 4)), int(division.rules.get("groupCount", 0)))
+        for index, members in enumerate(snake_groups(players, count)):
+            label = group_label(index)
+            for member in members:
+                next(e for e in entries if e.user_id == member).group_label = label
+            for round_index, pairs in enumerate(round_robin_rounds(members), start=1):
+                for position, (one, two) in enumerate(pairs):
+                    matches.append(new_match(division, round_number=round_index, round_name=f"group_{label}", position=position, player_one_id=one, player_two_id=two, status="scheduled", starts_at=when(round_index - 1)))
+        session.add_all(matches)
     else:  # double_elimination
         first = elimination_rounds(players)[0]
         size = len(first) * 2
@@ -429,6 +419,71 @@ async def generate_draw(division_id: UUID, payload: DrawGenerate, session: Async
     await audit(session, division.club_id, actor.user_id, "draw.generated", "division", str(division.id), division.format)
     await session.commit()
     return [match for match in matches if match.status != "dead"]
+
+
+async def build_elimination(session: AsyncSession, division: Division, players: list[str], round_offset: int, when) -> list[CompetitionMatch]:
+    """Seeded single-elimination bracket (best seed first) with byes settled; returns all matches."""
+    rounds = elimination_rounds(players)
+    grid: list[list[CompetitionMatch]] = []
+    for round_number, pairs in enumerate(rounds, start=1):
+        grid.append([new_match(
+            division, round_number=round_number + round_offset, round_name=elimination_round_name(round_number, len(rounds)), position=position,
+            player_one_id=one, player_two_id=two, status="pending", starts_at=when(round_number - 1 + round_offset),
+        ) for position, (one, two) in enumerate(pairs)])
+    for round_index, row in enumerate(grid[:-1]):
+        for position, match in enumerate(row):
+            match.next_match_id = grid[round_index + 1][position // 2].id
+            match.next_slot = position % 2
+    # Later rounds are inserted first so next_match_id always points at an existing row.
+    session.add_all([match for row in reversed(grid) for match in row])
+    await session.flush()
+    for match in grid[0]:
+        if match.player_one_id and match.player_two_id:
+            match.status = "scheduled"
+        else:
+            # A bye: the lone player advances without playing.
+            winner = match.player_one_id or match.player_two_id
+            match.status, match.winner_id = "bye", winner
+            nxt = next(m for m in grid[1] if m.id == match.next_match_id)
+            place(nxt, match.next_slot or 0, winner)
+            if nxt.player_one_id and nxt.player_two_id:
+                nxt.status = "scheduled"
+    return [match for row in grid for match in row]
+
+
+@router.post("/v1/divisions/{division_id}/groups/advance", response_model=list[CompetitionMatchRead], status_code=status.HTTP_201_CREATED)
+async def advance_groups(division_id: UUID, payload: DrawGenerate, session: AsyncSession = Depends(get_session), actor: Actor = Depends(current_actor)) -> list[CompetitionMatch]:
+    """Take the top finishers from every group into a seeded knockout bracket."""
+    division, event = await load_division(session, division_id)
+    if division.format != "groups_knockout":
+        raise HTTPException(status_code=422, detail="Only groups + knockout divisions have a group stage")
+    await require_role(session, division.club_id, actor.user_id, STAFF_ROLES)
+    if event.status not in OPEN_STATUSES:
+        raise HTTPException(status_code=409, detail="The event is not running")
+    matches = await division_matches(session, division.id)
+    group_matches = [m for m in matches if m.round_name.startswith("group_")]
+    if not group_matches:
+        raise HTTPException(status_code=409, detail="Generate the group draw first")
+    if len(group_matches) != len(matches):
+        raise HTTPException(status_code=409, detail="The knockout bracket already exists")
+    if any(m.status != "finalized" for m in group_matches):
+        raise HTTPException(status_code=409, detail="Finish every group match first")
+    entries = [e for e in await active_entries(session, division.id) if e.group_label]
+    advance = int(division.rules.get("advancePerGroup", 2))
+    ppw = int(division.rules.get("pointsPerWin", 2))
+    qualifiers: list[list[str]] = []
+    for label in sorted({e.group_label for e in entries}):
+        members = [e.user_id for e in entries if e.group_label == label]
+        results = [(m.player_one_id, m.player_two_id, m.winner_id) for m in group_matches if m.round_name == f"group_{label}" and m.winner_id]
+        qualifiers.append([row["subject_id"] for row in round_robin_table(members, results, ppw)][:advance])
+    seeds = knockout_seeds(qualifiers)
+    if len(seeds) < 2:
+        raise HTTPException(status_code=422, detail="At least two qualifiers are needed for the knockout")
+    offset = max(m.round_number for m in group_matches)
+    created = await build_elimination(session, division, seeds, offset, lambda n: payload.starts_at + timedelta(days=7 * (n - offset)) if payload.starts_at else None)
+    await audit(session, division.club_id, actor.user_id, "groups.advanced", "division", str(division.id), str(len(seeds)))
+    await session.commit()
+    return created
 
 
 def swiss_round(division: Division, round_number: int, order: list[str], wins: dict[str, int], played: set, had_bye: set, starts_at: datetime | None) -> list[CompetitionMatch]:
@@ -496,7 +551,15 @@ async def player_standings(division_id: UUID, session: AsyncSession = Depends(ge
     results = [(m.player_one_id, m.player_two_id, m.winner_id) for m in matches if m.status == "finalized" and m.winner_id]
     if division.format == "swiss":  # a Swiss bye counts as a played win
         results += [(m.player_one_id, None, m.player_one_id) for m in matches if m.status == "bye"]
-    table = round_robin_table([entry.user_id for entry in entries], results, int(division.rules.get("pointsPerWin", 2)))
+    ppw = int(division.rules.get("pointsPerWin", 2))
+    if division.format == "groups_knockout":
+        rows: list[PlayerStandingRead] = []
+        for label in sorted({e.group_label for e in entries if e.group_label}):
+            members = [e.user_id for e in entries if e.group_label == label]
+            in_group = [(m.player_one_id, m.player_two_id, m.winner_id) for m in matches if m.round_name == f"group_{label}" and m.status == "finalized" and m.winner_id]
+            rows += [PlayerStandingRead(display_name=names.get(r["subject_id"], r["subject_id"]), group=label, **r) for r in round_robin_table(members, in_group, ppw)]
+        return rows
+    table = round_robin_table([entry.user_id for entry in entries], results, ppw)
     return [PlayerStandingRead(display_name=names.get(row["subject_id"], row["subject_id"]), **row) for row in table]
 
 
@@ -518,7 +581,7 @@ async def finalize_match(session: AsyncSession, division: Division, match: Compe
             else:  # first loss for the winners-bracket finalist: play the deciding reset
                 reset.player_one_id, reset.player_two_id, reset.winner_id, reset.status = match.player_one_id, match.player_two_id, None, "scheduled"
         return
-    if division.format in {"single_elimination", "double_elimination"}:
+    if division.format in {"single_elimination", "double_elimination", "groups_knockout"}:
         for target_id, slot, person in ((match.next_match_id, match.next_slot, winner), (match.loser_match_id, match.loser_slot, loser)):
             if not target_id:
                 continue
