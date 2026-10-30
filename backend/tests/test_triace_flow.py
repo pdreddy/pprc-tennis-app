@@ -80,6 +80,8 @@ def test_triace_team_to_champion_flow():
     report(0, 2, 1, players[1:3], players[7:9])
     report(1, 3, 1, players[4:6], players[10:12])
 
+    request("PATCH", f"/v1/events/{event['id']}", owner, json={"status": "closed", "audit_reason": "Registration window ended"})
+
     bracket = request("POST", f"/v1/divisions/{division['id']}/playoffs/generate", owner, json={"size": 2, "starts_at": (now + timedelta(days=10)).isoformat()})
     assert len(bracket) == 1
     final = bracket[0]
