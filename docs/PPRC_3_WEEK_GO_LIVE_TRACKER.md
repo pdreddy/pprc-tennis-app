@@ -23,7 +23,7 @@ The Firebase PWA remains the operating pilot. The FastAPI/PostgreSQL service is 
 | Firebase token validation in FastAPI | In progress | Server boundary is implemented; requires Firebase project ID and real token validation in staging. |
 | Firestore-to-PostgreSQL migration | In progress | Import script handles memberships, events, and registrations; must run on a staging Firebase export and reconcile counts. |
 | PWA reads/writes through FastAPI | Not started | Firebase remains the active data layer until parity testing succeeds. |
-| Stripe live payment and refunds | Blocked | Requires staging Stripe keys, webhooks, and business approval. |
+| Stripe live payment and refunds | In progress | FastAPI development checkout, Stripe Checkout creation, webhook signature verification, and payment reconciliation are implemented. Staging keys, webhook endpoint registration, refund workflow, and live approval remain. |
 | Push notifications | Blocked | Requires Firebase Cloud Messaging/VAPID configuration and device testing. |
 | Production deployment, backups, monitoring | Not started | Requires cloud accounts, domains, secrets, and hosting decisions. |
 

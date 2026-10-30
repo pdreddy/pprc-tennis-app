@@ -65,6 +65,13 @@ class RegistrationRead(ORMModel):
     waitlist_position: int | None
 
 
+class CheckoutRead(BaseModel):
+    payment_id: UUID
+    status: str
+    development: bool
+    checkout_url: str | None = None
+
+
 class DivisionCreate(BaseModel):
     name: str = Field(min_length=2, max_length=160)
     format: str = Field(default="round_robin", max_length=48)

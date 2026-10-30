@@ -11,6 +11,9 @@ class Settings(BaseSettings):
     pprc_bootstrap_schema: bool = True
     pprc_environment: str = "development"
     firebase_project_id: str | None = None
+    stripe_secret_key: str | None = None
+    stripe_webhook_secret: str | None = None
+    pprc_app_origin: str = "http://localhost:5173"
 
     @property
     def cors_origins(self) -> list[str]:

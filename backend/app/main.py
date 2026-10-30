@@ -1,9 +1,9 @@
 from contextlib import asynccontextmanager
 from datetime import timedelta
 from math import ceil
-from uuid import UUID
+from uuid import UUID, uuid4
 
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,6 +29,7 @@ from .models import (
     TeamMember,
     TeamStatus,
     PlayerAppearance,
+    Payment,
 )
 from .schemas import (
     ClubCreate,
@@ -49,6 +50,7 @@ from .schemas import (
     PlayoffSeedRead,
     PlayoffGenerate,
     ChampionRead,
+    CheckoutRead,
 )
 
 
@@ -263,6 +265,135 @@ async def register(event_id: UUID, session: AsyncSession = Depends(get_session),
     await audit(session, event.club_id, actor.user_id, "registration.created", "registration", str(registration.id))
     await session.commit()
     return registration
+
+
+@app.post("/v1/registrations/{registration_id}/checkout", response_model=CheckoutRead)
+async def start_checkout(
+    registration_id: UUID,
+    session: AsyncSession = Depends(get_session),
+    actor: Actor = Depends(current_actor),
+) -> CheckoutRead:
+    registration = await session.get(Registration, registration_id)
+    if registration is None or registration.user_id != actor.user_id:
+        raise HTTPException(status_code=404, detail="Registration not found")
+    event = await session.get(Event, registration.event_id)
+    if event is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+    existing = await session.scalar(
+        select(Payment)
+        .where(Payment.registration_id == registration.id, Payment.status.in_(["pending", "paid"]))
+        .order_by(Payment.created_at.desc())
+    )
+    if existing and existing.status == "paid":
+        return CheckoutRead(payment_id=existing.id, status="paid", development=existing.provider == "development")
+    settings = get_settings()
+    if not settings.stripe_secret_key:
+        if not settings.allow_development_header:
+            raise HTTPException(status_code=503, detail="Stripe Checkout is not configured")
+        payment = existing or Payment(
+            club_id=event.club_id,
+            registration_id=registration.id,
+            provider="development",
+            provider_reference=f"dev_{uuid4().hex}",
+            amount_cents=event.entry_fee_cents,
+            status="pending",
+        )
+        if not existing:
+            session.add(payment)
+            await session.flush()
+            await session.commit()
+        return CheckoutRead(payment_id=payment.id, status=payment.status, development=True)
+    try:
+        import stripe
+
+        stripe.api_key = settings.stripe_secret_key
+        payment = existing or Payment(
+            club_id=event.club_id,
+            registration_id=registration.id,
+            provider="stripe",
+            provider_reference=f"pending_{uuid4().hex}",
+            amount_cents=event.entry_fee_cents,
+            status="pending",
+        )
+        if not existing:
+            session.add(payment)
+            await session.flush()
+        checkout = stripe.checkout.Session.create(
+            mode="payment",
+            line_items=[
+                {
+                    "price_data": {
+                        "currency": "usd",
+                        "product_data": {"name": event.name},
+                        "unit_amount": event.entry_fee_cents,
+                    },
+                    "quantity": 1,
+                }
+            ],
+            success_url=f"{settings.pprc_app_origin}/my-events?payment=success",
+            cancel_url=f"{settings.pprc_app_origin}/my-events?payment=cancelled",
+            metadata={"payment_id": str(payment.id), "registration_id": str(registration.id), "user_id": actor.user_id},
+        )
+        payment.provider_reference = checkout.id
+        await session.commit()
+        return CheckoutRead(payment_id=payment.id, status=payment.status, development=False, checkout_url=checkout.url)
+    except Exception as exc:
+        await session.rollback()
+        raise HTTPException(status_code=502, detail="Unable to start Stripe Checkout") from exc
+
+
+@app.post("/v1/payments/{payment_id}/confirm-development", response_model=CheckoutRead)
+async def confirm_development_payment(
+    payment_id: UUID,
+    session: AsyncSession = Depends(get_session),
+    actor: Actor = Depends(current_actor),
+) -> CheckoutRead:
+    if not get_settings().allow_development_header:
+        raise HTTPException(status_code=404, detail="Not found")
+    payment = await session.get(Payment, payment_id)
+    if payment is None or payment.provider != "development":
+        raise HTTPException(status_code=404, detail="Development payment not found")
+    registration = await session.get(Registration, payment.registration_id)
+    if registration is None or registration.user_id != actor.user_id:
+        raise HTTPException(status_code=403, detail="Payment is not owned by this user")
+    payment.status = "paid"
+    registration.status = RegistrationStatus.confirmed
+    await audit(session, payment.club_id, actor.user_id, "payment.development_confirmed", "payment", str(payment.id))
+    await session.commit()
+    return CheckoutRead(payment_id=payment.id, status="paid", development=True)
+
+
+@app.post("/v1/webhooks/stripe", status_code=status.HTTP_204_NO_CONTENT)
+async def stripe_webhook(request: Request, session: AsyncSession = Depends(get_session)) -> None:
+    settings = get_settings()
+    if not settings.stripe_secret_key or not settings.stripe_webhook_secret:
+        raise HTTPException(status_code=404, detail="Not found")
+    try:
+        import stripe
+
+        event = stripe.Webhook.construct_event(
+            await request.body(),
+            request.headers.get("stripe-signature"),
+            settings.stripe_webhook_secret,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid Stripe webhook") from exc
+    if event["type"] not in {"checkout.session.completed", "checkout.session.async_payment_succeeded"}:
+        return
+    checkout = event["data"]["object"]
+    payment_id = checkout.get("metadata", {}).get("payment_id")
+    if not payment_id:
+        return
+    payment = await session.get(Payment, UUID(payment_id))
+    if payment is None or payment.provider_reference != checkout["id"]:
+        raise HTTPException(status_code=400, detail="Payment reconciliation failed")
+    if payment.status != "paid":
+        payment.status = "paid"
+        registration = await session.get(Registration, payment.registration_id)
+        if registration:
+            registration.status = RegistrationStatus.confirmed
+        await audit(session, payment.club_id, "stripe", "payment.paid", "payment", str(payment.id))
+        await session.commit()
 
 
 @app.post("/v1/events/{event_id}/divisions", response_model=DivisionRead, status_code=status.HTTP_201_CREATED)
