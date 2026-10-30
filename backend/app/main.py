@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+from datetime import timedelta
 from math import ceil
 from uuid import UUID
 
@@ -46,6 +47,8 @@ from .schemas import (
     TeamRead,
     TeamEligibilityRead,
     PlayoffSeedRead,
+    PlayoffGenerate,
+    ChampionRead,
 )
 
 
@@ -146,6 +149,15 @@ async def team_eligibility(session: AsyncSession, team: Team) -> TeamEligibility
         player_singles_days=totals,
         missing_player_ids=missing,
     )
+
+
+async def ranked_playoff_teams(session: AsyncSession, division: Division) -> list[tuple[Team, Standing | None, TeamEligibilityRead]]:
+    teams = list((await session.scalars(select(Team).where(Team.division_id == division.id, Team.status == TeamStatus.approved))).all())
+    standing_rows = list((await session.scalars(select(Standing).where(Standing.division_id == division.id, Standing.subject_type == "team"))).all())
+    standings = {row.subject_id: row for row in standing_rows}
+    ranked = [(team, standings.get(str(team.id)), await team_eligibility(session, team)) for team in teams]
+    ranked.sort(key=lambda item: (not item[2].eligible, -(item[1].points if item[1] else 0), -(item[1].wins if item[1] else 0), item[0].name.lower()))
+    return ranked
 
 
 @asynccontextmanager
@@ -388,6 +400,32 @@ async def record_fixture_result(
         for user_id in player_ids:
             session.add(PlayerAppearance(club_id=fixture.club_id, division_id=fixture.division_id, fixture_id=fixture.id, team_id=team_id, user_id=user_id))
     await rebuild_team_standings(session, fixture.club_id, fixture.division_id)
+    if fixture.round_name == "playoff_semifinal":
+        semifinals = list(
+            (
+                await session.scalars(
+                    select(Fixture).where(
+                        Fixture.division_id == fixture.division_id,
+                        Fixture.round_name == "playoff_semifinal",
+                    ).order_by(Fixture.bracket_position)
+                )
+            ).all()
+        )
+        final_exists = await session.scalar(
+            select(Fixture).where(Fixture.division_id == fixture.division_id, Fixture.round_name == "playoff_final")
+        )
+        if len(semifinals) == 2 and all(item.status == FixtureStatus.finalized and item.winner_team_id for item in semifinals) and final_exists is None:
+            session.add(
+                Fixture(
+                    club_id=fixture.club_id,
+                    division_id=fixture.division_id,
+                    home_team_id=semifinals[0].winner_team_id,
+                    away_team_id=semifinals[1].winner_team_id,
+                    starts_at=max(item.starts_at for item in semifinals) + timedelta(days=7),
+                    round_name="playoff_final",
+                    bracket_position=3,
+                )
+            )
     await audit(session, fixture.club_id, actor.user_id, "fixture.finalized", "fixture", str(fixture.id))
     await session.commit()
     return fixture
@@ -435,14 +473,57 @@ async def list_playoff_seeds(
     if division is None:
         raise HTTPException(status_code=404, detail="Division not found")
     await require_role(session, division.club_id, actor.user_id, set(MembershipRole))
-    teams = list((await session.scalars(select(Team).where(Team.division_id == division.id, Team.status == TeamStatus.approved))).all())
-    standing_rows = list((await session.scalars(select(Standing).where(Standing.division_id == division.id, Standing.subject_type == "team"))).all())
-    standings = {row.subject_id: row for row in standing_rows}
-    ranked: list[tuple[Team, Standing | None, TeamEligibilityRead]] = []
-    for team in teams:
-        ranked.append((team, standings.get(str(team.id)), await team_eligibility(session, team)))
-    ranked.sort(key=lambda item: (not item[2].eligible, -(item[1].points if item[1] else 0), -(item[1].wins if item[1] else 0), item[0].name.lower()))
+    ranked = await ranked_playoff_teams(session, division)
     return [
         PlayoffSeedRead(seed=index, team_id=team.id, team_name=team.name, points=standing.points if standing else 0, eligible=eligibility.eligible)
         for index, (team, standing, eligibility) in enumerate(ranked, start=1)
     ]
+
+
+@app.post("/v1/divisions/{division_id}/playoffs/generate", response_model=list[FixtureRead], status_code=status.HTTP_201_CREATED)
+async def generate_playoffs(
+    division_id: UUID,
+    payload: PlayoffGenerate,
+    session: AsyncSession = Depends(get_session),
+    actor: Actor = Depends(current_actor),
+) -> list[Fixture]:
+    division = await session.get(Division, division_id)
+    if division is None:
+        raise HTTPException(status_code=404, detail="Division not found")
+    await require_role(session, division.club_id, actor.user_id, {MembershipRole.owner, MembershipRole.admin, MembershipRole.organizer})
+    if await session.scalar(select(Fixture).where(Fixture.division_id == division.id, Fixture.round_name.in_(["playoff_semifinal", "playoff_final"]))):
+        raise HTTPException(status_code=409, detail="Playoff bracket already exists")
+    eligible = [item for item in await ranked_playoff_teams(session, division) if item[2].eligible]
+    if len(eligible) < payload.size:
+        raise HTTPException(status_code=422, detail=f"Need {payload.size} eligible teams to generate this playoff bracket")
+    seeds = [item[0] for item in eligible[: payload.size]]
+    fixtures: list[Fixture] = []
+    if payload.size == 2:
+        fixtures.append(Fixture(club_id=division.club_id, division_id=division.id, home_team_id=seeds[0].id, away_team_id=seeds[1].id, starts_at=payload.final_starts_at or payload.starts_at, round_name="playoff_final", bracket_position=1))
+    else:
+        fixtures.extend(
+            [
+                Fixture(club_id=division.club_id, division_id=division.id, home_team_id=seeds[0].id, away_team_id=seeds[3].id, starts_at=payload.starts_at, round_name="playoff_semifinal", bracket_position=1),
+                Fixture(club_id=division.club_id, division_id=division.id, home_team_id=seeds[1].id, away_team_id=seeds[2].id, starts_at=payload.starts_at, round_name="playoff_semifinal", bracket_position=2),
+            ]
+        )
+    session.add_all(fixtures)
+    await session.flush()
+    await audit(session, division.club_id, actor.user_id, "triace.playoffs.generated", "division", str(division.id))
+    await session.commit()
+    return fixtures
+
+
+@app.get("/v1/divisions/{division_id}/champion", response_model=ChampionRead)
+async def division_champion(
+    division_id: UUID,
+    session: AsyncSession = Depends(get_session),
+    actor: Actor = Depends(current_actor),
+) -> ChampionRead:
+    division = await session.get(Division, division_id)
+    if division is None:
+        raise HTTPException(status_code=404, detail="Division not found")
+    await require_role(session, division.club_id, actor.user_id, set(MembershipRole))
+    final = await session.scalar(select(Fixture).where(Fixture.division_id == division.id, Fixture.round_name == "playoff_final"))
+    champion = await session.get(Team, final.winner_team_id) if final and final.status == FixtureStatus.finalized and final.winner_team_id else None
+    return ChampionRead(division_id=division.id, champion_team_id=champion.id if champion else None, champion_team_name=champion.name if champion else None, final_fixture_id=final.id if final else None)

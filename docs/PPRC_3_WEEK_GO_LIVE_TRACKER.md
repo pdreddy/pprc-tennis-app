@@ -47,7 +47,7 @@ The Firebase PWA remains the operating pilot. The FastAPI/PostgreSQL service is 
 | Apply PostgreSQL migrations locally | In progress | `001_initial.sql` and `002_multiclub_tournament.sql` run idempotently. |
 | Validate tenant isolation | Not started | A user from Club A cannot read or change Club B data. |
 | Complete FastAPI API coverage | In progress | Clubs, memberships, events, registration/waitlist are available; teams, TRIACE, schedules, standings, scores, payments, and notifications still need endpoints. |
-| Add TRIACE lifecycle API | In progress | Team registration, three-player roster validation, configurable combined-rating thresholds, admin approval, fixtures, singles-participation eligibility, result recording, and standings recalculation are implemented. Playoff fixture generation and champion reporting remain. |
+| Add TRIACE lifecycle API | In progress | Team registration, three-player roster validation, configurable combined-rating thresholds, admin approval, fixtures, singles-participation eligibility, result recording, standings recalculation, two- or four-team playoff bracket generation, winner advancement, and champion reporting are implemented. Full API integration tests remain. |
 | Add tournament administration API | Not started | Divisions, draws, scheduling, check-in, score confirmation, corrections, and audit views work end to end. |
 | Add FastAPI test suite | Not started | API authorization, tenant isolation, waitlist contention, score workflow, and TRIACE eligibility tests pass. |
 | Build Firebase-to-PostgreSQL staging import | In progress | Existing importer runs against staging and produces a count/reconciliation report. |

@@ -148,3 +148,16 @@ class PlayoffSeedRead(BaseModel):
     team_name: str
     points: int
     eligible: bool
+
+
+class PlayoffGenerate(BaseModel):
+    size: int = Field(default=4, ge=2, le=4)
+    starts_at: datetime
+    final_starts_at: datetime | None = None
+
+
+class ChampionRead(BaseModel):
+    division_id: UUID
+    champion_team_id: UUID | None
+    champion_team_name: str | None
+    final_fixture_id: UUID | None
