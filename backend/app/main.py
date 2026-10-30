@@ -619,8 +619,21 @@ async def create_triace_team(
     if division is None or division.club_id != club_id:
         raise HTTPException(status_code=404, detail="Division not found for this club")
     for member in payload.members:
-        if not await session.scalar(select(Membership).where(Membership.club_id == club_id, Membership.user_id == member.user_id)):
-            raise HTTPException(status_code=422, detail=f"{member.user_id} is not a club member")
+        existing_member = await session.scalar(
+            select(Membership).where(Membership.club_id == club_id, Membership.user_id == member.user_id)
+        )
+        if existing_member is None:
+            # A pending TRIACE roster is sufficient to establish the lowest
+            # privilege club membership. Organizers still approve the team.
+            session.add(
+                Membership(
+                    club_id=club_id,
+                    user_id=member.user_id,
+                    display_name=member.user_id,
+                    role=MembershipRole.player,
+                )
+            )
+    await session.flush()
     if actor.user_id not in {member.user_id for member in payload.members}:
         await require_role(session, club_id, actor.user_id, {MembershipRole.owner, MembershipRole.admin, MembershipRole.organizer})
     total_rating = round(sum(member.rating for member in payload.members), 2)
@@ -643,6 +656,15 @@ async def create_triace_team(
     for member in payload.members:
         session.add(TeamMember(club_id=club_id, team_id=team.id, **member.model_dump()))
     await audit(session, club_id, actor.user_id, "triace.team.created", "team", str(team.id))
+    await notify(
+        session,
+        club_id,
+        actor.user_id,
+        "triace",
+        "Team submitted",
+        f"{team.name} is waiting for organizer approval.",
+        {"teamId": str(team.id), "divisionId": str(division.id)},
+    )
     await session.commit()
     return team
 
