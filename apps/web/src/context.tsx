@@ -13,7 +13,9 @@ import {
   getPublicApiEvent,
   listPublicApiDivisions,
   listPublicApiEvents,
+  listMyApiRegistrations,
   registerForApiEvent,
+  withdrawApiRegistration,
   type ApiDivision,
   type ApiEvent,
 } from "./api";
@@ -104,11 +106,27 @@ function toUiDivision(division: ApiDivision): Entity {
   };
 }
 
+function toUiRegistration(registration: import("./api").ApiRegistration): Entity {
+  return {
+    id: registration.id,
+    eventId: registration.event_id,
+    playerId: registration.user_id,
+    state: registration.status === "confirmed" ? "Registered" : registration.status === "waitlisted" ? "Waitlisted" : registration.status,
+    checkIn: registration.checked_in_at ? "Checked in" : "Not checked in",
+    waitlistPosition: registration.waitlist_position,
+  };
+}
+
 export function useAction() {
   const qc = useQueryClient();
   return async (name: string, data: Record<string, unknown> = {}) => {
     if (apiEnabled && name === "registerForDivision") {
       const result = await registerForApiEvent(String(data.eventId));
+      await qc.invalidateQueries();
+      return result;
+    }
+    if (apiEnabled && name === "cancelRegistration") {
+      const result = await withdrawApiRegistration(String(data.registrationId));
       await qc.invalidateQueries();
       return result;
     }
@@ -129,6 +147,9 @@ export function useList(
       if (apiEnabled && collection === "events") {
         const events = await listPublicApiEvents();
         return events.map(toUiEvent);
+      }
+      if (apiEnabled && collection === "registrations") {
+        return (await listMyApiRegistrations()).map(toUiRegistration);
       }
       return getList(collection, filters);
     },
