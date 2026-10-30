@@ -9,8 +9,40 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .config import get_settings
 from .database import engine, get_session
 from .auth import Actor, current_actor
-from .models import AuditLog, Base, Club, Event, EventStatus, Membership, MembershipRole, Registration, RegistrationStatus
-from .schemas import ClubCreate, ClubRead, EventCreate, EventRead, MembershipCreate, MembershipRead, RegistrationRead
+from .models import (
+    AuditLog,
+    Base,
+    Club,
+    Division,
+    Event,
+    EventStatus,
+    Fixture,
+    FixtureStatus,
+    Membership,
+    MembershipRole,
+    Registration,
+    RegistrationStatus,
+    Standing,
+    Team,
+    TeamMember,
+    TeamStatus,
+)
+from .schemas import (
+    ClubCreate,
+    ClubRead,
+    DivisionCreate,
+    DivisionRead,
+    EventCreate,
+    EventRead,
+    FixtureCreate,
+    FixtureRead,
+    FixtureResult,
+    MembershipCreate,
+    MembershipRead,
+    RegistrationRead,
+    TeamCreate,
+    TeamRead,
+)
 
 
 async def audit(session: AsyncSession, club_id: UUID, actor: str, action: str, entity_type: str, entity_id: str) -> None:
@@ -22,6 +54,48 @@ async def require_role(session: AsyncSession, club_id: UUID, actor: str, roles: 
     if membership is None or membership.role not in roles:
         raise HTTPException(status_code=403, detail="Club role is not permitted")
     return membership
+
+
+async def rebuild_team_standings(session: AsyncSession, club_id: UUID, division_id: UUID) -> None:
+    """Recalculate standings from finalized fixtures, keeping corrections deterministic."""
+    await session.execute(
+        Standing.__table__.delete().where(
+            Standing.club_id == club_id,
+            Standing.division_id == division_id,
+            Standing.subject_type == "team",
+        )
+    )
+    fixtures = list(
+        (
+            await session.scalars(
+                select(Fixture).where(
+                    Fixture.club_id == club_id,
+                    Fixture.division_id == division_id,
+                    Fixture.status == FixtureStatus.finalized,
+                )
+            )
+        ).all()
+    )
+    totals: dict[UUID, dict[str, int]] = {}
+    for fixture in fixtures:
+        for team_id in (fixture.home_team_id, fixture.away_team_id):
+            totals.setdefault(team_id, {"played": 0, "wins": 0, "losses": 0, "points": 0})
+            totals[team_id]["played"] += 1
+        if fixture.winner_team_id:
+            loser = fixture.away_team_id if fixture.winner_team_id == fixture.home_team_id else fixture.home_team_id
+            totals[fixture.winner_team_id]["wins"] += 1
+            totals[fixture.winner_team_id]["points"] += 3
+            totals[loser]["losses"] += 1
+    for team_id, values in totals.items():
+        session.add(
+            Standing(
+                club_id=club_id,
+                division_id=division_id,
+                subject_type="team",
+                subject_id=str(team_id),
+                **values,
+            )
+        )
 
 
 @asynccontextmanager
@@ -127,3 +201,132 @@ async def register(event_id: UUID, session: AsyncSession = Depends(get_session),
     await audit(session, event.club_id, actor.user_id, "registration.created", "registration", str(registration.id))
     await session.commit()
     return registration
+
+
+@app.post("/v1/events/{event_id}/divisions", response_model=DivisionRead, status_code=status.HTTP_201_CREATED)
+async def create_division(
+    event_id: UUID,
+    payload: DivisionCreate,
+    session: AsyncSession = Depends(get_session),
+    actor: Actor = Depends(current_actor),
+) -> Division:
+    event = await session.get(Event, event_id)
+    if event is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+    await require_role(session, event.club_id, actor.user_id, {MembershipRole.owner, MembershipRole.admin, MembershipRole.organizer})
+    division = Division(club_id=event.club_id, event_id=event.id, **payload.model_dump())
+    session.add(division)
+    await session.flush()
+    await audit(session, event.club_id, actor.user_id, "division.created", "division", str(division.id))
+    await session.commit()
+    return division
+
+
+@app.get("/v1/clubs/{club_id}/divisions", response_model=list[DivisionRead])
+async def list_divisions(
+    club_id: UUID,
+    session: AsyncSession = Depends(get_session),
+    actor: Actor = Depends(current_actor),
+) -> list[Division]:
+    await require_role(session, club_id, actor.user_id, set(MembershipRole))
+    return list((await session.scalars(select(Division).where(Division.club_id == club_id).order_by(Division.name))).all())
+
+
+@app.post("/v1/clubs/{club_id}/teams", response_model=TeamRead, status_code=status.HTTP_201_CREATED)
+async def create_triace_team(
+    club_id: UUID,
+    payload: TeamCreate,
+    session: AsyncSession = Depends(get_session),
+    actor: Actor = Depends(current_actor),
+) -> Team:
+    if len({member.user_id for member in payload.members}) != 3:
+        raise HTTPException(status_code=422, detail="TRIACE teams require three distinct players")
+    division = await session.get(Division, payload.division_id)
+    if division is None or division.club_id != club_id:
+        raise HTTPException(status_code=404, detail="Division not found for this club")
+    for member in payload.members:
+        if not await session.scalar(select(Membership).where(Membership.club_id == club_id, Membership.user_id == member.user_id)):
+            raise HTTPException(status_code=422, detail=f"{member.user_id} is not a club member")
+    if actor.user_id not in {member.user_id for member in payload.members}:
+        await require_role(session, club_id, actor.user_id, {MembershipRole.owner, MembershipRole.admin, MembershipRole.organizer})
+    total_rating = round(sum(member.rating for member in payload.members), 2)
+    minimum = division.rules.get("teamMinRating")
+    maximum = division.rules.get("teamMaxRating")
+    if minimum is not None and total_rating < float(minimum):
+        raise HTTPException(status_code=422, detail=f"Combined rating must be at least {minimum}")
+    if maximum is not None and total_rating > float(maximum):
+        raise HTTPException(status_code=422, detail=f"Combined rating cannot exceed {maximum}")
+    team = Team(
+        club_id=club_id,
+        division_id=division.id,
+        name=payload.name,
+        captain_user_id=actor.user_id,
+        status=TeamStatus.pending,
+        metadata_={"combinedRating": total_rating},
+    )
+    session.add(team)
+    await session.flush()
+    for member in payload.members:
+        session.add(TeamMember(club_id=club_id, team_id=team.id, **member.model_dump()))
+    await audit(session, club_id, actor.user_id, "triace.team.created", "team", str(team.id))
+    await session.commit()
+    return team
+
+
+@app.get("/v1/clubs/{club_id}/teams", response_model=list[TeamRead])
+async def list_teams(
+    club_id: UUID,
+    division_id: UUID | None = None,
+    session: AsyncSession = Depends(get_session),
+    actor: Actor = Depends(current_actor),
+) -> list[Team]:
+    await require_role(session, club_id, actor.user_id, set(MembershipRole))
+    statement = select(Team).where(Team.club_id == club_id)
+    if division_id:
+        statement = statement.where(Team.division_id == division_id)
+    return list((await session.scalars(statement.order_by(Team.name))).all())
+
+
+@app.post("/v1/clubs/{club_id}/fixtures", response_model=FixtureRead, status_code=status.HTTP_201_CREATED)
+async def create_fixture(
+    club_id: UUID,
+    payload: FixtureCreate,
+    session: AsyncSession = Depends(get_session),
+    actor: Actor = Depends(current_actor),
+) -> Fixture:
+    await require_role(session, club_id, actor.user_id, {MembershipRole.owner, MembershipRole.admin, MembershipRole.organizer})
+    division = await session.get(Division, payload.division_id)
+    teams = [await session.get(Team, team_id) for team_id in (payload.home_team_id, payload.away_team_id)]
+    if division is None or division.club_id != club_id or any(team is None or team.club_id != club_id or team.division_id != division.id for team in teams):
+        raise HTTPException(status_code=422, detail="Fixture teams must belong to the selected club and division")
+    if payload.home_team_id == payload.away_team_id:
+        raise HTTPException(status_code=422, detail="A team cannot play itself")
+    fixture = Fixture(club_id=club_id, **payload.model_dump())
+    session.add(fixture)
+    await session.flush()
+    await audit(session, club_id, actor.user_id, "fixture.created", "fixture", str(fixture.id))
+    await session.commit()
+    return fixture
+
+
+@app.post("/v1/fixtures/{fixture_id}/result", response_model=FixtureRead)
+async def record_fixture_result(
+    fixture_id: UUID,
+    payload: FixtureResult,
+    session: AsyncSession = Depends(get_session),
+    actor: Actor = Depends(current_actor),
+) -> Fixture:
+    fixture = await session.get(Fixture, fixture_id)
+    if fixture is None:
+        raise HTTPException(status_code=404, detail="Fixture not found")
+    await require_role(session, fixture.club_id, actor.user_id, {MembershipRole.owner, MembershipRole.admin, MembershipRole.organizer})
+    if payload.score_home == payload.score_away:
+        raise HTTPException(status_code=422, detail="TRIACE fixture results cannot end in a tie")
+    fixture.score_home = payload.score_home
+    fixture.score_away = payload.score_away
+    fixture.winner_team_id = fixture.home_team_id if payload.score_home > payload.score_away else fixture.away_team_id
+    fixture.status = FixtureStatus.finalized
+    await rebuild_team_standings(session, fixture.club_id, fixture.division_id)
+    await audit(session, fixture.club_id, actor.user_id, "fixture.finalized", "fixture", str(fixture.id))
+    await session.commit()
+    return fixture

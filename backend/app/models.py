@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, Date, DateTime, Enum, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -31,6 +31,18 @@ class RegistrationStatus(str, enum.Enum):
     confirmed = "confirmed"
     waitlisted = "waitlisted"
     withdrawn = "withdrawn"
+
+
+class TeamStatus(str, enum.Enum):
+    pending = "pending"
+    approved = "approved"
+    rejected = "rejected"
+
+
+class FixtureStatus(str, enum.Enum):
+    scheduled = "scheduled"
+    reported = "reported"
+    finalized = "finalized"
 
 
 class Timestamped:
@@ -101,6 +113,84 @@ class Payment(Timestamped, Base):
     provider_reference: Mapped[str] = mapped_column(String(160), unique=True)
     amount_cents: Mapped[int] = mapped_column(Integer)
     status: Mapped[str] = mapped_column(String(32), default="pending")
+
+
+class Season(Timestamped, Base):
+    __tablename__ = "seasons"
+    __table_args__ = (UniqueConstraint("club_id", "name", name="uq_season_club_name"),)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    club_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("clubs.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(160))
+    starts_on: Mapped[datetime | None] = mapped_column(Date, nullable=True)
+    ends_on: Mapped[datetime | None] = mapped_column(Date, nullable=True)
+    status: Mapped[str] = mapped_column(String(32), default="draft")
+
+
+class Division(Base):
+    __tablename__ = "divisions"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    club_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("clubs.id", ondelete="CASCADE"), index=True)
+    event_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("events.id", ondelete="CASCADE"), nullable=True, index=True)
+    name: Mapped[str] = mapped_column(String(160))
+    format: Mapped[str] = mapped_column(String(48))
+    min_rating: Mapped[float | None] = mapped_column(Numeric(4, 2), nullable=True)
+    max_rating: Mapped[float | None] = mapped_column(Numeric(4, 2), nullable=True)
+    capacity: Mapped[int] = mapped_column(Integer, default=32)
+    rules: Mapped[dict] = mapped_column(JSONB, default=dict)
+
+
+class Team(Timestamped, Base):
+    __tablename__ = "teams"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    club_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("clubs.id", ondelete="CASCADE"), index=True)
+    season_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("seasons.id", ondelete="SET NULL"), nullable=True)
+    division_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("divisions.id", ondelete="SET NULL"), nullable=True, index=True)
+    name: Mapped[str] = mapped_column(String(160))
+    captain_user_id: Mapped[str] = mapped_column(String(128))
+    status: Mapped[TeamStatus] = mapped_column(Enum(TeamStatus), default=TeamStatus.pending)
+    metadata_: Mapped[dict] = mapped_column("metadata", JSONB, default=dict)
+
+
+class TeamMember(Base):
+    __tablename__ = "team_members"
+    __table_args__ = (UniqueConstraint("team_id", "user_id", name="uq_team_member"),)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    club_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("clubs.id", ondelete="CASCADE"), index=True)
+    team_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("teams.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[str] = mapped_column(String(128))
+    lineup_position: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    rating: Mapped[float | None] = mapped_column(Numeric(4, 2), nullable=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class Fixture(Timestamped, Base):
+    __tablename__ = "fixtures"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    club_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("clubs.id", ondelete="CASCADE"), index=True)
+    division_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("divisions.id", ondelete="CASCADE"), index=True)
+    home_team_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("teams.id", ondelete="CASCADE"))
+    away_team_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("teams.id", ondelete="CASCADE"))
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    score_home: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    score_away: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    winner_team_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("teams.id", ondelete="SET NULL"), nullable=True)
+    status: Mapped[FixtureStatus] = mapped_column(Enum(FixtureStatus), default=FixtureStatus.scheduled)
+
+
+class Standing(Base):
+    __tablename__ = "standings"
+    __table_args__ = (UniqueConstraint("event_id", "division_id", "subject_type", "subject_id", name="uq_standing_subject"),)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    club_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("clubs.id", ondelete="CASCADE"), index=True)
+    event_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("events.id", ondelete="CASCADE"), nullable=True)
+    division_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("divisions.id", ondelete="CASCADE"), nullable=True)
+    subject_type: Mapped[str] = mapped_column(String(16))
+    subject_id: Mapped[str] = mapped_column(String(128))
+    played: Mapped[int] = mapped_column(Integer, default=0)
+    wins: Mapped[int] = mapped_column(Integer, default=0)
+    losses: Mapped[int] = mapped_column(Integer, default=0)
+    points: Mapped[int] = mapped_column(Integer, default=0)
+    tiebreak: Mapped[dict] = mapped_column(JSONB, default=dict)
 
 
 class AuditLog(Base):
