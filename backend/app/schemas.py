@@ -45,6 +45,17 @@ class EventCreate(BaseModel):
     rules: dict = Field(default_factory=dict)
 
 
+class EventUpdate(BaseModel):
+    """Admin-controlled event settings. `rules` is the versioned, configurable tournament policy bag."""
+    name: str | None = Field(default=None, min_length=2, max_length=200)
+    starts_at: datetime | None = None
+    capacity: int | None = Field(default=None, ge=2, le=5000)
+    entry_fee_cents: int | None = Field(default=None, ge=0)
+    status: EventStatus | None = None
+    rules: dict | None = None
+    audit_reason: str = Field(min_length=5, max_length=500)
+
+
 class EventRead(ORMModel):
     id: UUID
     club_id: UUID
