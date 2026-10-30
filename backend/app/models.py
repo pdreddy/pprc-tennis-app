@@ -176,6 +176,7 @@ class Fixture(Timestamped, Base):
     score_away: Mapped[int | None] = mapped_column(Integer, nullable=True)
     winner_team_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("teams.id", ondelete="SET NULL"), nullable=True)
     status: Mapped[FixtureStatus] = mapped_column(Enum(FixtureStatus), default=FixtureStatus.scheduled)
+    result_detail: Mapped[dict] = mapped_column(JSONB, default=dict)
     round_name: Mapped[str] = mapped_column(String(64), default="regular")
     bracket_position: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
