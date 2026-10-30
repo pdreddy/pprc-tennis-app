@@ -126,7 +126,7 @@ def test_late_withdrawal_awards_walkovers_and_manual_walkover():
     players = [f"wo-{uuid.uuid4().hex[:6]}-{i}" for i in range(4)]
     for player in players:
         request("POST", f"/v1/divisions/{division['id']}/entries", owner, json={"user_id": player})
-    matches = request("POST", f"/v1/divisions/{division['id']}/draw", owner, json={})
+    request("POST", f"/v1/divisions/{division['id']}/draw", owner, json={})
     entries = request("GET", f"/v1/divisions/{division['id']}/entries", owner)
     leaving = next(e for e in entries if e["user_id"] == players[3])
     request("POST", f"/v1/entries/{leaving['id']}/withdraw", owner)
