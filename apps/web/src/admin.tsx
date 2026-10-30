@@ -23,6 +23,7 @@ import {
 import { ref, uploadBytes, getBlob } from "firebase/storage";
 import { storage } from "./firebase";
 import { CompetitionBoard } from "./competition";
+import { OptionCards, FieldGrid, Callout, StatusBadge } from "./components";
 import { apiEnabled, isIndividualFormat, tournamentFormats, approveApiTeam, correctApiFixtureResult, createApiFixture, createApiTeam, generateApiPlayoffs, getApiChampion, listApiFixtures, listApiStandings, listApiTeams, submitApiFixtureResult } from "./api";
 import {
   canManage,
@@ -2087,14 +2088,12 @@ function TournamentSetup() {
       <Link className="text-link" to="/admin/events">← Events</Link>
       <h1>Create a tournament</h1>
       <p className="lead">Choose the tournament type first. Everything is created as a draft until you open registration.</p>
-      <div className="tabs" role="radiogroup" aria-label="Tournament type">
-        {tournamentFormats.map((format) => (
-          <button key={format.key} role="radio" aria-checked={kind === format.key} className={kind === format.key ? "active" : ""} onClick={() => setKind(format.key)}>
-            {format.label}
-          </button>
-        ))}
-      </div>
-      <p className="hint">{tournamentFormats.find((format) => format.key === kind)?.description}</p>
+      <OptionCards
+        label="Tournament type"
+        value={kind}
+        onChange={setKind}
+        options={tournamentFormats.map((format) => ({ value: format.key as string, label: format.label, description: format.description }))}
+      />
       {isIndividualFormat(kind) ? <IndividualTournamentSetup key={kind} format={kind} /> : <TriaceEventSetup key={kind} />}
     </div>
   );
@@ -2152,7 +2151,7 @@ function IndividualTournamentSetup({ format }: { format: string }) {
           navigate(`/admin/events/${result.eventId}`);
         }}
       >
-        <div className="form-grid">
+        <FieldGrid>
           <Field label="Event name"><input name="name" defaultValue={`PPRC ${label}`} required minLength={2} /></Field>
           <Field label="Division name"><input name="divisionName" defaultValue="Open" required minLength={2} /></Field>
           <Field label="Venue"><input name="venue" defaultValue="Prosper Premier Racquet Club" required /></Field>
@@ -2189,7 +2188,7 @@ function IndividualTournamentSetup({ format }: { format: string }) {
             </select>
           </Field>
           <Field label="Time zone"><input name="timezone" defaultValue="America/Chicago" required /></Field>
-        </div>
+        </FieldGrid>
         <Field label="Description"><textarea name="description" defaultValue={`${label} at Prosper Premier Racquet Club.`} required /></Field>
         <label className="check"><input name="allowWaitlist" type="checkbox" defaultChecked /> Enable waitlist when capacity is reached</label>
       </Form>
@@ -2211,9 +2210,9 @@ function IndividualEventOperations({ event, divisions }: { event: Entity; divisi
       <Link className="text-link" to="/admin/events">← Event calendar</Link>
       <p className="eyebrow">{label.toUpperCase()} ADMINISTRATION</p>
       <h1>{event.name}</h1>
-      {message && <p className="notice">{message}</p>}
+      {message && <Callout tone="success">{message}</Callout>}
       <Panel title="Registration controls">
-        <p><Badge>{event.status}</Badge> Capacity: {event.capacity} players</p>
+        <p><StatusBadge status={String(event.status)} /> Capacity: {event.capacity} players</p>
         <div className="button-row">
           <Action variant="primary" onClick={() => save("published")}>Open registration</Action>
           <Action onClick={() => save("closed")}>Close registration</Action>

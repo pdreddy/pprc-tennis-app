@@ -16,9 +16,11 @@ import {
   withdrawApiEntry,
   type ApiCompetitionMatch,
   type ApiEntry,
+  type ApiPlayerStanding,
 } from "./api";
 import { useSession } from "./context";
-import { Action, Badge, Empty, Field, Form, Panel, number, text } from "./ui";
+import { Action, Empty, Field, Form, Panel, number, text } from "./ui";
+import { Callout, ConfirmAction, DataTable, FieldGrid, MatchCard, PromptAction, SectionTitle, StatGrid, type Column } from "./components";
 import type { Entity } from "@pprc/shared";
 
 const roundLabel = (name: string) => {
@@ -35,6 +37,14 @@ const roundLabel = (name: string) => {
 const bracketRank = (name: string) => (name.startsWith("group_") ? -1 : name.startsWith("losers_") ? 1 : name.startsWith("grand_") ? 2 : 0);
 const entryLabel = (entry: ApiEntry) => (entry.partner_user_id ? `${entry.display_name} / ${entry.partner_name ?? entry.partner_user_id}` : entry.display_name);
 const rule = (division: Entity, key: string) => (division.rules as Record<string, unknown> | undefined)?.[key];
+
+const standingColumns = (label: string, name: (id: string | null) => string): Column<ApiPlayerStanding>[] => [
+  { key: "player", header: label, cell: (row) => name(row.subject_id) },
+  { key: "p", header: "P", numeric: true, cell: (row) => row.played },
+  { key: "w", header: "W", numeric: true, cell: (row) => row.wins },
+  { key: "l", header: "L", numeric: true, cell: (row) => row.losses },
+  { key: "pts", header: "Pts", numeric: true, cell: (row) => <strong>{row.points}</strong> },
+];
 
 /**
  * Standings, bracket, Swiss rounds or ladder for an individual-format division.
@@ -65,6 +75,7 @@ export function CompetitionBoard({ division, staff, open = false }: { division: 
   const roundDone = allMatches.filter((match) => match.round_number === lastRound).every((match) => ["finalized", "bye"].includes(match.status));
   if (entries.isLoading || matches.isLoading) return <p role="status">Loading competition…</p>;
   if (entries.error || matches.error) return <p role="alert" className="error">{(entries.error ?? matches.error)?.message}</p>;
+  const finished = allMatches.filter((match) => match.status === "finalized").length;
   const partnerFields = doubles && (
     <>
       <Field label="Partner Firebase UID"><input name="partnerId" required /></Field>
@@ -74,6 +85,11 @@ export function CompetitionBoard({ division, staff, open = false }: { division: 
   const partnerInput = (form: FormData) => (doubles ? { partner_user_id: text(form, "partnerId"), partner_name: text(form, "partnerName") || undefined } : {});
   return (
     <>
+      <StatGrid items={[
+        { label: doubles ? "Pairs" : "Players", value: `${active.length}/${String(division.capacity)}` },
+        { label: "Matches played", value: `${finished}/${allMatches.filter((match) => match.status !== "bye").length}` },
+        { label: "Status", value: drawn ? "Under way" : "Not drawn" },
+      ]} />
       {format === "ladder" ? (
         <LadderPanel division={division} entries={active} matches={allMatches} mine={mine} name={name} staff={staff} refresh={refresh} />
       ) : (
@@ -82,12 +98,13 @@ export function CompetitionBoard({ division, staff, open = false }: { division: 
             <Panel title="Standings">
               {(standings.data ?? []).length === 0 ? <Empty title="No players yet" /> : (
                 [...new Set((standings.data ?? []).map((row) => row.group ?? ""))].map((group) => (
-                  <div className="table-scroll" key={group}>
-                    {grouped && <h3>Group {group}</h3>}
-                    <table><thead><tr><th>{doubles ? "Pair" : "Player"}</th><th>P</th><th>W</th><th>L</th><th>Points</th></tr></thead><tbody>
-                      {(standings.data ?? []).filter((row) => (row.group ?? "") === group).map((row) => <tr key={row.subject_id}><td>{name(row.subject_id)}</td><td>{row.played}</td><td>{row.wins}</td><td>{row.losses}</td><td>{row.points}</td></tr>)}
-                    </tbody></table>
-                  </div>
+                  <DataTable
+                    key={group}
+                    caption={grouped ? `Group ${group}` : undefined}
+                    columns={standingColumns(doubles ? "Pair" : "Player", name)}
+                    rows={(standings.data ?? []).filter((row) => (row.group ?? "") === group)}
+                    rowKey={(row) => row.subject_id}
+                  />
                 ))
               )}
               {format === "swiss" && drawn && <p className="hint">Round {lastRound} of {swissTotal || "?"}</p>}
@@ -102,12 +119,13 @@ export function CompetitionBoard({ division, staff, open = false }: { division: 
           <div className="division-row" key={entry.id}>
             <span><strong>{entryLabel(entry)}</strong>{entry.group_label ? ` · group ${entry.group_label}` : ""}{entry.seed ? ` · seed ${entry.seed}` : ""}{entry.rating != null ? ` · UTR ${entry.rating}` : ""}</span>
             {(staff || entry.user_id === user?.uid || entry.partner_user_id === user?.uid) && (
-              <Action onClick={async () => {
-                const warning = drawn && format !== "ladder" ? " Their unfinished matches will be awarded to the opponents as walkovers." : "";
-                if (!window.confirm(`Withdraw ${entryLabel(entry)}?${warning}`)) return;
-                await withdrawApiEntry(entry.id);
-                await refresh();
-              }}>Withdraw</Action>
+              <ConfirmAction
+                label="Withdraw"
+                title={`Withdraw ${entryLabel(entry)}?`}
+                message={drawn && format !== "ladder" ? "Their unfinished matches will be awarded to the opponents as walkovers." : "They will be removed from this division."}
+                confirmLabel="Withdraw"
+                onConfirm={async () => { await withdrawApiEntry(entry.id); await refresh(); }}
+              />
             )}
           </div>
         ))}
@@ -130,13 +148,13 @@ export function CompetitionBoard({ division, staff, open = false }: { division: 
               });
               await refresh();
             }}>
-              <div className="form-grid">
+              <FieldGrid>
                 <Field label="Player Firebase UID"><input name="userId" required /></Field>
                 <Field label="Display name"><input name="displayName" /></Field>
                 {partnerFields}
                 <Field label="UTR"><input name="rating" type="number" min="0" max="20" step="0.01" /></Field>
                 <Field label="Seed" hint="Leave blank to seed by UTR"><input name="seed" type="number" min="1" /></Field>
-              </div>
+              </FieldGrid>
             </Form>
           )}
           {!drawn && (
@@ -154,7 +172,7 @@ export function CompetitionBoard({ division, staff, open = false }: { division: 
               {allMatches.every((match) => match.status === "finalized") ? `Advance top ${String(rule(division, "advancePerGroup") ?? 2)} per group to knockout` : "Finish all group matches to continue"}
             </Action>
           )}
-          {drawn && format !== "ladder" && format !== "swiss" && <p className="notice">The draw is locked. Withdrawals and no-shows are handled as walkovers.</p>}
+          {drawn && format !== "ladder" && format !== "swiss" && <Callout>The draw is locked. Withdrawals and no-shows are handled as walkovers.</Callout>}
         </Panel>
       )}
     </>
@@ -174,17 +192,16 @@ function LadderPanel({ division, entries, matches, mine, name, staff, refresh }:
   return (
     <>
       <Panel title="Ladder">
-        {entries.length === 0 ? <Empty title="The ladder is empty" /> : (
-          <div className="table-scroll"><table><thead><tr><th>Rank</th><th>{rule(division, "entryType") === "doubles" ? "Pair" : "Player"}</th><th /></tr></thead><tbody>
-            {entries.map((entry) => (
-              <tr key={entry.id}>
-                <td>{entry.rank}</td>
-                <td>{entryLabel(entry)}{entry.id === mine?.id ? " (you)" : ""}</td>
-                <td>{canChallenge(entry) && <Action onClick={async () => { await createApiLadderChallenge(division.id, entry.user_id); await refresh(); }}>Challenge</Action>}</td>
-              </tr>
-            ))}
-          </tbody></table></div>
-        )}
+        <DataTable
+          empty={<Empty title="The ladder is empty" />}
+          rows={entries}
+          rowKey={(entry) => entry.id}
+          columns={[
+            { key: "rank", header: "Rank", className: "rank", cell: (entry) => entry.rank },
+            { key: "player", header: rule(division, "entryType") === "doubles" ? "Pair" : "Player", cell: (entry) => <>{entryLabel(entry)}{entry.id === mine?.id ? " (you)" : ""}</> },
+            { key: "action", header: "", cell: (entry) => canChallenge(entry) && <Action onClick={async () => { await createApiLadderChallenge(division.id, entry.user_id); await refresh(); }}>Challenge</Action> },
+          ]}
+        />
         <p className="hint">
           You can challenge entries up to {reach} places above you. Win to take their rank.
           {expiry > 0 && ` Unplayed challenges ${forfeit ? "are awarded to the challenger" : "are cancelled"} after ${expiry} days; a score that is not confirmed in that time stands.`}
@@ -203,30 +220,33 @@ function MatchList({ title, matches, name, staff, refresh, cancellable = false }
   const groups = new Map<string, ApiCompetitionMatch[]>();
   for (const match of matches) groups.set(match.round_name, [...(groups.get(match.round_name) ?? []), match]);
   const ordered = [...groups.entries()].sort(([nameA, a], [nameB, b]) => bracketRank(nameA) - bracketRank(nameB) || a[0].round_number - b[0].round_number);
+  const me = user?.uid ?? "";
   return (
     <Panel title={title}>
       {ordered.map(([roundName, items]) => (
         <section key={roundName}>
-          <h3>{roundLabel(roundName)}</h3>
+          <SectionTitle>{roundLabel(roundName)}</SectionTitle>
           {items.map((match) => {
-            const me = user?.uid ?? "";
             const ready = match.status === "scheduled" || match.status === "reported";
+            const sides = [match.player_one_id, match.player_two_id] as const;
+            const note = match.status === "reported" && me === match.reported_by
+              ? "Waiting for your opponent to confirm."
+              : match.score_text;
             return (
-              <div className="score-record" key={match.id}>
-                <p>
-                  <strong className={match.winner_id === match.player_one_id ? "winner" : ""}>{name(match.player_one_id)}</strong> vs{" "}
-                  <strong className={match.winner_id === match.player_two_id ? "winner" : ""}>{match.player_two_id ? name(match.player_two_id) : "—"}</strong>{" "}
-                  <Badge>{match.status === "bye" ? "Bye" : match.status}</Badge>
-                  {match.score_one != null && ` ${match.score_one}–${match.score_two}${match.score_text ? ` (${match.score_text})` : ""}`}
-                  {match.score_one == null && match.score_text && ` (${match.score_text})`}
-                </p>
+              <MatchCard
+                key={match.id}
+                label={match.starts_at ? new Date(match.starts_at).toLocaleDateString() : `Match ${match.position + 1}`}
+                status={match.status}
+                home={{ name: name(sides[0]), score: match.score_one, winner: !!match.winner_id && match.winner_id === sides[0] }}
+                away={{ name: sides[1] ? name(sides[1]) : "—", score: match.score_two, winner: !!match.winner_id && match.winner_id === sides[1] }}
+                note={note}
+              >
                 {match.status === "reported" && me !== match.reported_by && !staff && (
-                  <div className="button-row">
+                  <div className="pp-match-actions">
                     <Action variant="primary" onClick={async () => { await confirmApiCompetitionResult(match.id); await refresh(); }}>Confirm score</Action>
-                    <Action onClick={async () => { const reason = window.prompt("Why is this score wrong?"); if (reason && reason.length >= 5) { await disputeApiCompetitionResult(match.id, reason); await refresh(); } }}>Dispute</Action>
+                    <PromptAction label="Dispute" title="Dispute this score" promptLabel="Why is this score wrong?" submitLabel="Send dispute" onSubmit={async (reason) => { await disputeApiCompetitionResult(match.id, reason); await refresh(); }} />
                   </div>
                 )}
-                {match.status === "reported" && me === match.reported_by && <p className="hint">Waiting for your opponent to confirm.</p>}
                 {(staff ? ready || (match.status === "finalized" && !cancellable) : match.status === "scheduled") && (
                   <Form label={match.status === "finalized" ? "Correct score" : staff ? "Finalize score" : "Report score"} onSubmit={async (form) => {
                     await submitApiCompetitionResult(match.id, {
@@ -236,30 +256,30 @@ function MatchList({ title, matches, name, staff, refresh, cancellable = false }
                     });
                     await refresh();
                   }}>
-                    <div className="form-grid">
-                      <Field label={`${name(match.player_one_id)} score`}><input name="scoreOne" type="number" min="0" max="99" required /></Field>
-                      <Field label={`${name(match.player_two_id)} score`}><input name="scoreTwo" type="number" min="0" max="99" required /></Field>
+                    <FieldGrid>
+                      <Field label={`${name(sides[0])} score`}><input name="scoreOne" type="number" min="0" max="99" required /></Field>
+                      <Field label={`${name(sides[1])} score`}><input name="scoreTwo" type="number" min="0" max="99" required /></Field>
                       <Field label="Set scores (optional)"><input name="scoreText" placeholder="6-3 4-6 10-7" maxLength={120} /></Field>
                       {match.status === "finalized" && <Field label="Correction reason"><input name="reason" minLength={5} required /></Field>}
-                    </div>
+                    </FieldGrid>
                   </Form>
                 )}
-                {staff && ready && match.player_one_id && match.player_two_id && (
-                  <div className="button-row">
-                    {[match.player_one_id, match.player_two_id].map((winner) => (
-                      <Action key={winner} onClick={async () => {
-                        const reason = window.prompt(`Walkover for ${name(winner)}: reason (no-show, injury, withdrawal)`);
-                        if (!reason || reason.length < 5) return;
-                        await awardApiWalkover(match.id, winner, reason);
-                        await refresh();
-                      }}>Walkover to {name(winner)}</Action>
-                    ))}
-                  </div>
-                )}
-                {cancellable && match.status !== "finalized" && (staff || me === match.player_one_id) && (
-                  <Action onClick={async () => { await cancelApiLadderChallenge(match.id); await refresh(); }}>Cancel challenge</Action>
-                )}
-              </div>
+                <div className="pp-match-actions">
+                  {staff && ready && sides[0] && sides[1] && sides.map((winner) => (
+                    <PromptAction
+                      key={winner}
+                      label={`Walkover: ${name(winner)}`}
+                      title={`Award walkover to ${name(winner)}`}
+                      promptLabel="Reason (no-show, injury, withdrawal)"
+                      submitLabel="Award walkover"
+                      onSubmit={async (reason) => { await awardApiWalkover(match.id, winner, reason); await refresh(); }}
+                    />
+                  ))}
+                  {cancellable && match.status !== "finalized" && (staff || me === match.player_one_id) && (
+                    <ConfirmAction label="Cancel challenge" title="Cancel this challenge?" message="The challenge will be removed and both players can challenge again." confirmLabel="Cancel challenge" onConfirm={async () => { await cancelApiLadderChallenge(match.id); await refresh(); }} />
+                  )}
+                </div>
+              </MatchCard>
             );
           })}
         </section>
