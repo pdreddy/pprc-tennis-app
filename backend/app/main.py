@@ -206,6 +206,8 @@ async def rebuild_team_standings(session: AsyncSession, club_id: UUID, division_
                     Fixture.club_id == club_id,
                     Fixture.division_id == division_id,
                     Fixture.status == FixtureStatus.finalized,
+                    # Playoff games must not feed the regular-season table that seeds them.
+                    Fixture.round_name == "regular",
                 )
             )
         ).all()
@@ -244,6 +246,7 @@ async def team_eligibility(session: AsyncSession, team: Team) -> TeamEligibility
                 select(Fixture).where(
                     Fixture.division_id == team.division_id,
                     Fixture.status == FixtureStatus.finalized,
+                    Fixture.round_name == "regular",
                     (Fixture.home_team_id == team.id) | (Fixture.away_team_id == team.id),
                 )
             )
@@ -289,7 +292,11 @@ async def ranked_playoff_teams(session: AsyncSession, division: Division) -> lis
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    if get_settings().pprc_bootstrap_schema:
+    settings = get_settings()
+    if not settings.allow_development_header and not settings.firebase_project_id:
+        # Fail fast: without this every request would 401 and the misconfiguration is easy to miss.
+        raise RuntimeError("FIREBASE_PROJECT_ID is required when PPRC_ENVIRONMENT is not 'development'")
+    if settings.pprc_bootstrap_schema:
         async with engine.begin() as connection:
             await connection.run_sync(Base.metadata.create_all)
     yield
@@ -325,7 +332,9 @@ async def list_clubs(session: AsyncSession = Depends(get_session), actor: Actor 
 
 @app.post("/v1/clubs/{club_id}/memberships", response_model=MembershipRead, status_code=status.HTTP_201_CREATED)
 async def add_membership(club_id: UUID, payload: MembershipCreate, session: AsyncSession = Depends(get_session), actor: Actor = Depends(current_actor)) -> Membership:
-    await require_role(session, club_id, actor.user_id, {MembershipRole.owner, MembershipRole.admin})
+    caller = await require_role(session, club_id, actor.user_id, {MembershipRole.owner, MembershipRole.admin})
+    if payload.role in {MembershipRole.owner, MembershipRole.admin} and caller.role != MembershipRole.owner:
+        raise HTTPException(status_code=403, detail="Only a club owner can grant owner or admin roles")
     member = Membership(club_id=club_id, **payload.model_dump())
     session.add(member)
     try:
@@ -461,6 +470,8 @@ async def update_event(
     if event is None:
         raise HTTPException(status_code=404, detail="Event not found")
     await require_role(session, event.club_id, actor.user_id, {MembershipRole.owner, MembershipRole.admin, MembershipRole.organizer})
+    if event.status == EventStatus.completed and payload.status not in {None, EventStatus.completed}:
+        raise HTTPException(status_code=409, detail="Completed events cannot be reopened")
     division = await session.scalar(select(Division).where(Division.event_id == event.id))
     proposed_rules = payload.rules if payload.rules is not None else event.rules
     if is_triace_division(division):
@@ -486,6 +497,8 @@ async def publish_event(event_id: UUID, session: AsyncSession = Depends(get_sess
     if event is None:
         raise HTTPException(status_code=404, detail="Event not found")
     await require_role(session, event.club_id, actor.user_id, {MembershipRole.owner, MembershipRole.admin, MembershipRole.organizer})
+    if event.status in {EventStatus.closed, EventStatus.completed}:
+        raise HTTPException(status_code=409, detail="Closed or completed events cannot be republished")
     event.status = EventStatus.published
     await audit(session, event.club_id, actor.user_id, "event.published", "event", str(event.id))
     await session.commit()
@@ -515,7 +528,7 @@ async def register(event_id: UUID, session: AsyncSession = Depends(get_session),
     if membership is None:
         # Published PPRC events are open to authenticated players.  The first
         # registration establishes the least-privileged club membership.
-        membership = Membership(club_id=event.club_id, user_id=actor.user_id, display_name=actor.user_id)
+        membership = Membership(club_id=event.club_id, user_id=actor.user_id, display_name=actor.name or actor.email or actor.user_id)
         session.add(membership)
         await session.flush()
         await audit(session, event.club_id, actor.user_id, "membership.self_joined", "membership", str(membership.id))
@@ -528,7 +541,7 @@ async def register(event_id: UUID, session: AsyncSession = Depends(get_session),
         if event.rules.get("waitlist", event.rules.get("allowWaitlist", True)) is False:
             raise HTTPException(status_code=409, detail="Event is full and waitlist is disabled")
         registration_status = RegistrationStatus.waitlisted
-        waitlist_position = int(await session.scalar(select(func.count()).select_from(Registration).where(Registration.event_id == event_id, Registration.status == RegistrationStatus.waitlisted))) + 1
+        waitlist_position = int(await session.scalar(select(func.coalesce(func.max(Registration.waitlist_position), 0)).where(Registration.event_id == event_id, Registration.status == RegistrationStatus.waitlisted)) or 0) + 1
     registration = Registration(club_id=event.club_id, event_id=event.id, user_id=actor.user_id, status=registration_status, waitlist_position=waitlist_position)
     session.add(registration)
     await session.flush()
@@ -563,13 +576,19 @@ async def withdraw_registration(
         raise HTTPException(status_code=404, detail="Registration not found")
     if registration.status == RegistrationStatus.withdrawn:
         return registration
+    # Lock the event so concurrent withdrawals/registrations see a consistent seat count.
+    event = await session.scalar(select(Event).where(Event.id == registration.event_id).with_for_update())
+    freed_seat = registration.status == RegistrationStatus.confirmed
     registration.status = RegistrationStatus.withdrawn
-    event = await session.get(Event, registration.event_id)
-    promoted = await session.scalar(
-        select(Registration)
-        .where(Registration.event_id == registration.event_id, Registration.status == RegistrationStatus.waitlisted)
-        .order_by(Registration.waitlist_position)
-    )
+    registration.waitlist_position = None
+    # Only a freed confirmed seat may promote someone; a waitlisted player leaving frees nothing.
+    promoted = None
+    if freed_seat:
+        promoted = await session.scalar(
+            select(Registration)
+            .where(Registration.event_id == registration.event_id, Registration.status == RegistrationStatus.waitlisted)
+            .order_by(Registration.waitlist_position)
+        )
     if promoted and event:
         promoted.status = RegistrationStatus.confirmed
         promoted.waitlist_position = None
@@ -737,7 +756,7 @@ async def stripe_webhook(request: Request, session: AsyncSession = Depends(get_s
     if event["type"] not in {"checkout.session.completed", "checkout.session.async_payment_succeeded"}:
         return
     checkout = event["data"]["object"]
-    payment_id = checkout.get("metadata", {}).get("payment_id")
+    payment_id = (checkout.get("metadata") or {}).get("payment_id")
     if not payment_id:
         return
     payment = await session.get(Payment, UUID(payment_id))
