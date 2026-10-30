@@ -165,6 +165,20 @@ class FixtureRead(ORMModel):
     bracket_position: int | None
 
 
+class StandingRead(ORMModel):
+    id: UUID
+    club_id: UUID
+    event_id: UUID | None
+    division_id: UUID | None
+    subject_type: str
+    subject_id: str
+    played: int
+    wins: int
+    losses: int
+    points: int
+    tiebreak: dict
+
+
 class TeamEligibilityRead(BaseModel):
     team_id: UUID
     eligible: bool
