@@ -13,7 +13,7 @@ This release starts a new PPRC club. It does not import legacy Firebase, UTR, pa
 
 ## Required before enabling `VITE_DATA_PROVIDER=api`
 
-1. Apply `001_initial.sql`, `002_multiclub_tournament.sql`, and `003_tenant_rls.sql` to the target database.
+1. Apply `001_initial.sql`, `002_multiclub_tournament.sql`, and `003_tenant_rls.sql`, `004_triace_score_workflow.sql` and `005_individual_formats.sql` to the target database.
 2. Seed the first PPRC owner and events using `backend/scripts/seed_fresh_club.py`.
 3. Configure Firebase Auth, the FastAPI CORS origin, `VITE_API_BASE_URL`, and `VITE_PPRC_CLUB_SLUG=pprc`.
 4. Run `./pprc.sh test-api`, `./pprc.sh test-all`, `pnpm events:integration`, `pnpm events:e2e`, and `pnpm events:ui` on a Node 22 developer machine.

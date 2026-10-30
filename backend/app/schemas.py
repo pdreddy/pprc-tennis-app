@@ -246,3 +246,76 @@ class ChampionRead(BaseModel):
 
 
 FixtureResult.model_rebuild()
+
+
+class TournamentCreate(BaseModel):
+    """Create an event with its first individual-format division (round robin, elimination, ladder)."""
+    event: EventCreate
+    division: DivisionCreate
+
+
+class FormatRead(BaseModel):
+    key: str
+    label: str
+    description: str
+    individual: bool
+
+
+class EntryCreate(BaseModel):
+    user_id: str | None = Field(default=None, min_length=1, max_length=128)
+    display_name: str | None = Field(default=None, min_length=1, max_length=160)
+    rating: float | None = Field(default=None, ge=0, le=20)
+    seed: int | None = Field(default=None, ge=1, le=1024)
+
+
+class EntryRead(ORMModel):
+    id: UUID
+    division_id: UUID
+    user_id: str
+    display_name: str
+    seed: int | None
+    rating: float | None
+    rank: int | None
+    status: str
+
+
+class CompetitionMatchRead(ORMModel):
+    id: UUID
+    division_id: UUID
+    round_number: int
+    round_name: str
+    position: int
+    player_one_id: str | None
+    player_two_id: str | None
+    winner_id: str | None
+    score_one: int | None
+    score_two: int | None
+    score_text: str | None
+    status: str
+    reported_by: str | None
+    starts_at: datetime | None
+
+
+class CompetitionResult(BaseModel):
+    score_one: int = Field(ge=0, le=99)
+    score_two: int = Field(ge=0, le=99)
+    score_text: str | None = Field(default=None, max_length=120)
+    audit_reason: str | None = Field(default=None, min_length=5, max_length=500)
+
+
+class DrawGenerate(BaseModel):
+    starts_at: datetime | None = None
+
+
+class LadderChallenge(BaseModel):
+    opponent_id: str = Field(min_length=1, max_length=128)
+    starts_at: datetime | None = None
+
+
+class PlayerStandingRead(BaseModel):
+    subject_id: str
+    display_name: str
+    played: int
+    wins: int
+    losses: int
+    points: int

@@ -13,7 +13,8 @@ import {
 } from "lucide-react";
 import { useSession, useEvent, useList, useAction, toUiEvent } from "./context";
 import { db, storage, enablePush, getOne } from "./firebase";
-import { apiEnabled, createApiTeam, getPublicApiEvent } from "./api";
+import { apiEnabled, createApiTeam, getPublicApiEvent, isIndividualFormat } from "./api";
+import { CompetitionBoard } from "./competition";
 import {
   Panel,
   Dialog,
@@ -34,6 +35,8 @@ export function EventDetail() {
   const data = useEvent(eventId);
   const { event, divisions, draws, matches, loading, error } = data;
   const [tab, setTab] = useState("Overview");
+  const { user: sessionUser } = useSession();
+  const competition = apiEnabled && isIndividualFormat(divisions[0]?.format) ? divisions[0] : undefined;
   const profiles = useList("publicProfiles").data ?? [];
   const name = (id: string) =>
     profiles.find((p) => p.id === id)?.displayName ??
@@ -73,7 +76,7 @@ export function EventDetail() {
         </div>
       </div>
       <div className="tabs" role="navigation" aria-label="Event sections">
-        {["Overview", "Divisions", "Draws", "Schedule", "Results"].map((t) => (
+        {(competition ? ["Overview", "Competition"] : ["Overview", "Divisions", "Draws", "Schedule", "Results"]).map((t) => (
           <button
             aria-pressed={tab === t}
             className={tab === t ? "active" : ""}
@@ -86,6 +89,11 @@ export function EventDetail() {
       </div>
       <div className="detail-layout">
         <div>
+          {tab === "Competition" && competition && (
+            sessionUser
+              ? <CompetitionBoard division={competition} staff={false} />
+              : <p className="notice">Sign in and register to see the draw, standings and your matches.</p>
+          )}
           {tab === "Overview" && (
             <>
               <Panel title="The competition. The community.">

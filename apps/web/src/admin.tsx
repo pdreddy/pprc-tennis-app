@@ -22,7 +22,8 @@ import {
 } from "lucide-react";
 import { ref, uploadBytes, getBlob } from "firebase/storage";
 import { storage } from "./firebase";
-import { apiEnabled, approveApiTeam, correctApiFixtureResult, createApiFixture, createApiTeam, generateApiPlayoffs, getApiChampion, listApiFixtures, listApiStandings, listApiTeams, submitApiFixtureResult } from "./api";
+import { CompetitionBoard } from "./competition";
+import { apiEnabled, isIndividualFormat, tournamentFormats, approveApiTeam, correctApiFixtureResult, createApiFixture, createApiTeam, generateApiPlayoffs, getApiChampion, listApiFixtures, listApiStandings, listApiTeams, submitApiFixtureResult } from "./api";
 import {
   canManage,
   formats,
@@ -333,6 +334,7 @@ function EventAdmin({ eventId, tab }: { eventId: string; tab: string }) {
       </p>
     );
   if (!event) return <Empty title="Event not found" />;
+  if (apiEnabled && isIndividualFormat(divisions[0]?.format)) return <IndividualEventOperations event={event} divisions={divisions} />;
   if (apiEnabled) return <TriaceEventOperations event={event} divisions={divisions} />;
   const readOnly = !canManage(member?.role, user!.uid, event as Event);
   const common = { eventId };
@@ -1430,7 +1432,7 @@ export function EventWizard() {
     [eventType, setEventType] = useState("Tournament"),
     [template, setTemplate] = useState<Entity | undefined>();
   const [loaded, setLoaded] = useState(false);
-  if (apiEnabled) return <TriaceEventSetup />;
+  if (apiEnabled) return <TournamentSetup />;
   const source = template?.event ?? existing.event;
   if (source && !loaded) {
     setLoaded(true);
@@ -1993,8 +1995,7 @@ export function EventWizard() {
 function TriaceEventSetup() {
   const action = useAction(), navigate = useNavigate();
   return (
-    <div className="page wizard">
-      <Link className="text-link" to="/admin/events">← Events</Link>
+    <div>
       <p className="eyebrow">TRIACE 2.0</p>
       <h1>Create a configurable team season</h1>
       <p className="lead">Create it as a draft. Review the settings, then open registration when you are ready.</p>
@@ -2071,6 +2072,117 @@ function TriaceEventSetup() {
           <label className="check"><input name="allowWaitlist" type="checkbox" defaultChecked /> Enable team waitlist when capacity is reached</label>
         </Form>
       </Panel>
+    </div>
+  );
+}
+
+function TournamentSetup() {
+  const [kind, setKind] = useState<string>(tournamentFormats[0].key);
+  return (
+    <div className="page wizard">
+      <Link className="text-link" to="/admin/events">← Events</Link>
+      <h1>Create a tournament</h1>
+      <p className="lead">Choose the tournament type first. Everything is created as a draft until you open registration.</p>
+      <div className="tabs" role="radiogroup" aria-label="Tournament type">
+        {tournamentFormats.map((format) => (
+          <button key={format.key} role="radio" aria-checked={kind === format.key} className={kind === format.key ? "active" : ""} onClick={() => setKind(format.key)}>
+            {format.label}
+          </button>
+        ))}
+      </div>
+      <p className="hint">{tournamentFormats.find((format) => format.key === kind)?.description}</p>
+      {isIndividualFormat(kind) ? <IndividualTournamentSetup key={kind} format={kind} /> : <TriaceEventSetup key={kind} />}
+    </div>
+  );
+}
+
+function IndividualTournamentSetup({ format }: { format: string }) {
+  const action = useAction(), navigate = useNavigate();
+  const label = tournamentFormats.find((item) => item.key === format)?.label ?? format;
+  return (
+    <Panel title={`${label} setup`}>
+      <Form
+        label={`Create ${label.toLowerCase()} draft`}
+        onSubmit={async (form) => {
+          const rules: Record<string, unknown> = {
+            eventType: format,
+            description: text(form, "description"),
+            venue: text(form, "venue"),
+            location: text(form, "location"),
+            timezone: text(form, "timezone"),
+            registrationClose: new Date(text(form, "registrationClose")).toISOString(),
+            allowWaitlist: form.get("allowWaitlist") === "on",
+          };
+          const divisionRules: Record<string, unknown> = {};
+          if (format === "ladder") divisionRules.challengeRange = number(form, "challengeRange");
+          if (format === "round_robin") divisionRules.pointsPerWin = number(form, "pointsPerWin");
+          const capacity = number(form, "capacity");
+          const result = await action("createTournament", {
+            event: {
+              name: text(form, "name"),
+              starts_at: new Date(text(form, "startsAt")).toISOString(),
+              capacity,
+              entry_fee_cents: Math.round(number(form, "fee") * 100),
+              rules,
+            },
+            division: {
+              name: text(form, "divisionName"),
+              format,
+              capacity,
+              min_rating: form.get("minRating") ? number(form, "minRating") : undefined,
+              max_rating: form.get("maxRating") ? number(form, "maxRating") : undefined,
+              rules: divisionRules,
+            },
+          });
+          navigate(`/admin/events/${result.eventId}`);
+        }}
+      >
+        <div className="form-grid">
+          <Field label="Event name"><input name="name" defaultValue={`PPRC ${label}`} required minLength={2} /></Field>
+          <Field label="Division name"><input name="divisionName" defaultValue="Open" required minLength={2} /></Field>
+          <Field label="Venue"><input name="venue" defaultValue="Prosper Premier Racquet Club" required /></Field>
+          <Field label="Location"><input name="location" defaultValue="Prosper, TX" required /></Field>
+          <Field label={format === "ladder" ? "Ladder opens" : "First match date and time"}><input name="startsAt" type="datetime-local" required /></Field>
+          <Field label="Registration closes"><input name="registrationClose" type="datetime-local" required /></Field>
+          <Field label="Players (capacity)"><input name="capacity" type="number" min="2" max="256" defaultValue="16" required /></Field>
+          <Field label="Entry fee (USD)"><input name="fee" type="number" min="0" step="0.01" defaultValue="0" required /></Field>
+          <Field label="Minimum UTR (optional)"><input name="minRating" type="number" min="0" max="20" step="0.1" /></Field>
+          <Field label="Maximum UTR (optional)"><input name="maxRating" type="number" min="0" max="20" step="0.1" /></Field>
+          {format === "ladder" && <Field label="Challenge range (places above)"><input name="challengeRange" type="number" min="1" max="10" defaultValue="3" required /></Field>}
+          {format === "round_robin" && <Field label="Points per win"><input name="pointsPerWin" type="number" min="1" max="10" defaultValue="2" required /></Field>}
+          <Field label="Time zone"><input name="timezone" defaultValue="America/Chicago" required /></Field>
+        </div>
+        <Field label="Description"><textarea name="description" defaultValue={`${label} at Prosper Premier Racquet Club.`} required /></Field>
+        <label className="check"><input name="allowWaitlist" type="checkbox" defaultChecked /> Enable waitlist when capacity is reached</label>
+      </Form>
+    </Panel>
+  );
+}
+
+function IndividualEventOperations({ event, divisions }: { event: Entity; divisions: Entity[] }) {
+  const action = useAction();
+  const [message, setMessage] = useState("");
+  const division = divisions[0];
+  const label = tournamentFormats.find((item) => item.key === division.format)?.label ?? String(division.format);
+  const save = async (status: "published" | "closed" | "completed") => {
+    await action("updateTriaceEvent", { eventId: event.id, event: { status, audit_reason: `Administrator set event to ${status}` } });
+    setMessage(status === "published" ? "Registration is open." : status === "closed" ? "Registration is closed." : "Event marked complete.");
+  };
+  return (
+    <div className="page">
+      <Link className="text-link" to="/admin/events">← Event calendar</Link>
+      <p className="eyebrow">{label.toUpperCase()} ADMINISTRATION</p>
+      <h1>{event.name}</h1>
+      {message && <p className="notice">{message}</p>}
+      <Panel title="Registration controls">
+        <p><Badge>{event.status}</Badge> Capacity: {event.capacity} players</p>
+        <div className="button-row">
+          <Action variant="primary" onClick={() => save("published")}>Open registration</Action>
+          <Action onClick={() => save("closed")}>Close registration</Action>
+          <Action onClick={() => save("completed")}>Complete event</Action>
+        </div>
+      </Panel>
+      <CompetitionBoard division={division} staff />
     </div>
   );
 }

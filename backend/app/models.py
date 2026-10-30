@@ -232,3 +232,42 @@ class AuditLog(Base):
     entity_id: Mapped[str] = mapped_column(String(128))
     detail: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class DivisionEntry(Base):
+    """An individual (singles) competitor in an individual-format division."""
+    __tablename__ = "division_entries"
+    __table_args__ = (UniqueConstraint("division_id", "user_id", name="uq_division_entry_user"),)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    club_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("clubs.id", ondelete="CASCADE"), index=True)
+    division_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("divisions.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[str] = mapped_column(String(128), index=True)
+    display_name: Mapped[str] = mapped_column(String(160))
+    seed: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    rating: Mapped[float | None] = mapped_column(Numeric(4, 2), nullable=True)
+    rank: Mapped[int | None] = mapped_column(Integer, nullable=True)  # ladder position, 1 = top
+    status: Mapped[str] = mapped_column(String(16), default="active")  # active | withdrawn
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class CompetitionMatch(Base):
+    """A singles match in a round robin, elimination bracket or ladder challenge."""
+    __tablename__ = "competition_matches"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    club_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("clubs.id", ondelete="CASCADE"), index=True)
+    division_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("divisions.id", ondelete="CASCADE"), index=True)
+    round_number: Mapped[int] = mapped_column(Integer, default=1)
+    round_name: Mapped[str] = mapped_column(String(64), default="regular")
+    position: Mapped[int] = mapped_column(Integer, default=0)
+    player_one_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    player_two_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    winner_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    score_one: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    score_two: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    score_text: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default="pending")  # pending | scheduled | reported | finalized | bye
+    reported_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    starts_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    next_match_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("competition_matches.id", ondelete="SET NULL"), nullable=True)
+    next_slot: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

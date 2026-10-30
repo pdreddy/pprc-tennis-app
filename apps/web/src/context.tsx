@@ -14,6 +14,7 @@ import {
   apiClubId,
   createApiDivision,
   createApiTriaceEvent,
+  createApiTournament,
   createApiEvent,
   getPublicApiEvent,
   getApiEvent,
@@ -131,6 +132,7 @@ function toUiDivision(division: ApiDivision): Entity {
     maxAge: rules.maxAge ?? "—",
     eligibilityNotes: String(rules.eligibilityNotes ?? "See event rules."),
     scoring: String(rules.scoring ?? "best-of-3"),
+    rules,
   };
 }
 
@@ -180,6 +182,11 @@ export function useAction() {
       const divisions = data.divisions as import("./api").ApiDivisionInput[];
       if (divisions.length !== 1) throw new Error("TRIACE setup requires exactly one initial division");
       const event = await createApiTriaceEvent(data.event as import("./api").ApiEventInput, divisions[0]);
+      await qc.invalidateQueries();
+      return { eventId: event.id };
+    }
+    if (apiEnabled && name === "createTournament") {
+      const event = await createApiTournament(data.event as import("./api").ApiEventInput, data.division as import("./api").ApiDivisionInput);
       await qc.invalidateQueries();
       return { eventId: event.id };
     }

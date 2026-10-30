@@ -12,6 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .config import get_settings
 from .database import engine, get_session
 from .auth import Actor, current_actor
+from .common import audit, notify, require_role
+from .competitions import router as competitions_router, sync_entries_for_registration
 from .models import (
     AuditLog,
     Base,
@@ -70,29 +72,6 @@ TRIACE_DIVISION_FORMATS = {"triace", "triace_team_round_robin"}
 
 def is_triace_division(division: Division | None) -> bool:
     return division is not None and division.format in TRIACE_DIVISION_FORMATS
-
-
-async def audit(
-    session: AsyncSession,
-    club_id: UUID,
-    actor: str,
-    action: str,
-    entity_type: str,
-    entity_id: str,
-    detail: str | None = None,
-) -> None:
-    session.add(AuditLog(club_id=club_id, actor_id=actor, action=action, entity_type=entity_type, entity_id=entity_id, detail=detail))
-
-
-async def notify(session: AsyncSession, club_id: UUID, user_id: str, kind: str, title: str, body: str, data: dict | None = None) -> None:
-    session.add(Notification(club_id=club_id, user_id=user_id, kind=kind, title=title, body=body, data=data or {}))
-
-
-async def require_role(session: AsyncSession, club_id: UUID, actor: str, roles: set[MembershipRole]) -> Membership:
-    membership = await session.scalar(select(Membership).where(Membership.club_id == club_id, Membership.user_id == actor))
-    if membership is None or membership.role not in roles:
-        raise HTTPException(status_code=403, detail="Club role is not permitted")
-    return membership
 
 
 def triace_rule_values(event_rules: dict, division_rules: dict) -> tuple[float, float, float, int]:
@@ -306,6 +285,9 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="PPRC Multi-club API", version="0.1.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=get_settings().cors_origins, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+
+
+app.include_router(competitions_router)
 
 
 @app.get("/health")
@@ -547,6 +529,8 @@ async def register(event_id: UUID, session: AsyncSession = Depends(get_session),
     session.add(registration)
     await session.flush()
     await audit(session, event.club_id, actor.user_id, "registration.created", "registration", str(registration.id))
+    if registration_status == RegistrationStatus.confirmed:
+        await sync_entries_for_registration(session, event, actor.user_id, membership.display_name, active=True)
     await notify(session, event.club_id, actor.user_id, "registration", "Registration received", f"You are {registration.status.value} for {event.name}.", {"eventId": str(event.id), "registrationId": str(registration.id)})
     await session.commit()
     return registration
@@ -594,6 +578,11 @@ async def withdraw_registration(
         promoted.status = RegistrationStatus.confirmed
         promoted.waitlist_position = None
         await notify(session, event.club_id, promoted.user_id, "registration", "You are in", f"A place opened for {event.name}.", {"eventId": str(event.id), "registrationId": str(promoted.id)})
+    if event and freed_seat:
+        await sync_entries_for_registration(session, event, registration.user_id, registration.user_id, active=False)
+        if promoted:
+            promoted_member = await session.scalar(select(Membership).where(Membership.club_id == event.club_id, Membership.user_id == promoted.user_id))
+            await sync_entries_for_registration(session, event, promoted.user_id, promoted_member.display_name if promoted_member else promoted.user_id, active=True)
     await audit(session, registration.club_id, actor.user_id, "registration.withdrawn", "registration", str(registration.id))
     await session.commit()
     return registration
