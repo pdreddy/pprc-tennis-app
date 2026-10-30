@@ -11,7 +11,7 @@ import {
   ArrowUpRight,
   ShieldCheck,
 } from "lucide-react";
-import { useSession, useEvent, useList, useAction } from "./context";
+import { useSession, useEvent, useList, useAction, toUiEvent } from "./context";
 import { db, storage, enablePush, getOne } from "./firebase";
 import { apiEnabled, createApiTeam, getPublicApiEvent } from "./api";
 import {
@@ -507,9 +507,11 @@ function RegistrationReceipt({
 }) {
   const action = useAction();
   const { user } = useSession();
-  const event = useQuery({
+  const event = useQuery<Entity | undefined>({
     queryKey: ["event", apiEnabled ? "api" : "firebase", r.eventId, user?.uid],
-    queryFn: () => apiEnabled ? getPublicApiEvent(r.eventId!) : getOne("events", r.eventId!),
+    queryFn: async (): Promise<Entity | undefined> => apiEnabled
+      ? toUiEvent(await getPublicApiEvent(r.eventId!))
+      : getOne("events", r.eventId!),
   });
   const closed = ["Completed", "Cancelled"].includes(event.data?.status ?? "");
   return (
