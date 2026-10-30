@@ -17,7 +17,16 @@
     "events:integration": "pnpm --filter @pprc/functions build && node scripts/events/firebase.mjs emulators:exec --project demo-pprc-events --only auth,firestore,functions,storage \"pnpm --filter @pprc/functions test\"",
     "events:e2e": "pnpm --filter @pprc/functions build && node scripts/events/firebase.mjs emulators:exec --project demo-pprc-events --only auth,firestore,functions,storage \"pnpm events:seed && pnpm exec playwright test tests/core.spec.ts\"",
     "events:lint": "eslint apps/web/src functions/src packages/shared/src",
-    "events:ui": "playwright test tests/ui.spec.ts"
+    "events:ui": "playwright test tests/ui.spec.ts",
+    "frontend:dev": "pnpm --filter @pprc/web dev",
+    "frontend:build": "pnpm --filter @pprc/web build",
+    "frontend:typecheck": "pnpm --filter @pprc/web typecheck",
+    "backend:build": "pnpm --filter @pprc/functions build",
+    "backend:typecheck": "pnpm --filter @pprc/functions typecheck",
+    "backend:test": "pnpm --filter @pprc/functions test",
+    "backend:emulators": "pnpm events:emulators",
+    "shared:test": "pnpm --filter @pprc/shared test",
+    "pprc:check": "pnpm frontend:typecheck && pnpm backend:build && pnpm shared:test"
   },
   "author": "",
   "license": "ISC",
