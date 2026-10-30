@@ -16,7 +16,7 @@ export default defineConfig({
     },
   },
   webServer: {
-    command: "pnpm events:dev",
+    command: "pnpm --filter @pprc/web exec vite --host 127.0.0.1",
     url: "http://127.0.0.1:5173",
     reuseExistingServer: !process.env.CI,
     timeout: 60000,
