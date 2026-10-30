@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useSession, useEvent, useList, useAction } from "./context";
 import { db, storage, enablePush, getOne } from "./firebase";
+import { apiEnabled, getPublicApiEvent } from "./api";
 import {
   Panel,
   Dialog,
@@ -332,7 +333,7 @@ export function Registration() {
           {date(event.startDate, event.timezone, true)} · {event.venue}
         </p>
         <h2>{money(division.fee ?? event.fee)}</h2>
-        {!profile ? (
+        {!profile && !apiEnabled ? (
           <p>
             Create your <Link to="/profile">player profile</Link> before
             registering.
@@ -362,7 +363,7 @@ export function Registration() {
             }}
           >
             <p>
-              Registering as <strong>{profile.displayName}</strong>
+              Registering as <strong>{profile?.displayName ?? user?.displayName ?? user?.email ?? "PPRC player"}</strong>
             </p>
             {event.questions.map((q: string) => (
               <Field key={q} label={q}>
@@ -472,8 +473,8 @@ function RegistrationReceipt({
   const action = useAction();
   const { user } = useSession();
   const event = useQuery({
-    queryKey: ["event", r.eventId, user?.uid],
-    queryFn: () => getOne("events", r.eventId!),
+    queryKey: ["event", apiEnabled ? "api" : "firebase", r.eventId, user?.uid],
+    queryFn: () => apiEnabled ? getPublicApiEvent(r.eventId!) : getOne("events", r.eventId!),
   });
   const closed = ["Completed", "Cancelled"].includes(event.data?.status ?? "");
   return (
