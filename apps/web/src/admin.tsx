@@ -24,6 +24,7 @@ import { ref, uploadBytes, getBlob } from "firebase/storage";
 import { storage } from "./firebase";
 import { CompetitionBoard } from "./competition";
 import { OptionCards, FieldGrid, Callout, StatusBadge } from "./components";
+import { TriaceConfigSummary, TriaceRulesFields, describeEncounter, readTriaceConfig, triaceRulesFromForm } from "./triace-config";
 import { apiEnabled, isIndividualFormat, tournamentFormats, approveApiTeam, correctApiFixtureResult, createApiFixture, createApiTeam, generateApiPlayoffs, getApiChampion, listApiFixtures, listApiStandings, listApiTeams, submitApiFixtureResult } from "./api";
 import {
   canManage,
@@ -925,6 +926,7 @@ function TriaceEventOperations({ event, divisions }: { event: Entity; divisions:
   const action = useAction();
   const [message, setMessage] = useState("");
   const rules = (event.rules ?? {}) as Record<string, unknown>;
+  const config = readTriaceConfig({ ...rules, ...((divisions[0]?.rules ?? {}) as Record<string, unknown>) });
   const division = divisions[0];
   const qc = useQueryClient();
   const teams = useQuery({ queryKey: ["triace", "teams", division?.id], queryFn: () => listApiTeams(division!.id), enabled: !!division });
@@ -954,15 +956,7 @@ function TriaceEventOperations({ event, divisions }: { event: Entity; divisions:
           <Action onClick={() => save("completed")}>Complete event</Action>
         </div>
       </Panel>
-      <Panel title="Competition settings">
-        <p>{event.description}</p>
-        <dl>
-          <div><dt>Team size</dt><dd>{event.teamSize ?? 3} players</dd></div>
-          <div><dt>Combined UTR</dt><dd>{event.teamMinRating ?? 12}–{event.teamMaxRating ?? 18.5}</dd></div>
-          <div><dt>Singles eligibility</dt><dd>{Math.round(Number(event.minSinglesParticipationPct ?? 0.4) * 100)}%</dd></div>
-          <div><dt>Encounter format</dt><dd>{event.encounterFormat ?? "2 singles, 2 doubles, super tiebreak"}</dd></div>
-        </dl>
-      </Panel>
+      <TriaceConfigSummary config={config} />
       <Panel title="Update TRIACE rules">
         <Form
           label="Save configuration"
@@ -975,12 +969,9 @@ function TriaceEventOperations({ event, divisions }: { event: Entity; divisions:
                 rules: {
                   ...rules,
                   registrationClose: new Date(text(form, "registrationClose")).toISOString(),
-                  teamMinRating: number(form, "minRating"),
-                  teamMaxRating: number(form, "maxRating"),
-                  minSinglesParticipationPct: number(form, "singlesPct") / 100,
-                  playoffSize: number(form, "playoffSize"),
+                  ...triaceRulesFromForm(form),
+                  encounterFormat: describeEncounter(triaceRulesFromForm(form)),
                   allowWaitlist: form.get("allowWaitlist") === "on",
-                  encounterFormat: text(form, "encounterFormat"),
                 },
                 audit_reason: text(form, "reason"),
               },
@@ -991,13 +982,10 @@ function TriaceEventOperations({ event, divisions }: { event: Entity; divisions:
           <div className="form-grid">
             <Field label="Team capacity"><input name="capacity" type="number" min="2" max="128" defaultValue={event.capacity} required /></Field>
             <Field label="Team fee (USD)"><input name="fee" type="number" min="0" step="0.01" defaultValue={event.fee ?? 0} required /></Field>
-            <Field label="Minimum combined UTR"><input name="minRating" type="number" min="0" max="20" step="0.1" defaultValue={Number(rules.teamMinRating ?? 12)} required /></Field>
-            <Field label="Maximum combined UTR"><input name="maxRating" type="number" min="0" max="20" step="0.1" defaultValue={Number(rules.teamMaxRating ?? 18.5)} required /></Field>
-            <Field label="Singles eligibility (%)"><input name="singlesPct" type="number" min="0" max="100" defaultValue={Number(rules.minSinglesParticipationPct ?? 0.4) * 100} required /></Field>
-            <Field label="Playoff teams"><input name="playoffSize" type="number" min="2" max="4" defaultValue={Number(rules.playoffSize ?? 4)} required /></Field>
             <Field label="Registration closes"><input name="registrationClose" type="datetime-local" defaultValue={String(rules.registrationClose ?? event.startDate).slice(0, 16)} required /></Field>
           </div>
-          <Field label="Encounter format"><input name="encounterFormat" defaultValue={String(rules.encounterFormat ?? "2 singles, 2 doubles, 1 super tiebreak; first to 3 points")} required /></Field>
+          <TriaceRulesFields config={config} lockTeamSize={(teams.data ?? []).some((team) => team.status !== "rejected")} />
+          <p className="hint">Roster and scoring rules lock once teams register or results exist; the API rejects those changes with an explanation.</p>
           <label className="check"><input name="allowWaitlist" type="checkbox" defaultChecked={rules.allowWaitlist !== false} /> Enable team waitlist</label>
           <Field label="Required audit reason"><input name="reason" minLength={5} required /></Field>
         </Form>
@@ -1007,12 +995,12 @@ function TriaceEventOperations({ event, divisions }: { event: Entity; divisions:
       </Panel>
       {!division ? <Empty title="Create a TRIACE division first" /> : <>
         <Panel title="Team registration and approval">
-          <Form label="Add a three-player team" onSubmit={async (form) => {
-            await createApiTeam({ division_id: division.id, name: text(form, "teamName"), members: [1, 2, 3].map((position) => ({ user_id: text(form, `player${position}`), rating: number(form, `rating${position}`), lineup_position: position })) });
+          <Form label={`Add a ${config.teamSize}-player team`} onSubmit={async (form) => {
+            await createApiTeam({ division_id: division.id, name: text(form, "teamName"), members: Array.from({ length: config.teamSize }, (_, index) => index + 1).map((position) => ({ user_id: text(form, `player${position}`), rating: number(form, `rating${position}`), lineup_position: position })) });
             await refresh(); setMessage("Team added for organizer approval.");
           }}>
             <Field label="Team name"><input name="teamName" required /></Field>
-            {[1, 2, 3].map((position) => <div className="form-grid" key={position}><Field label={`Player ${position} Firebase UID`}><input name={`player${position}`} required /></Field><Field label={`Player ${position} UTR`}><input name={`rating${position}`} type="number" min="0" max="20" step="0.01" required /></Field></div>)}
+            {Array.from({ length: config.teamSize }, (_, index) => index + 1).map((position) => <div className="form-grid" key={position}><Field label={`Player ${position} Firebase UID`}><input name={`player${position}`} required /></Field><Field label={`Player ${position} UTR`}><input name={`rating${position}`} type="number" min="0" max={config.playerMaxRating} step="0.01" required /></Field></div>)}
           </Form>
           {(teams.data ?? []).map((team) => <div className="division-row" key={team.id}><span><strong>{team.name}</strong> · {team.status}</span>{team.status === "pending" && <Action onClick={async () => { await approveApiTeam(team.id); await refresh(); }}>Approve team</Action>}</div>)}
         </Panel>
@@ -2008,6 +1996,7 @@ function TriaceEventSetup() {
         <Form
           label="Create TRIACE draft"
           onSubmit={async (form) => {
+            const config = triaceRulesFromForm(form);
             const startsAt = new Date(text(form, "startsAt")).toISOString();
             const event = {
               name: text(form, "name"),
@@ -2021,15 +2010,8 @@ function TriaceEventSetup() {
                 location: text(form, "location"),
                 timezone: text(form, "timezone"),
                 registrationClose: new Date(text(form, "registrationClose")).toISOString(),
-                teamSize: number(form, "teamSize"),
-                teamMinRating: number(form, "minRating"),
-                teamMaxRating: number(form, "maxRating"),
-                minSinglesParticipationPct: number(form, "singlesPct") / 100,
-                encounterFormat: text(form, "encounterFormat"),
-                singlesMatches: number(form, "singlesMatches"),
-                doublesMatches: number(form, "doublesMatches"),
-                superTiebreakPoints: number(form, "superTiebreakPoints"),
-                playoffSize: number(form, "playoffSize"),
+                ...config,
+                encounterFormat: describeEncounter(config),
                 allowWaitlist: form.get("allowWaitlist") === "on",
               },
             };
@@ -2039,14 +2021,9 @@ function TriaceEventSetup() {
                 name: text(form, "divisionName"),
                 format: "triace_team_round_robin",
                 capacity: number(form, "capacity"),
-                min_rating: number(form, "minRating"),
-                max_rating: number(form, "maxRating"),
-                rules: {
-                  teamMinRating: number(form, "minRating"),
-                  teamMaxRating: number(form, "maxRating"),
-                  minSinglesParticipationPct: number(form, "singlesPct") / 100,
-                  playoffSize: number(form, "playoffSize"),
-                },
+                min_rating: Math.min(config.teamMinRating, 20),
+                max_rating: Math.min(config.teamMaxRating, 20),
+                rules: { ...config },
               }],
             });
             navigate(`/admin/events/${result.eventId}`);
@@ -2063,17 +2040,9 @@ function TriaceEventSetup() {
           <div className="form-grid">
             <Field label="Teams"><input name="capacity" type="number" min="2" max="128" defaultValue="18" required /></Field>
             <Field label="Team fee (USD)"><input name="fee" type="number" min="0" step="0.01" defaultValue="0" required /></Field>
-            <Field label="Team size"><input name="teamSize" type="number" min="3" max="3" defaultValue="3" required /></Field>
-            <Field label="Minimum combined UTR"><input name="minRating" type="number" min="0" max="20" step="0.1" defaultValue="12" required /></Field>
-            <Field label="Maximum combined UTR"><input name="maxRating" type="number" min="0" max="20" step="0.1" defaultValue="18.5" required /></Field>
-            <Field label="Singles eligibility (%)"><input name="singlesPct" type="number" min="0" max="100" defaultValue="40" required /></Field>
-            <Field label="Singles matches per encounter"><input name="singlesMatches" type="number" min="1" max="5" defaultValue="2" required /></Field>
-            <Field label="Doubles matches per encounter"><input name="doublesMatches" type="number" min="1" max="5" defaultValue="2" required /></Field>
-            <Field label="Super tiebreak points"><input name="superTiebreakPoints" type="number" min="7" max="21" defaultValue="10" required /></Field>
-            <Field label="Playoff teams"><input name="playoffSize" type="number" min="2" max="4" defaultValue="4" required /></Field>
           </div>
           <Field label="Time zone"><input name="timezone" defaultValue="America/Chicago" required /></Field>
-          <Field label="Encounter format"><input name="encounterFormat" defaultValue="2 singles, 2 doubles, 1 super tiebreak; first to 3 points" required /></Field>
+          <TriaceRulesFields />
           <label className="check"><input name="allowWaitlist" type="checkbox" defaultChecked /> Enable team waitlist when capacity is reached</label>
         </Form>
       </Panel>

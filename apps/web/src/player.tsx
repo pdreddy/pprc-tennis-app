@@ -15,6 +15,7 @@ import { useSession, useEvent, useList, useAction, toUiEvent } from "./context";
 import { db, storage, enablePush, getOne } from "./firebase";
 import { apiEnabled, createApiTeam, getPublicApiEvent, isIndividualFormat } from "./api";
 import { CompetitionBoard } from "./competition";
+import { readTriaceConfig } from "./triace-config";
 import {
   Panel,
   Dialog,
@@ -414,27 +415,29 @@ export function TriaceTeamRegistration() {
   if (error) return <div className="page error">{error.message}</div>;
   if (!event || !division) return <div className="page" role="status">Loading TRIACE registration…</div>;
   if (!apiEnabled) return <div className="page"><Empty title="TRIACE registration is available through the PPRC API" /></div>;
+  const config = readTriaceConfig({ ...((event.rules ?? {}) as Record<string, unknown>), ...((division.rules ?? {}) as Record<string, unknown>) });
+  const positions = Array.from({ length: config.teamSize }, (_, index) => index + 1);
   return (
     <div className="page narrow">
       <Link className="text-link" to={`/events/${eventId}`}>← Event details</Link>
       <p className="eyebrow">TRIACE TEAM ENTRY</p>
-      <h1>Register your three-player team</h1>
+      <h1>Register your {config.teamSize}-player team</h1>
       <p className="lead">Your team is submitted for organizer approval. Eligible players are added to the club as players when the pending roster is created.</p>
       <Panel title={`${event.name} · ${division.name}`}>
         <Form label="Submit team for approval" onSubmit={async (form) => {
           await createApiTeam({
             division_id: divisionId,
             name: text(form, "teamName"),
-            members: [1, 2, 3].map((position) => ({ user_id: text(form, `player${position}Uid`), rating: number(form, `player${position}Rating`), lineup_position: position })),
+            members: positions.map((position) => ({ user_id: text(form, `player${position}Uid`), rating: number(form, `player${position}Rating`), lineup_position: position })),
           });
           navigate(`/events/${eventId}`);
         }}>
           <Field label="Team name"><input name="teamName" minLength={2} required /></Field>
-          {[1, 2, 3].map((position) => <div className="form-grid" key={position}>
+          {positions.map((position) => <div className="form-grid" key={position}>
             <Field label={`Player ${position} PPRC user ID`}><input name={`player${position}Uid`} required /></Field>
-            <Field label={`Player ${position} UTR`}><input name={`player${position}Rating`} type="number" min="0" max="20" step="0.01" required /></Field>
+            <Field label={`Player ${position} UTR`}><input name={`player${position}Rating`} type="number" min="0" max={config.playerMaxRating} step="0.01" required /></Field>
           </div>)}
-          <p className="muted">Combined UTR must meet the event rule. The organizer will approve eligible teams before fixtures are created.</p>
+          <p className="muted">Combined UTR must be between {config.teamMinRating} and {config.teamMaxRating}. The organizer will approve eligible teams before fixtures are created.</p>
         </Form>
       </Panel>
     </div>

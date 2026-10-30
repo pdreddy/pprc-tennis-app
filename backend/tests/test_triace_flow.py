@@ -118,3 +118,29 @@ def test_triace_team_to_champion_flow():
     })
     champion = request("GET", f"/v1/divisions/{division['id']}/champion", owner)
     assert champion["champion_team_id"] == final_home["id"]
+
+
+def test_triace_rules_are_fully_configurable():
+    owner = f"owner-{uuid.uuid4().hex[:8]}"
+    suffix = uuid.uuid4().hex[:8]
+    club = request("POST", "/v1/clubs", owner, json={"slug": f"cfg-{suffix}", "name": "Config Club"})
+    defaults = request("GET", "/v1/triace/defaults", owner)
+    assert defaults["teamSize"] == 3 and defaults["pointsPerWin"] == 3
+    custom = {"teamSize": 2, "singlesMatches": 1, "doublesMatches": 1, "superTiebreakMatches": 1, "superTiebreakPoints": 7,
+              "singlesPositions": [1], "doublesPairs": [[1, 2]], "teamMinRating": 4, "teamMaxRating": 16, "pointsPerWin": 2, "pointsPerLoss": 1,
+              "minSinglesParticipationPct": 0.5, "playoffSize": 2}
+    event = request("POST", f"/v1/clubs/{club['id']}/triace-events", owner, json={
+        "event": {"name": "Pairs TRIACE", "starts_at": datetime.now(timezone.utc).isoformat(), "capacity": 8, "rules": custom},
+        "division": {"name": "Open", "format": "triace_team_round_robin", "capacity": 4, "rules": {}},
+    })
+    division = next(d for d in request("GET", f"/v1/clubs/{club['id']}/divisions", owner) if d["event_id"] == event["id"])
+    effective = request("GET", f"/v1/divisions/{division['id']}/triace-rules", owner)
+    assert effective["teamSize"] == 2 and effective["superTiebreakPoints"] == 7 and effective["playoffSize"] == 2
+    request("POST", f"/v1/events/{event['id']}/publish", owner)
+    p = [f"cfg-{suffix}-{i}" for i in range(4)]
+    request_error("POST", f"/v1/clubs/{club['id']}/teams", p[0], json={"division_id": division["id"], "name": "Too small", "members": [
+        {"user_id": p[0], "rating": 3, "lineup_position": 1}]})
+    team_a = request("POST", f"/v1/clubs/{club['id']}/teams", p[0], json={"division_id": division["id"], "name": "A", "members": [
+        {"user_id": p[0], "rating": 4, "lineup_position": 1}, {"user_id": p[1], "rating": 4, "lineup_position": 2}]})
+    assert team_a["status"] == "pending"
+    request_error("PATCH", f"/v1/events/{event['id']}", owner, json={"rules": {**custom, "teamSize": 3}, "audit_reason": "Try changing roster size"})

@@ -1,6 +1,5 @@
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
-from math import ceil
 from uuid import UUID, uuid4
 
 from fastapi import Depends, FastAPI, HTTPException, Request, status
@@ -13,6 +12,7 @@ from .config import get_settings
 from .database import engine, get_session
 from .auth import Actor, current_actor
 from .common import audit, notify, require_role
+from .triace_rules import TRIACE_RULE_KEYS, RuleError, TriaceRules, validate_encounter
 from .competitions import router as competitions_router, sync_entries_for_registration
 from .models import (
     AuditLog,
@@ -74,67 +74,51 @@ def is_triace_division(division: Division | None) -> bool:
     return division is not None and division.format in TRIACE_DIVISION_FORMATS
 
 
-def triace_rule_values(event_rules: dict, division_rules: dict) -> tuple[float, float, float, int]:
-    """Validate the configurable values that affect TRIACE eligibility and playoffs."""
-    team_size = int(event_rules.get("teamSize", 3))
-    minimum = float(division_rules.get("teamMinRating", event_rules.get("teamMinRating", 12)))
-    maximum = float(division_rules.get("teamMaxRating", event_rules.get("teamMaxRating", 18.5)))
-    participation = float(division_rules.get("minSinglesParticipationPct", event_rules.get("minSinglesParticipationPct", 0.4)))
-    playoff_size = int(division_rules.get("playoffSize", event_rules.get("playoffSize", 4)))
-    if team_size != 3:
-        raise HTTPException(status_code=422, detail="TRIACE requires exactly three players per team")
-    # Individual roster ratings are capped at 20 by TeamMemberInput. A TRIACE
-    # team is three players, so its configurable combined range is 0–60.
-    if not 0 <= minimum <= maximum <= 60:
-        raise HTTPException(status_code=422, detail="Combined UTR bounds must be between 0 and 60")
-    if not 0 < participation <= 1:
-        raise HTTPException(status_code=422, detail="Singles participation percentage must be greater than 0 and at most 100%")
-    if playoff_size not in {2, 4}:
-        raise HTTPException(status_code=422, detail="TRIACE playoffs support two or four teams")
-    return minimum, maximum, participation, playoff_size
+def triace_rules_for(event_rules: dict, division_rules: dict) -> TriaceRules:
+    """Resolve and validate every configurable TRIACE property (division values override event values)."""
+    try:
+        return TriaceRules.resolve(event_rules, division_rules)
+    except RuleError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
-def triace_rubber_detail(payload: FixtureResult, fixture: Fixture, home_members: dict[str, int | None], away_members: dict[str, int | None]) -> dict:
-    """Validate the detailed TRIACE result and keep its per-rubber record durable."""
+async def division_triace_rules(session: AsyncSession, division: Division | None) -> TriaceRules:
+    event = await session.get(Event, division.event_id) if division is not None and division.event_id else None
+    return triace_rules_for(event.rules if event else {}, division.rules if division else {})
+
+
+async def guard_triace_rule_changes(session: AsyncSession, division: Division, current: TriaceRules, proposed: TriaceRules) -> None:
+    """Rules that define the roster or the scoring cannot change once they have been used."""
+    if current == proposed:
+        return
+    changed = {key for key, value in proposed.as_dict().items() if current.as_dict()[key] != value}
+    has_teams = await session.scalar(select(Team.id).where(Team.division_id == division.id, Team.status != TeamStatus.rejected).limit(1))
+    if has_teams and "teamSize" in changed:
+        raise HTTPException(status_code=409, detail="Team size cannot change after teams have registered")
+    scoring = {"singlesMatches", "doublesMatches", "superTiebreakMatches", "superTiebreakPoints", "singlesPositions", "doublesPairs", "pointsPerWin", "pointsPerLoss"}
+    has_results = await session.scalar(select(Fixture.id).where(Fixture.division_id == division.id, Fixture.status != FixtureStatus.scheduled).limit(1))
+    if has_results and changed & scoring:
+        raise HTTPException(status_code=409, detail=f"These rules cannot change after results exist: {', '.join(sorted(changed & scoring))}")
+
+
+def triace_rubber_detail(payload: FixtureResult, fixture: Fixture, home_members: dict[str, int | None], away_members: dict[str, int | None], rules: TriaceRules) -> dict:
+    """Validate the detailed TRIACE result against the configured encounter format and keep it durable."""
     rubbers = [item.model_dump() for item in payload.rubbers]
-    if not rubbers:
-        if fixture.round_name.startswith("playoff"):
-            raise HTTPException(status_code=422, detail="TRIACE playoff results require two singles, two doubles, and one super tiebreak")
-        return {}
-    kinds = [item["kind"] for item in rubbers]
-    required = ["singles", "singles", "doubles", "doubles", "super_tiebreak"]
-    if fixture.round_name.startswith("playoff") and sorted(kinds) != sorted(required):
-        raise HTTPException(status_code=422, detail="Playoff results require exactly two singles, two doubles, and one super tiebreak")
-    home_wins = away_wins = 0
-    for item in rubbers:
-        if item["home_score"] == item["away_score"]:
-            raise HTTPException(status_code=422, detail="Individual TRIACE rubbers cannot end in a tie")
-        home_ids, away_ids = set(item["home_player_ids"]), set(item["away_player_ids"])
-        expected = 2 if item["kind"] == "doubles" else 1
-        if len(home_ids) != expected or len(away_ids) != expected:
-            raise HTTPException(status_code=422, detail=f"{item['kind']} requires {expected} player(s) per side")
-        if not home_ids.issubset(home_members) or not away_ids.issubset(away_members):
-            raise HTTPException(status_code=422, detail="Rubber players must be active members of their assigned team")
-        if item["kind"] == "singles" and (home_members[next(iter(home_ids))] not in {1, 2} or away_members[next(iter(away_ids))] not in {1, 2}):
-            raise HTTPException(status_code=422, detail="TRIACE singles must be played by lineup position P1 or P2")
-        if item["kind"] == "doubles":
-            allowed_pairs = ({1, 3}, {2, 3})
-            if {home_members[user_id] for user_id in home_ids} not in allowed_pairs or {away_members[user_id] for user_id in away_ids} not in allowed_pairs:
-                raise HTTPException(status_code=422, detail="TRIACE doubles must pair P1+P3 or P2+P3")
-        if item["kind"] == "super_tiebreak" and max(item["home_score"], item["away_score"]) < 10:
-            raise HTTPException(status_code=422, detail="The super tiebreak winner must reach 10 points")
-        if item["home_score"] > item["away_score"]:
-            home_wins += 1
-        else:
-            away_wins += 1
-    if home_wins != payload.score_home or away_wins != payload.score_away:
-        raise HTTPException(status_code=422, detail="Fixture totals must equal the submitted rubber wins")
-    return {"rubbers": rubbers}
+    try:
+        validate_encounter(rubbers, payload.score_home, payload.score_away, fixture.round_name.startswith("playoff"), home_members, away_members, rules)
+    except RuleError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"rubbers": rubbers} if rubbers else {}
 
 
 async def apply_fixture_result(session: AsyncSession, fixture: Fixture, payload: FixtureResult, actor_id: str, *, finalized: bool) -> None:
     if payload.score_home == payload.score_away:
         raise HTTPException(status_code=422, detail="TRIACE fixture results cannot end in a tie")
+    rules = await division_triace_rules(session, await session.get(Division, fixture.division_id))
+    if payload.score_home + payload.score_away > rules.rubber_total:
+        raise HTTPException(status_code=422, detail=f"An encounter has {rules.rubber_total} matches, so the totals cannot exceed that")
+    if len(payload.home_singles_player_ids) > rules.team_size or len(payload.away_singles_player_ids) > rules.team_size:
+        raise HTTPException(status_code=422, detail=f"At most {rules.team_size} players can be listed per team")
     home_members = {member.user_id: member.lineup_position for member in (await session.scalars(select(TeamMember).where(TeamMember.team_id == fixture.home_team_id, TeamMember.active.is_(True)))).all()}
     away_members = {member.user_id: member.lineup_position for member in (await session.scalars(select(TeamMember).where(TeamMember.team_id == fixture.away_team_id, TeamMember.active.is_(True)))).all()}
     home_players, away_players = set(payload.home_singles_player_ids), set(payload.away_singles_player_ids)
@@ -142,7 +126,7 @@ async def apply_fixture_result(session: AsyncSession, fixture: Fixture, payload:
         raise HTTPException(status_code=422, detail="A player can appear only once per team fixture")
     if not home_players.issubset(home_members) or not away_players.issubset(away_members):
         raise HTTPException(status_code=422, detail="Singles players must be active members of their assigned team")
-    detail = triace_rubber_detail(payload, fixture, home_members, away_members)
+    detail = triace_rubber_detail(payload, fixture, home_members, away_members, rules)
     detail.update({"reportedBy": actor_id, "reportedAt": datetime.now(timezone.utc).isoformat(), "dispute": None})
     fixture.score_home, fixture.score_away = payload.score_home, payload.score_away
     fixture.winner_team_id = fixture.home_team_id if payload.score_home > payload.score_away else fixture.away_team_id
@@ -192,6 +176,7 @@ async def rebuild_team_standings(session: AsyncSession, club_id: UUID, division_
             )
         ).all()
     )
+    rules = await division_triace_rules(session, await session.get(Division, division_id))
     totals: dict[UUID, dict[str, int]] = {}
     for fixture in fixtures:
         for team_id in (fixture.home_team_id, fixture.away_team_id):
@@ -200,8 +185,9 @@ async def rebuild_team_standings(session: AsyncSession, club_id: UUID, division_
         if fixture.winner_team_id:
             loser = fixture.away_team_id if fixture.winner_team_id == fixture.home_team_id else fixture.home_team_id
             totals[fixture.winner_team_id]["wins"] += 1
-            totals[fixture.winner_team_id]["points"] += 3
+            totals[fixture.winner_team_id]["points"] += rules.points_per_win
             totals[loser]["losses"] += 1
+            totals[loser]["points"] += rules.points_per_loss
     for team_id, values in totals.items():
         session.add(
             Standing(
@@ -219,7 +205,7 @@ async def team_eligibility(session: AsyncSession, team: Team) -> TeamEligibility
     if team.division_id is None:
         return TeamEligibilityRead(team_id=team.id, eligible=False, required_singles_days=0, player_singles_days={}, missing_player_ids=[])
     division = await session.get(Division, team.division_id)
-    threshold = float((division.rules if division else {}).get("minSinglesParticipationPct", 0.4))
+    rules = await division_triace_rules(session, division)
     fixtures = list(
         (
             await session.scalars(
@@ -232,7 +218,7 @@ async def team_eligibility(session: AsyncSession, team: Team) -> TeamEligibility
             )
         ).all()
     )
-    required = ceil(len({fixture.starts_at.date() for fixture in fixtures}) * threshold)
+    required = rules.required_singles_days(len({fixture.starts_at.date() for fixture in fixtures}))
     members = list((await session.scalars(select(TeamMember).where(TeamMember.team_id == team.id, TeamMember.active.is_(True)))).all())
     appearances = list(
         (
@@ -378,13 +364,14 @@ async def create_triace_event(
     await require_role(session, club_id, actor.user_id, {MembershipRole.owner, MembershipRole.admin, MembershipRole.organizer})
     if payload.division.format not in TRIACE_DIVISION_FORMATS:
         raise HTTPException(status_code=422, detail="TRIACE must use the triace_team_round_robin division format")
-    triace_rule_values(payload.event.rules, payload.division.rules)
+    rules = triace_rules_for(payload.event.rules, payload.division.rules)
     if payload.division.capacity > payload.event.capacity:
         raise HTTPException(status_code=422, detail="Division capacity cannot exceed event team capacity")
-    event = Event(club_id=club_id, **payload.event.model_dump())
+    # Store the fully resolved configuration so every property is explicit and editable later.
+    event = Event(club_id=club_id, **{**payload.event.model_dump(), "rules": {**payload.event.rules, **rules.as_dict()}})
     session.add(event)
     await session.flush()
-    division = Division(club_id=club_id, event_id=event.id, **payload.division.model_dump())
+    division = Division(club_id=club_id, event_id=event.id, **{**payload.division.model_dump(), "rules": {**payload.division.rules, **rules.as_dict()}})
     session.add(division)
     await session.flush()
     await audit(session, club_id, actor.user_id, "triace.event.created", "event", str(event.id))
@@ -460,12 +447,16 @@ async def update_event(
     if is_triace_division(division):
         proposed_division_rules = dict(division.rules)
         if payload.rules is not None:
-            for key in ("teamMinRating", "teamMaxRating", "minSinglesParticipationPct", "playoffSize"):
+            for key in TRIACE_RULE_KEYS:
                 if key in payload.rules:
                     proposed_division_rules[key] = payload.rules[key]
-        triace_rule_values(proposed_rules, proposed_division_rules)
+        current = triace_rules_for(event.rules, division.rules)
+        proposed = triace_rules_for(proposed_rules, proposed_division_rules)
+        await guard_triace_rule_changes(session, division, current, proposed)
+        if payload.rules is not None:
+            payload.rules = {**payload.rules, **proposed.as_dict()}
         proposed_capacity = payload.capacity if payload.capacity is not None else event.capacity
-        division.rules = proposed_division_rules
+        division.rules = {**proposed_division_rules, **proposed.as_dict()}
         division.capacity = proposed_capacity
     for field, value in payload.model_dump(exclude_none=True, exclude={"audit_reason"}).items():
         setattr(event, field, value)
@@ -812,8 +803,6 @@ async def create_triace_team(
     session: AsyncSession = Depends(get_session),
     actor: Actor = Depends(current_actor),
 ) -> Team:
-    if len({member.user_id for member in payload.members}) != 3:
-        raise HTTPException(status_code=422, detail="TRIACE teams require three distinct players")
     division = await session.get(Division, payload.division_id)
     if division is None or division.club_id != club_id:
         raise HTTPException(status_code=404, detail="Division not found for this club")
@@ -822,7 +811,14 @@ async def create_triace_team(
     event = await session.get(Event, division.event_id) if division.event_id else None
     if event is None or event.status != EventStatus.published:
         raise HTTPException(status_code=409, detail="TRIACE registration is not open")
-    minimum, maximum, _, _ = triace_rule_values(event.rules, division.rules)
+    rules = triace_rules_for(event.rules, division.rules)
+    minimum, maximum = rules.team_min_rating, rules.team_max_rating
+    if len(payload.members) != rules.team_size or len({member.user_id for member in payload.members}) != rules.team_size:
+        raise HTTPException(status_code=422, detail=f"TRIACE teams require {rules.team_size} distinct players")
+    if sorted(member.lineup_position for member in payload.members) != list(range(1, rules.team_size + 1)):
+        raise HTTPException(status_code=422, detail=f"Lineup positions must be 1 to {rules.team_size}, one per player")
+    if any(member.rating > rules.player_max_rating for member in payload.members):
+        raise HTTPException(status_code=422, detail=f"A player rating cannot exceed {rules.player_max_rating:g}")
     active_teams = int(
         await session.scalar(
             select(func.count()).select_from(Team).where(
@@ -1135,8 +1131,9 @@ async def approve_team(
         raise HTTPException(status_code=404, detail="Team not found")
     await require_role(session, team.club_id, actor.user_id, {MembershipRole.owner, MembershipRole.admin, MembershipRole.organizer})
     members = list((await session.scalars(select(TeamMember).where(TeamMember.team_id == team.id, TeamMember.active.is_(True)))).all())
-    if len(members) != 3:
-        raise HTTPException(status_code=422, detail="TRIACE approval requires exactly three active team members")
+    rules = await division_triace_rules(session, await session.get(Division, team.division_id) if team.division_id else None)
+    if len(members) != rules.team_size:
+        raise HTTPException(status_code=422, detail=f"TRIACE approval requires exactly {rules.team_size} active team members")
     team.status = TeamStatus.approved
     await audit(session, team.club_id, actor.user_id, "triace.team.approved", "team", str(team.id))
     await notify(session, team.club_id, team.captain_user_id, "triace", "Team approved", f"{team.name} is approved for competition.", {"teamId": str(team.id)})
@@ -1155,6 +1152,22 @@ async def get_team_eligibility(
         raise HTTPException(status_code=404, detail="Team not found")
     await require_role(session, team.club_id, actor.user_id, set(MembershipRole))
     return await team_eligibility(session, team)
+
+
+@app.get("/v1/triace/defaults")
+async def triace_defaults() -> dict:
+    """Every configurable TRIACE property with its default value."""
+    return TriaceRules().as_dict()
+
+
+@app.get("/v1/divisions/{division_id}/triace-rules")
+async def get_triace_rules(division_id: UUID, session: AsyncSession = Depends(get_session), actor: Actor = Depends(current_actor)) -> dict:
+    """The effective, fully resolved TRIACE configuration for a division."""
+    division = await session.get(Division, division_id)
+    if division is None or not is_triace_division(division):
+        raise HTTPException(status_code=404, detail="TRIACE division not found")
+    await require_role(session, division.club_id, actor.user_id, set(MembershipRole))
+    return (await division_triace_rules(session, division)).as_dict()
 
 
 @app.get("/v1/divisions/{division_id}/playoff-seeds", response_model=list[PlayoffSeedRead])
@@ -1190,12 +1203,16 @@ async def generate_playoffs(
         raise HTTPException(status_code=409, detail="Close TRIACE registration before generating playoffs")
     if await session.scalar(select(Fixture).where(Fixture.division_id == division.id, Fixture.round_name.in_(["playoff_semifinal", "playoff_final"]))):
         raise HTTPException(status_code=409, detail="Playoff bracket already exists")
+    rules = triace_rules_for(event.rules, division.rules)
+    size = payload.size or rules.playoff_size
+    if size not in {2, 4}:
+        raise HTTPException(status_code=422, detail="TRIACE playoffs support two or four teams")
     eligible = [item for item in await ranked_playoff_teams(session, division) if item[2].eligible]
-    if len(eligible) < payload.size:
-        raise HTTPException(status_code=422, detail=f"Need {payload.size} eligible teams to generate this playoff bracket")
-    seeds = [item[0] for item in eligible[: payload.size]]
+    if len(eligible) < size:
+        raise HTTPException(status_code=422, detail=f"Need {size} eligible teams to generate this playoff bracket")
+    seeds = [item[0] for item in eligible[:size]]
     fixtures: list[Fixture] = []
-    if payload.size == 2:
+    if size == 2:
         fixtures.append(Fixture(club_id=division.club_id, division_id=division.id, home_team_id=seeds[0].id, away_team_id=seeds[1].id, starts_at=payload.final_starts_at or payload.starts_at, round_name="playoff_final", bracket_position=1))
     else:
         fixtures.extend(

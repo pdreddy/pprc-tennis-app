@@ -65,3 +65,23 @@ Outcomes: played, retirement, walkover, default. Walkover/default has no sets an
 `eventMaintenance` runs every five minutes for publication/deadline transitions, expired reservations and match reminders. `deliverPush` handles newly created notifications. Scheduler/FCM are managed production services; the local test suite invokes domain operations rather than waiting for Cloud Scheduler.
 
 The backend does not expose public HTTP exports or role-mutating endpoints without auth. Public discovery uses Firestore rules, not an unauthenticated administrative API.
+
+## TRIACE configuration
+
+Every TRIACE property is a rule stored on the event and division (`backend/app/triace_rules.py`, camelCase keys). Division values override event values; unset values use the defaults from `GET /v1/triace/defaults`. `GET /v1/divisions/{id}/triace-rules` returns the effective configuration.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `teamSize` | 3 | Players per team (2–6). Locked once teams register |
+| `singlesMatches` / `doublesMatches` / `superTiebreakMatches` | 2 / 2 / 1 | Matches per encounter; the total must be odd (no ties) |
+| `superTiebreakPoints` | 10 | Points the super-tiebreak winner must reach (5–21) |
+| `singlesPositions` | [1, 2] | Lineup positions allowed to play singles |
+| `doublesPairs` | [[1,3],[2,3]] | Lineup position pairs allowed in doubles |
+| `teamMinRating` / `teamMaxRating` | 12 / 18.5 | Combined UTR range (≤ teamSize × playerMaxRating) |
+| `playerMaxRating` | 20 | Highest UTR allowed for one player |
+| `minSinglesParticipationPct` | 0.4 | Share of match days each player must play singles to be playoff eligible |
+| `playoffSize` | 4 | 2 (final only) or 4 (semifinals + final); can be overridden per bracket |
+| `pointsPerWin` / `pointsPerLoss` | 3 / 0 | Standings points |
+| `requireRubbersInRegularSeason` | false | Require match-by-match scores before regular-season results count (always required in playoffs) |
+
+Scoring rules (`singles*`, `doubles*`, `superTiebreak*`, `points*`) cannot change once results exist; `teamSize` cannot change once teams have registered. Both return 409 with the offending keys.

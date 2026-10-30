@@ -137,13 +137,13 @@ TriaceEventCreate.model_rebuild()
 class TeamMemberInput(BaseModel):
     user_id: str = Field(min_length=1, max_length=128)
     rating: float = Field(ge=0, le=20)
-    lineup_position: int = Field(ge=1, le=3)
+    lineup_position: int = Field(ge=1, le=6)
 
 
 class TeamCreate(BaseModel):
     division_id: UUID
     name: str = Field(min_length=2, max_length=160)
-    members: list[TeamMemberInput] = Field(min_length=3, max_length=3)
+    members: list[TeamMemberInput] = Field(min_length=2, max_length=6)
 
 
 class TeamRead(ORMModel):
@@ -165,9 +165,9 @@ class FixtureCreate(BaseModel):
 class FixtureResult(BaseModel):
     score_home: int = Field(ge=0, le=99)
     score_away: int = Field(ge=0, le=99)
-    home_singles_player_ids: list[str] = Field(min_length=1, max_length=2)
-    away_singles_player_ids: list[str] = Field(min_length=1, max_length=2)
-    rubbers: list["FixtureRubber"] = Field(default_factory=list, max_length=5)
+    home_singles_player_ids: list[str] = Field(min_length=1, max_length=6)
+    away_singles_player_ids: list[str] = Field(min_length=1, max_length=6)
+    rubbers: list["FixtureRubber"] = Field(default_factory=list, max_length=18)
 
 
 class FixtureRubber(BaseModel):
@@ -233,7 +233,7 @@ class PlayoffSeedRead(BaseModel):
 
 
 class PlayoffGenerate(BaseModel):
-    size: int = Field(default=4, ge=2, le=4)
+    size: int | None = Field(default=None, ge=2, le=4)  # defaults to the division's playoffSize
     starts_at: datetime
     final_starts_at: datetime | None = None
 
