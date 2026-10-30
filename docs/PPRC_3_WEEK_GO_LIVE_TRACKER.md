@@ -11,7 +11,7 @@
 
 ## Current release truth
 
-The Firebase PWA remains the operating pilot. The FastAPI/PostgreSQL service is a parallel multi-club migration path and is **not** the live source of truth yet. No production player data, payments, or UTR data has been moved.
+This is a fresh-club launch: no legacy Firebase data will be imported. FastAPI/PostgreSQL is the intended source of truth for the new club, with Firebase retained for authentication during the staged UI migration. No production player data, payments, or UTR data has been moved.
 
 | Area | Status | Current evidence / next action |
 |---|---|---|
@@ -22,7 +22,7 @@ The Firebase PWA remains the operating pilot. The FastAPI/PostgreSQL service is 
 | FastAPI/PostgreSQL service | In progress | Container, base API, multi-club migration, and local runner exist. Docker runtime verification is pending on a developer machine. |
 | Firebase token validation in FastAPI | In progress | Server boundary is implemented; requires Firebase project ID and real token validation in staging. |
 | Firestore-to-PostgreSQL migration | In progress | Import script handles memberships, events, and registrations; must run on a staging Firebase export and reconcile counts. |
-| PWA reads/writes through FastAPI | Not started | Firebase remains the active data layer until parity testing succeeds. |
+| PWA reads/writes through FastAPI | In progress | Public events, event detail, divisions, registration, withdrawal, My Events, and in-app notifications have an API mode. Admin, draws, schedules, scores, and results still need API-screen parity. |
 | Stripe live payment and refunds | In progress | FastAPI development checkout, Stripe Checkout creation, webhook signature verification, and payment reconciliation are implemented. Staging keys, webhook endpoint registration, refund workflow, and live approval remain. |
 | Push notifications | Blocked | Requires Firebase Cloud Messaging/VAPID configuration and device testing. |
 | Production deployment, backups, monitoring | Not started | Requires cloud accounts, domains, secrets, and hosting decisions. |
@@ -50,8 +50,8 @@ The Firebase PWA remains the operating pilot. The FastAPI/PostgreSQL service is 
 | Add TRIACE lifecycle API | In progress | Team registration, three-player roster validation, configurable combined-rating thresholds, admin approval, fixtures, singles-participation eligibility, result recording, standings recalculation, two- or four-team playoff bracket generation, winner advancement, and champion reporting are implemented. Full API integration tests remain. |
 | Add tournament administration API | Not started | Divisions, draws, scheduling, check-in, score confirmation, corrections, and audit views work end to end. |
 | Add FastAPI test suite | In progress | Dockerized TRIACE team-to-champion API smoke test is added. Authorization, tenant isolation, waitlist contention, and correction-path coverage remain. |
-| Build Firebase-to-PostgreSQL staging import | In progress | Existing importer runs against staging and produces a count/reconciliation report. |
-| Add PWA data-provider switch | Not started | Per-club feature flag selects Firebase or FastAPI without changing screens. |
+| Build Firebase-to-PostgreSQL staging import | Deferred | This release is a fresh club with no legacy source data. Keep the importer only for a future controlled migration. |
+| Add PWA data-provider switch | In progress | `VITE_DATA_PROVIDER=api` enables the implemented player paths. Do not enable it for production before the release-readiness checks pass. |
 
 ## Week 3 — staging and launch readiness
 
