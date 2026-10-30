@@ -62,6 +62,15 @@ from .schemas import (
 )
 
 
+# `triace` was the original persisted format. Keep it readable while new
+# records use the explicit format name introduced for API-mode TRIACE.
+TRIACE_DIVISION_FORMATS = {"triace", "triace_team_round_robin"}
+
+
+def is_triace_division(division: Division | None) -> bool:
+    return division is not None and division.format in TRIACE_DIVISION_FORMATS
+
+
 async def audit(
     session: AsyncSession,
     club_id: UUID,
@@ -373,7 +382,7 @@ async def create_triace_event(
 ) -> Event:
     """Create the TRIACE event and its first division in one transaction."""
     await require_role(session, club_id, actor.user_id, {MembershipRole.owner, MembershipRole.admin, MembershipRole.organizer})
-    if payload.division.format != "triace_team_round_robin":
+    if payload.division.format not in TRIACE_DIVISION_FORMATS:
         raise HTTPException(status_code=422, detail="TRIACE must use the triace_team_round_robin division format")
     triace_rule_values(payload.event.rules, payload.division.rules)
     if payload.division.capacity > payload.event.capacity:
@@ -452,7 +461,7 @@ async def update_event(
     await require_role(session, event.club_id, actor.user_id, {MembershipRole.owner, MembershipRole.admin, MembershipRole.organizer})
     division = await session.scalar(select(Division).where(Division.event_id == event.id))
     proposed_rules = payload.rules if payload.rules is not None else event.rules
-    if division and division.format == "triace_team_round_robin":
+    if is_triace_division(division):
         proposed_division_rules = dict(division.rules)
         if payload.rules is not None:
             for key in ("teamMinRating", "teamMaxRating", "minSinglesParticipationPct", "playoffSize"):
@@ -782,7 +791,7 @@ async def create_triace_team(
     division = await session.get(Division, payload.division_id)
     if division is None or division.club_id != club_id:
         raise HTTPException(status_code=404, detail="Division not found for this club")
-    if division.format != "triace_team_round_robin":
+    if not is_triace_division(division):
         raise HTTPException(status_code=422, detail="Team registration is only available for TRIACE divisions")
     event = await session.get(Event, division.event_id) if division.event_id else None
     if event is None or event.status != EventStatus.published:
