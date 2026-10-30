@@ -13,7 +13,23 @@ functions/test/    Firestore transaction and rules integration tests
 packages/shared/   Typed models, Zod schemas and tournament algorithms/tests
 tests/             Playwright browser and tournament-flow tests
 docs/              Architecture, decisions, API, validation and implementation plan
+backend/           FastAPI + PostgreSQL multi-club SaaS migration service
+docker-compose.yml Local PostgreSQL and FastAPI stack
+pprc.sh            One-command local stack, test, and reset workflow
 ```
+
+## Multi-club migration service
+
+The installable PWA and Firebase workflow remain the live PPRC pilot. `backend/` is the separate FastAPI/PostgreSQL service for the club-by-club SaaS migration: every operational record has a `club_id`, and the initial API covers clubs, roles, events, registrations, waitlists, payments, matches, and immutable audit logs. It is intentionally parallel to Firebase, so no player or event data is cut over without an approved export and reconciliation.
+
+```bash
+chmod +x pprc.sh
+./pprc.sh up          # PostgreSQL + FastAPI at http://localhost:8000/docs
+./pprc.sh test-all    # PWA, Firebase Functions, shared domain, and FastAPI checks
+./pprc.sh down
+```
+
+For Supabase, create a project, set `DATABASE_URL` to its pooler connection string, apply `backend/sql/001_initial.sql`, and set `PPRC_BOOTSTRAP_SCHEMA=false`. Production authentication should validate Firebase/Supabase JWTs at the FastAPI boundary; the development-only `X-PPRC-User` header is intentionally explicit and must not be exposed publicly.
 
 The original Next.js prototype below remains intact. Its `app/`, `lib/`, and SQLite `data/` paths are independent of the new Events module. Existing root `dev`, `test`, `seed`, `build` commands still refer to that prototype. Never run its seed command to initialize Events.
 
