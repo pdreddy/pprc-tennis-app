@@ -30,6 +30,7 @@ case "${1:-help}" in
     wait_for http://localhost:8000/health
     docker compose exec -T postgres psql -U pprc -d pprc < backend/sql/001_initial.sql
     docker compose exec -T postgres psql -U pprc -d pprc < backend/sql/002_multiclub_tournament.sql
+    docker compose exec -T postgres psql -U pprc -d pprc < backend/sql/003_tenant_rls.sql
     start_background firebase pnpm events:emulators
     wait_for http://localhost:4000
     pnpm events:seed
@@ -63,6 +64,9 @@ case "${1:-help}" in
     need docker; need curl
     docker compose up -d --build
     wait_for http://localhost:8000/health
+    docker compose exec -T postgres psql -U pprc -d pprc < backend/sql/001_initial.sql
+    docker compose exec -T postgres psql -U pprc -d pprc < backend/sql/002_multiclub_tournament.sql
+    docker compose exec -T postgres psql -U pprc -d pprc < backend/sql/003_tenant_rls.sql
     docker compose --profile test run --rm api-tests
     ;;
   *)
@@ -72,7 +76,7 @@ Usage: ./pprc.sh <command>
   down              Stop the local FastAPI/PostgreSQL stack
   reset-local-data  Stop stack and delete only its local Docker volume
   test-all          Run PWA/shared/backend build checks plus FastAPI syntax checks
-  test-api          Start local containers and run the FastAPI TRIACE end-to-end test
+  test-api          Apply local API migrations and run FastAPI black-box tests
 USAGE
     ;;
 esac
