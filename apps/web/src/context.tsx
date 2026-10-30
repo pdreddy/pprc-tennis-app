@@ -10,13 +10,19 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { auth, getOne, getList, call } from "./firebase";
 import {
   apiEnabled,
+  apiClubId,
+  createApiDivision,
+  createApiEvent,
   getPublicApiEvent,
   listPublicApiDivisions,
   listPublicApiEvents,
   listMyApiRegistrations,
   listApiNotifications,
+  listApiEvents,
   markApiNotificationRead,
   registerForApiEvent,
+  getMyApiMembership,
+  updateApiEvent,
   withdrawApiRegistration,
   type ApiDivision,
   type ApiEvent,
@@ -45,13 +51,20 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   );
   const profile = useQuery({
       queryKey: ["profile", user?.uid],
-      queryFn: () => getOne("users", user!.uid),
+      queryFn: async () => apiEnabled
+        ? { id: user!.uid, displayName: user!.displayName ?? user!.email ?? user!.uid }
+        : getOne("users", user!.uid),
       enabled: !!user,
     }),
     member = useQuery({
       queryKey: ["member", user?.uid],
-      queryFn: () => getOne("memberships", user!.uid),
-      enabled: !!user,
+      queryFn: async () => {
+        if (!apiEnabled) return getOne("memberships", user!.uid);
+        const membership = await getMyApiMembership();
+        const role = membership.role === "organizer" ? "eventAdmin" : ["owner", "admin"].includes(membership.role) ? "clubAdmin" : membership.role;
+        return { id: membership.id, role, displayName: membership.display_name };
+      },
+      enabled: !!user && (!apiEnabled || Boolean(apiClubId)),
     });
   return (
     <Session.Provider
@@ -88,6 +101,7 @@ function toUiEvent(event: ApiEvent): Entity {
     questions: [],
     waiverRequired: false,
     refundPolicy: String(rules.refundPolicy ?? "Contact the event organizer for the current refund policy."),
+    rules,
   };
 }
 
@@ -150,6 +164,19 @@ export function useAction() {
       await qc.invalidateQueries();
       return result;
     }
+    if (apiEnabled && name === "createTriaceEvent") {
+      const event = await createApiEvent(data.event as import("./api").ApiEventInput);
+      for (const division of data.divisions as import("./api").ApiDivisionInput[]) {
+        await createApiDivision(event.id, division);
+      }
+      await qc.invalidateQueries();
+      return { eventId: event.id };
+    }
+    if (apiEnabled && name === "updateTriaceEvent") {
+      const result = await updateApiEvent(String(data.eventId), data.event as Parameters<typeof updateApiEvent>[1]);
+      await qc.invalidateQueries();
+      return result;
+    }
     const result = await call(name, data);
     await qc.invalidateQueries();
     return result;
@@ -165,7 +192,7 @@ export function useList(
     queryKey: ["list", apiEnabled ? "api" : "firebase", collection, filters, user?.uid],
     queryFn: async () => {
       if (apiEnabled && collection === "events") {
-        const events = await listPublicApiEvents();
+        const events = apiClubId ? await listApiEvents() : await listPublicApiEvents();
         return events.map(toUiEvent);
       }
       if (apiEnabled && collection === "registrations") {
