@@ -29,6 +29,9 @@ const EventDetail = lazy(() =>
 const Registration = lazy(() =>
   import("./player").then((m) => ({ default: m.Registration })),
 );
+const TriaceTeamRegistration = lazy(() =>
+  import("./player").then((m) => ({ default: m.TriaceTeamRegistration })),
+);
 const MyEvents = lazy(() =>
   import("./player").then((m) => ({ default: m.MyEvents })),
 );
@@ -131,6 +134,10 @@ function Layout() {
                   <Registration />
                 </RequireUser>
               }
+            />
+            <Route
+              path="/triace/:eventId/:divisionId/register"
+              element={<RequireUser><TriaceTeamRegistration /></RequireUser>}
             />
             <Route
               path="/my-events"
