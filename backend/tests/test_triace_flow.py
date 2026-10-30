@@ -43,8 +43,9 @@ def test_triace_team_to_champion_flow():
         "POST",
         f"/v1/events/{event['id']}/divisions",
         owner,
-        json={"name": "Open", "format": "triace", "capacity": 12, "rules": {"teamMinRating": 12, "teamMaxRating": 22, "minSinglesParticipationPct": 0.4}},
+        json={"name": "Open", "format": "triace_team_round_robin", "capacity": 12, "rules": {"teamMinRating": 12, "teamMaxRating": 22, "minSinglesParticipationPct": 0.4}},
     )
+    request("POST", f"/v1/events/{event['id']}/publish", owner)
 
     teams = []
     for index in range(4):
