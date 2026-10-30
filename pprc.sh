@@ -79,7 +79,7 @@ case "${1:-help}" in
     pnpm pprc:check
     "$0" test-api
     pnpm events:integration
-    pnpm events:e2e
+    PPRC_REUSE_DEV_SERVER=1 pnpm events:e2e
     pnpm events:ui
     echo "All local PPRC checks passed. Start the app with: $0 up"
     ;;
