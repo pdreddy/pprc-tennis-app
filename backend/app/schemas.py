@@ -101,6 +101,17 @@ class NotificationRead(ORMModel):
     created_at: datetime
 
 
+class AuditLogRead(ORMModel):
+    id: UUID
+    club_id: UUID
+    actor_id: str
+    action: str
+    entity_type: str
+    entity_id: str
+    detail: str | None
+    created_at: datetime
+
+
 class DivisionCreate(BaseModel):
     name: str = Field(min_length=2, max_length=160)
     format: str = Field(default="round_robin", max_length=48)
@@ -156,10 +167,23 @@ class FixtureResult(BaseModel):
     score_away: int = Field(ge=0, le=99)
     home_singles_player_ids: list[str] = Field(min_length=1, max_length=2)
     away_singles_player_ids: list[str] = Field(min_length=1, max_length=2)
+    rubbers: list["FixtureRubber"] = Field(default_factory=list, max_length=5)
+
+
+class FixtureRubber(BaseModel):
+    kind: str = Field(pattern=r"^(singles|doubles|super_tiebreak)$")
+    home_player_ids: list[str] = Field(min_length=1, max_length=2)
+    away_player_ids: list[str] = Field(min_length=1, max_length=2)
+    home_score: int = Field(ge=0, le=99)
+    away_score: int = Field(ge=0, le=99)
 
 
 class FixtureCorrection(FixtureResult):
     audit_reason: str = Field(min_length=5, max_length=500)
+
+
+class FixtureDispute(BaseModel):
+    reason: str = Field(min_length=5, max_length=500)
 
 
 class FixtureRead(ORMModel):
@@ -173,6 +197,7 @@ class FixtureRead(ORMModel):
     score_away: int | None
     winner_team_id: UUID | None
     status: FixtureStatus
+    result_detail: dict
     round_name: str
     bracket_position: int | None
 
@@ -218,3 +243,6 @@ class ChampionRead(BaseModel):
     champion_team_id: UUID | None
     champion_team_name: str | None
     final_fixture_id: UUID | None
+
+
+FixtureResult.model_rebuild()
