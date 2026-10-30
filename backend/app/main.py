@@ -39,10 +39,12 @@ from .schemas import (
     DivisionRead,
     EventCreate,
     EventUpdate,
+    TriaceEventCreate,
     EventRead,
     FixtureCreate,
     FixtureRead,
     FixtureResult,
+    FixtureCorrection,
     MembershipCreate,
     MembershipRead,
     RegistrationRead,
@@ -79,6 +81,24 @@ async def require_role(session: AsyncSession, club_id: UUID, actor: str, roles: 
     if membership is None or membership.role not in roles:
         raise HTTPException(status_code=403, detail="Club role is not permitted")
     return membership
+
+
+def triace_rule_values(event_rules: dict, division_rules: dict) -> tuple[float, float, float, int]:
+    """Validate the configurable values that affect TRIACE eligibility and playoffs."""
+    team_size = int(event_rules.get("teamSize", 3))
+    minimum = float(division_rules.get("teamMinRating", event_rules.get("teamMinRating", 12)))
+    maximum = float(division_rules.get("teamMaxRating", event_rules.get("teamMaxRating", 18.5)))
+    participation = float(division_rules.get("minSinglesParticipationPct", event_rules.get("minSinglesParticipationPct", 0.4)))
+    playoff_size = int(division_rules.get("playoffSize", event_rules.get("playoffSize", 4)))
+    if team_size != 3:
+        raise HTTPException(status_code=422, detail="TRIACE requires exactly three players per team")
+    if not 0 <= minimum <= maximum <= 20:
+        raise HTTPException(status_code=422, detail="Combined UTR bounds must be between 0 and 20")
+    if not 0 < participation <= 1:
+        raise HTTPException(status_code=422, detail="Singles participation percentage must be greater than 0 and at most 100%")
+    if playoff_size not in {2, 4}:
+        raise HTTPException(status_code=422, detail="TRIACE playoffs support two or four teams")
+    return minimum, maximum, participation, playoff_size
 
 
 async def rebuild_team_standings(session: AsyncSession, club_id: UUID, division_id: UUID) -> None:
@@ -250,6 +270,32 @@ async def create_event(club_id: UUID, payload: EventCreate, session: AsyncSessio
     return event
 
 
+@app.post("/v1/clubs/{club_id}/triace-events", response_model=EventRead, status_code=status.HTTP_201_CREATED)
+async def create_triace_event(
+    club_id: UUID,
+    payload: TriaceEventCreate,
+    session: AsyncSession = Depends(get_session),
+    actor: Actor = Depends(current_actor),
+) -> Event:
+    """Create the TRIACE event and its first division in one transaction."""
+    await require_role(session, club_id, actor.user_id, {MembershipRole.owner, MembershipRole.admin, MembershipRole.organizer})
+    if payload.division.format != "triace_team_round_robin":
+        raise HTTPException(status_code=422, detail="TRIACE must use the triace_team_round_robin division format")
+    triace_rule_values(payload.event.rules, payload.division.rules)
+    if payload.division.capacity > payload.event.capacity:
+        raise HTTPException(status_code=422, detail="Division capacity cannot exceed event team capacity")
+    event = Event(club_id=club_id, **payload.event.model_dump())
+    session.add(event)
+    await session.flush()
+    division = Division(club_id=club_id, event_id=event.id, **payload.division.model_dump())
+    session.add(division)
+    await session.flush()
+    await audit(session, club_id, actor.user_id, "triace.event.created", "event", str(event.id))
+    await audit(session, club_id, actor.user_id, "triace.division.created", "division", str(division.id))
+    await session.commit()
+    return event
+
+
 @app.get("/v1/clubs/{club_id}/events", response_model=list[EventRead])
 async def list_events(club_id: UUID, session: AsyncSession = Depends(get_session), actor: Actor = Depends(current_actor)) -> list[Event]:
     await require_role(session, club_id, actor.user_id, set(MembershipRole))
@@ -331,11 +377,21 @@ async def publish_event(event_id: UUID, session: AsyncSession = Depends(get_sess
 
 @app.post("/v1/events/{event_id}/registrations", response_model=RegistrationRead, status_code=status.HTTP_201_CREATED)
 async def register(event_id: UUID, session: AsyncSession = Depends(get_session), actor: Actor = Depends(current_actor)) -> Registration:
-    event = await session.get(Event, event_id)
+    event = await session.scalar(select(Event).where(Event.id == event_id).with_for_update())
     if event is None:
         raise HTTPException(status_code=404, detail="Event not found")
     if event.status != EventStatus.published:
         raise HTTPException(status_code=409, detail="Event is not open for registration")
+    closes_at = event.rules.get("registrationClose")
+    if closes_at:
+        try:
+            close_time = datetime.fromisoformat(str(closes_at).replace("Z", "+00:00"))
+            if close_time.tzinfo is None:
+                close_time = close_time.replace(tzinfo=timezone.utc)
+            if close_time <= datetime.now(timezone.utc):
+                raise HTTPException(status_code=409, detail="Registration has closed")
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="Event registrationClose must be an ISO-8601 timestamp") from exc
     membership = await session.scalar(
         select(Membership).where(Membership.club_id == event.club_id, Membership.user_id == actor.user_id)
     )
@@ -352,6 +408,8 @@ async def register(event_id: UUID, session: AsyncSession = Depends(get_session),
     waitlist_position = None
     registration_status = RegistrationStatus.confirmed
     if confirmed >= event.capacity:
+        if event.rules.get("waitlist", event.rules.get("allowWaitlist", True)) is False:
+            raise HTTPException(status_code=409, detail="Event is full and waitlist is disabled")
         registration_status = RegistrationStatus.waitlisted
         waitlist_position = int(await session.scalar(select(func.count()).select_from(Registration).where(Registration.event_id == event_id, Registration.status == RegistrationStatus.waitlisted))) + 1
     registration = Registration(club_id=event.club_id, event_id=event.id, user_id=actor.user_id, status=registration_status, waitlist_position=waitlist_position)
@@ -618,6 +676,35 @@ async def create_triace_team(
     division = await session.get(Division, payload.division_id)
     if division is None or division.club_id != club_id:
         raise HTTPException(status_code=404, detail="Division not found for this club")
+    if division.format != "triace_team_round_robin":
+        raise HTTPException(status_code=422, detail="Team registration is only available for TRIACE divisions")
+    event = await session.get(Event, division.event_id) if division.event_id else None
+    if event is None or event.status != EventStatus.published:
+        raise HTTPException(status_code=409, detail="TRIACE registration is not open")
+    minimum, maximum, _, _ = triace_rule_values(event.rules, division.rules)
+    active_teams = int(
+        await session.scalar(
+            select(func.count()).select_from(Team).where(
+                Team.division_id == division.id,
+                Team.status.in_([TeamStatus.pending, TeamStatus.approved]),
+            )
+        )
+        or 0
+    )
+    if active_teams >= division.capacity:
+        raise HTTPException(status_code=409, detail="TRIACE division capacity has been reached")
+    for member in payload.members:
+        prior_team = await session.scalar(
+            select(TeamMember)
+            .join(Team, Team.id == TeamMember.team_id)
+            .where(
+                TeamMember.user_id == member.user_id,
+                Team.division_id == division.id,
+                Team.status.in_([TeamStatus.pending, TeamStatus.approved]),
+            )
+        )
+        if prior_team:
+            raise HTTPException(status_code=409, detail=f"{member.user_id} is already on an active TRIACE team")
     for member in payload.members:
         existing_member = await session.scalar(
             select(Membership).where(Membership.club_id == club_id, Membership.user_id == member.user_id)
@@ -637,11 +724,9 @@ async def create_triace_team(
     if actor.user_id not in {member.user_id for member in payload.members}:
         await require_role(session, club_id, actor.user_id, {MembershipRole.owner, MembershipRole.admin, MembershipRole.organizer})
     total_rating = round(sum(member.rating for member in payload.members), 2)
-    minimum = division.rules.get("teamMinRating")
-    maximum = division.rules.get("teamMaxRating")
-    if minimum is not None and total_rating < float(minimum):
+    if total_rating < minimum:
         raise HTTPException(status_code=422, detail=f"Combined rating must be at least {minimum}")
-    if maximum is not None and total_rating > float(maximum):
+    if total_rating > maximum:
         raise HTTPException(status_code=422, detail=f"Combined rating cannot exceed {maximum}")
     team = Team(
         club_id=club_id,
@@ -732,6 +817,16 @@ async def create_fixture(
         raise HTTPException(status_code=422, detail="Fixture teams must belong to the selected club and division")
     if payload.home_team_id == payload.away_team_id:
         raise HTTPException(status_code=422, detail="A team cannot play itself")
+    conflict = await session.scalar(
+        select(Fixture).where(
+            Fixture.club_id == club_id,
+            Fixture.starts_at == payload.starts_at,
+            (Fixture.home_team_id.in_([payload.home_team_id, payload.away_team_id]))
+            | (Fixture.away_team_id.in_([payload.home_team_id, payload.away_team_id])),
+        )
+    )
+    if conflict:
+        raise HTTPException(status_code=409, detail="A selected team already has a fixture at this time")
     fixture = Fixture(club_id=club_id, **payload.model_dump())
     session.add(fixture)
     await session.flush()
@@ -753,6 +848,8 @@ async def record_fixture_result(
     if fixture is None:
         raise HTTPException(status_code=404, detail="Fixture not found")
     await require_role(session, fixture.club_id, actor.user_id, {MembershipRole.owner, MembershipRole.admin, MembershipRole.organizer})
+    if fixture.status == FixtureStatus.finalized:
+        raise HTTPException(status_code=409, detail="Finalized scores require the correction endpoint and an audit reason")
     if payload.score_home == payload.score_away:
         raise HTTPException(status_code=422, detail="TRIACE fixture results cannot end in a tie")
     home_members = set((await session.scalars(select(TeamMember.user_id).where(TeamMember.team_id == fixture.home_team_id, TeamMember.active.is_(True)))).all())
@@ -798,6 +895,41 @@ async def record_fixture_result(
                 )
             )
     await audit(session, fixture.club_id, actor.user_id, "fixture.finalized", "fixture", str(fixture.id))
+    await session.commit()
+    return fixture
+
+
+@app.post("/v1/fixtures/{fixture_id}/correct-result", response_model=FixtureRead)
+async def correct_fixture_result(
+    fixture_id: UUID,
+    payload: FixtureCorrection,
+    session: AsyncSession = Depends(get_session),
+    actor: Actor = Depends(current_actor),
+) -> Fixture:
+    fixture = await session.get(Fixture, fixture_id)
+    if fixture is None:
+        raise HTTPException(status_code=404, detail="Fixture not found")
+    await require_role(session, fixture.club_id, actor.user_id, {MembershipRole.owner, MembershipRole.admin, MembershipRole.organizer})
+    if fixture.status != FixtureStatus.finalized:
+        raise HTTPException(status_code=409, detail="Only finalized fixtures require a correction")
+    if payload.score_home == payload.score_away:
+        raise HTTPException(status_code=422, detail="TRIACE fixture results cannot end in a tie")
+    home_members = set((await session.scalars(select(TeamMember.user_id).where(TeamMember.team_id == fixture.home_team_id, TeamMember.active.is_(True)))).all())
+    away_members = set((await session.scalars(select(TeamMember.user_id).where(TeamMember.team_id == fixture.away_team_id, TeamMember.active.is_(True)))).all())
+    home_players, away_players = set(payload.home_singles_player_ids), set(payload.away_singles_player_ids)
+    if len(home_players) != len(payload.home_singles_player_ids) or len(away_players) != len(payload.away_singles_player_ids):
+        raise HTTPException(status_code=422, detail="A player can appear only once per team fixture")
+    if not home_players.issubset(home_members) or not away_players.issubset(away_members):
+        raise HTTPException(status_code=422, detail="Singles players must be active members of their assigned team")
+    fixture.score_home = payload.score_home
+    fixture.score_away = payload.score_away
+    fixture.winner_team_id = fixture.home_team_id if payload.score_home > payload.score_away else fixture.away_team_id
+    await session.execute(PlayerAppearance.__table__.delete().where(PlayerAppearance.fixture_id == fixture.id))
+    for team_id, player_ids in ((fixture.home_team_id, home_players), (fixture.away_team_id, away_players)):
+        for user_id in player_ids:
+            session.add(PlayerAppearance(club_id=fixture.club_id, division_id=fixture.division_id, fixture_id=fixture.id, team_id=team_id, user_id=user_id))
+    await rebuild_team_standings(session, fixture.club_id, fixture.division_id)
+    await audit(session, fixture.club_id, actor.user_id, "fixture.corrected", "fixture", str(fixture.id), payload.audit_reason)
     await session.commit()
     return fixture
 
