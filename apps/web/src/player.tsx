@@ -936,7 +936,11 @@ export function Notifications() {
       ) : (
         data
           .sort(
-            (a, b) => (b.createdAt?.seconds ?? 0) - (a.createdAt?.seconds ?? 0),
+            (a, b) => {
+              const timestamp = (value: unknown) =>
+                typeof value === "string" ? Date.parse(value) : (value as { seconds?: number } | undefined)?.seconds ?? 0;
+              return timestamp(b.createdAt) - timestamp(a.createdAt);
+            },
           )
           .map((n) => (
             <Panel key={n.id} title={n.title}>
@@ -946,7 +950,8 @@ export function Notifications() {
                 {!n.read && (
                   <Action
                     onClick={async () => {
-                      await updateDoc(doc(db, "notifications", n.id), {
+                      if (apiEnabled) await action("markNotificationRead", { notificationId: n.id });
+                      else await updateDoc(doc(db, "notifications", n.id), {
                         read: true,
                         updatedAt: serverTimestamp(),
                       });
