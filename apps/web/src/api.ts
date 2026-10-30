@@ -108,6 +108,7 @@ export const listPublicApiDivisions = (eventId: string) => publicApiRequest<ApiD
 export const getApiEvent = (eventId: string) => apiRequest<ApiEvent>(`/v1/events/${eventId}`);
 export const getMyApiMembership = () => apiRequest<ApiMembership>(`/v1/clubs/${apiClubId}/memberships/me`);
 export const createApiEvent = (event: ApiEventInput) => apiRequest<ApiEvent>(`/v1/clubs/${apiClubId}/events`, { method: "POST", body: JSON.stringify(event) });
+export const createApiTriaceEvent = (event: ApiEventInput, division: ApiDivisionInput) => apiRequest<ApiEvent>(`/v1/clubs/${apiClubId}/triace-events`, { method: "POST", body: JSON.stringify({ event, division }) });
 export const updateApiEvent = (eventId: string, event: Partial<ApiEventInput> & { status?: ApiEvent["status"]; audit_reason: string }) => apiRequest<ApiEvent>(`/v1/events/${eventId}`, { method: "PATCH", body: JSON.stringify(event) });
 export const createApiDivision = (eventId: string, division: ApiDivisionInput) => apiRequest<ApiDivision>(`/v1/events/${eventId}/divisions`, { method: "POST", body: JSON.stringify(division) });
 export const listApiTeams = (divisionId?: string) => apiRequest<ApiTeam[]>(`/v1/clubs/${apiClubId}/teams${divisionId ? `?division_id=${divisionId}` : ""}`);
@@ -116,6 +117,7 @@ export const approveApiTeam = (teamId: string) => apiRequest<ApiTeam>(`/v1/teams
 export const listApiFixtures = (divisionId: string) => apiRequest<ApiFixture[]>(`/v1/clubs/${apiClubId}/fixtures?division_id=${divisionId}`);
 export const createApiFixture = (fixture: { division_id: string; home_team_id: string; away_team_id: string; starts_at: string }) => apiRequest<ApiFixture>(`/v1/clubs/${apiClubId}/fixtures`, { method: "POST", body: JSON.stringify(fixture) });
 export const submitApiFixtureResult = (fixtureId: string, result: { score_home: number; score_away: number; home_singles_player_ids: string[]; away_singles_player_ids: string[] }) => apiRequest<ApiFixture>(`/v1/fixtures/${fixtureId}/result`, { method: "POST", body: JSON.stringify(result) });
+export const correctApiFixtureResult = (fixtureId: string, result: { score_home: number; score_away: number; home_singles_player_ids: string[]; away_singles_player_ids: string[]; audit_reason: string }) => apiRequest<ApiFixture>(`/v1/fixtures/${fixtureId}/correct-result`, { method: "POST", body: JSON.stringify(result) });
 export const listApiStandings = (divisionId: string) => apiRequest<ApiStanding[]>(`/v1/divisions/${divisionId}/standings`);
 export const generateApiPlayoffs = (divisionId: string, input: { size: number; starts_at: string; final_starts_at?: string }) => apiRequest<ApiFixture[]>(`/v1/divisions/${divisionId}/playoffs/generate`, { method: "POST", body: JSON.stringify(input) });
 export const getApiChampion = (divisionId: string) => apiRequest<{ champion_team_id: string | null; champion_team_name: string | null }>(`/v1/divisions/${divisionId}/champion`);
