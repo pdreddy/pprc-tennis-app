@@ -26,6 +26,7 @@ import {
   date,
   money,
   text,
+  number,
 } from "./ui";
 import type { Entity } from "@pprc/shared";
 export function EventDetail() {
