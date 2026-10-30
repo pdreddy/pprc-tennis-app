@@ -15,6 +15,12 @@ def request(method: str, path: str, user: str, **kwargs):
     return response.json()
 
 
+def request_error(method: str, path: str, user: str, **kwargs):
+    response = httpx.request(method, f"{BASE_URL}{path}", headers={"X-PPRC-User": user}, timeout=15, **kwargs)
+    assert response.status_code >= 400, response.text
+    return response
+
+
 def test_triace_team_to_champion_flow():
     for _ in range(30):
         try:
@@ -60,6 +66,15 @@ def test_triace_team_to_champion_flow():
 
     now = datetime.now(timezone.utc)
 
+    # Captains can report a result, only the opposing captain can confirm it,
+    # and the same score cannot be finalized twice.
+    confirmation_fixture = request("POST", f"/v1/clubs/{club_id}/fixtures", owner, json={"division_id": division["id"], "home_team_id": teams[0]["id"], "away_team_id": teams[1]["id"], "starts_at": (now + timedelta(hours=2)).isoformat()})
+    reported = request("POST", f"/v1/fixtures/{confirmation_fixture['id']}/report-result", players[0], json={"score_home": 2, "score_away": 1, "home_singles_player_ids": players[0:2], "away_singles_player_ids": players[3:5]})
+    assert reported["status"] == "reported"
+    request_error("POST", f"/v1/fixtures/{confirmation_fixture['id']}/confirm-result", players[0])
+    confirmed = request("POST", f"/v1/fixtures/{confirmation_fixture['id']}/confirm-result", players[3])
+    assert confirmed["status"] == "finalized"
+
     def report(home_index: int, away_index: int, day_offset: int, home_players: list[str], away_players: list[str]):
         fixture = request(
             "POST",
@@ -89,6 +104,17 @@ def test_triace_team_to_champion_flow():
     final_away = next(team for team in teams if team["id"] == final["away_team_id"])
     home_roster = players[teams.index(final_home) * 3 : teams.index(final_home) * 3 + 2]
     away_roster = players[teams.index(final_away) * 3 : teams.index(final_away) * 3 + 2]
-    request("POST", f"/v1/fixtures/{final['id']}/result", owner, json={"score_home": 3, "score_away": 1, "home_singles_player_ids": home_roster, "away_singles_player_ids": away_roster})
+    final_home_all = players[teams.index(final_home) * 3 : teams.index(final_home) * 3 + 3]
+    final_away_all = players[teams.index(final_away) * 3 : teams.index(final_away) * 3 + 3]
+    request("POST", f"/v1/fixtures/{final['id']}/result", owner, json={
+        "score_home": 3, "score_away": 2, "home_singles_player_ids": home_roster, "away_singles_player_ids": away_roster,
+        "rubbers": [
+            {"kind": "singles", "home_player_ids": [final_home_all[0]], "away_player_ids": [final_away_all[0]], "home_score": 8, "away_score": 5},
+            {"kind": "singles", "home_player_ids": [final_home_all[1]], "away_player_ids": [final_away_all[1]], "home_score": 4, "away_score": 8},
+            {"kind": "doubles", "home_player_ids": [final_home_all[0], final_home_all[2]], "away_player_ids": [final_away_all[0], final_away_all[2]], "home_score": 4, "away_score": 3},
+            {"kind": "doubles", "home_player_ids": [final_home_all[1], final_home_all[2]], "away_player_ids": [final_away_all[1], final_away_all[2]], "home_score": 2, "away_score": 4},
+            {"kind": "super_tiebreak", "home_player_ids": [final_home_all[2]], "away_player_ids": [final_away_all[2]], "home_score": 10, "away_score": 8},
+        ],
+    })
     champion = request("GET", f"/v1/divisions/{division['id']}/champion", owner)
     assert champion["champion_team_id"] == final_home["id"]
