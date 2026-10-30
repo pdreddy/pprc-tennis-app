@@ -78,29 +78,55 @@ export type ApiFixture = { id: string; club_id: string; division_id: string; hom
 export type ApiStanding = { id: string; division_id: string | null; subject_id: string; played: number; wins: number; losses: number; points: number };
 export type ApiAuditLog = { id: string; club_id: string; actor_id: string; action: string; entity_type: string; entity_id: string; detail: string | null; created_at: string };
 
-export async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const token = await auth.currentUser?.getIdToken();
-  if (!token) throw new Error("Sign in before using the PPRC API");
-  const headers = new Headers(init.headers);
-  headers.set("Authorization", `Bearer ${token}`);
-  headers.set("Content-Type", "application/json");
-  const response = await fetch(`${apiBaseUrl}${path}`, { ...init, headers });
+export class ApiError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
+/** FastAPI returns `detail` as a string, or as a list of validation issues for 422s. */
+function errorMessage(payload: unknown, status: number): string {
+  const detail = (payload as { detail?: unknown } | null)?.detail;
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    const messages = detail.map((item) => {
+      const issue = item as { loc?: unknown[]; msg?: string };
+      const field = Array.isArray(issue.loc) ? issue.loc.filter((part) => part !== "body").join(".") : "";
+      return field ? `${field}: ${issue.msg}` : issue.msg;
+    });
+    return messages.filter(Boolean).join("; ") || `PPRC API request failed (${status})`;
+  }
+  return `PPRC API request failed (${status})`;
+}
+
+async function send<T>(path: string, init: RequestInit): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(`${apiBaseUrl}${path}`, init);
+  } catch {
+    throw new ApiError("Unable to reach the PPRC API. Check your connection and try again.", 0);
+  }
   if (!response.ok) {
-    const payload = await response.json().catch(() => ({}));
-    throw new Error(payload.detail || `PPRC API request failed (${response.status})`);
+    const payload = await response.json().catch(() => null);
+    throw new ApiError(errorMessage(payload, response.status), response.status);
   }
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
 }
 
-export async function publicApiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const response = await fetch(`${apiBaseUrl}${path}`, init);
-  if (!response.ok) {
-    const payload = await response.json().catch(() => ({}));
-    throw new Error(payload.detail || `PPRC API request failed (${response.status})`);
-  }
-  return response.json() as Promise<T>;
+export async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
+  // On a fresh page load currentUser is null until Firebase restores the session.
+  await auth.authStateReady();
+  const token = await auth.currentUser?.getIdToken();
+  if (!token) throw new ApiError("Sign in before using the PPRC API", 401);
+  const headers = new Headers(init.headers);
+  headers.set("Authorization", `Bearer ${token}`);
+  if (init.body !== undefined) headers.set("Content-Type", "application/json");
+  return send<T>(path, { ...init, headers });
 }
+
+export const publicApiRequest = <T>(path: string, init: RequestInit = {}): Promise<T> => send<T>(path, init);
 
 export const listApiEvents = () => apiRequest<ApiEvent[]>(`/v1/clubs/${apiClubId}/events`);
 export const listPublicApiEvents = () => publicApiRequest<ApiEvent[]>(`/v1/public/clubs/${apiClubSlug}/events`);

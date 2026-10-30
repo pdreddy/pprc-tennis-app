@@ -9,6 +9,7 @@ import { onAuthStateChanged, type User } from "firebase/auth";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { auth, getOne, getList, call } from "./firebase";
 import {
+  ApiError,
   apiEnabled,
   apiClubId,
   createApiDivision,
@@ -62,7 +63,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       queryKey: ["member", user?.uid],
       queryFn: async (): Promise<Entity | undefined> => {
         if (!apiEnabled) return getOne("memberships", user!.uid);
-        const membership = await getMyApiMembership();
+        // A signed-in user who has not joined the club yet is a plain visitor, not an error.
+        const membership = await getMyApiMembership().catch((error) => {
+          if (error instanceof ApiError && error.status === 404) return undefined;
+          throw error;
+        });
+        if (!membership) return undefined;
         const role = membership.role === "organizer" ? "eventAdmin" : ["owner", "admin"].includes(membership.role) ? "clubAdmin" : membership.role;
         return { id: membership.id, clubId: membership.club_id, role, displayName: membership.display_name };
       },

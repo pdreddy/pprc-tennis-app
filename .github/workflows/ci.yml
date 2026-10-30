@@ -1,0 +1,33 @@
+name: CI
+on:
+  push:
+    branches: [main, feat/**]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install ./backend[dev]
+      - run: ruff check backend/app backend/tests --select F,E9
+      - name: Unit tests (no database)
+        working-directory: backend
+        run: pytest -q tests/test_rules.py
+      - name: End-to-end API tests
+        run: docker compose --profile test up --build --abort-on-container-exit --exit-code-from api-tests api-tests
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 9 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm frontend:typecheck
+      - run: pnpm events:lint
+      - run: pnpm shared:test

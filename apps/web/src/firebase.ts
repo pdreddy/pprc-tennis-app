@@ -24,7 +24,10 @@ import {
 } from "firebase/functions";
 import { getStorage, connectStorageEmulator } from "firebase/storage";
 import type { Entity } from "@pprc/shared";
-export const emulator = import.meta.env.VITE_USE_EMULATORS !== "false";
+// Emulators default on only for `vite dev`; production builds must opt in explicitly.
+export const emulator = import.meta.env.VITE_USE_EMULATORS
+  ? import.meta.env.VITE_USE_EMULATORS === "true"
+  : import.meta.env.DEV;
 const app = initializeApp({
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "demo-pprc-events",
   authDomain:
