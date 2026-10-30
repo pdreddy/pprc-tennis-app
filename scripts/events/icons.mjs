@@ -1,7 +1,7 @@
 import { chromium } from "@playwright/test";
 import { readFileSync } from "node:fs";
 const browser = await chromium.launch({
-  executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH || "/usr/bin/chromium",
+  ...(process.env.PLAYWRIGHT_CHROMIUM_PATH ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH } : {}),
   args: ["--no-sandbox"],
 });
 for (const size of [192, 512]) {
