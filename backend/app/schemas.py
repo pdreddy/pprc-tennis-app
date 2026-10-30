@@ -56,6 +56,11 @@ class EventUpdate(BaseModel):
     audit_reason: str = Field(min_length=5, max_length=500)
 
 
+class TriaceEventCreate(BaseModel):
+    event: EventCreate
+    division: "DivisionCreate"
+
+
 class EventRead(ORMModel):
     id: UUID
     club_id: UUID
@@ -115,6 +120,9 @@ class DivisionRead(ORMModel):
     rules: dict
 
 
+TriaceEventCreate.model_rebuild()
+
+
 class TeamMemberInput(BaseModel):
     user_id: str = Field(min_length=1, max_length=128)
     rating: float = Field(ge=0, le=20)
@@ -148,6 +156,10 @@ class FixtureResult(BaseModel):
     score_away: int = Field(ge=0, le=99)
     home_singles_player_ids: list[str] = Field(min_length=1, max_length=2)
     away_singles_player_ids: list[str] = Field(min_length=1, max_length=2)
+
+
+class FixtureCorrection(FixtureResult):
+    audit_reason: str = Field(min_length=5, max_length=500)
 
 
 class FixtureRead(ORMModel):
