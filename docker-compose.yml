@@ -21,11 +21,17 @@ services:
       DATABASE_URL: postgresql+asyncpg://pprc:pprc@postgres:5432/pprc
       PPRC_CORS_ORIGINS: http://localhost:5173
       PPRC_BOOTSTRAP_SCHEMA: "true"
+      # Lets FastAPI verify the same Firebase Auth emulator tokens issued to the PWA.
+      # Production replaces these with the real Firebase project configuration.
+      FIREBASE_PROJECT_ID: demo-pprc-events
+      FIREBASE_AUTH_EMULATOR_HOST: host.docker.internal:9099
     ports:
       - "8000:8000"
     depends_on:
       postgres:
         condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:8000/health', timeout=2)"]
       interval: 5s
