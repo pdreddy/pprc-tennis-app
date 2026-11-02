@@ -4,6 +4,7 @@ WORKDIR /app
 COPY pyproject.toml ./
 COPY app ./app
 COPY sql ./sql
+COPY scripts ./scripts
 COPY tests ./tests
 RUN pip install --no-cache-dir ".[dev]"
 RUN useradd --system --uid 1001 pprc
