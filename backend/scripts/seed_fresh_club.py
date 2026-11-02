@@ -54,8 +54,10 @@ async def seed(owner_id: str, owner_name: str, demo_players: bool) -> None:
             if await session.get(Division, division_id) is None:
                 session.add(Division(id=division_id, club_id=club_id, event_id=event.id, name=name, format=event_format, capacity=capacity, rules=rules))
         if demo_players:
-            for index in range(1, 13):
-                await ensure_membership(session, club_id, f"demo-player-{index}", f"Demo Player {index}", MembershipRole.player)
+            # These IDs deliberately match functions/src/seed.ts so that the
+            # Firebase emulator accounts can use the FastAPI club immediately.
+            for index in range(1, 17):
+                await ensure_membership(session, club_id, f"player{index}", f"Demo Player {index}", MembershipRole.player)
         await session.commit()
     print(f"Fresh PPRC seed ready for club {club_id}. Owner: {owner_id}. Demo players: {demo_players}.")
 
