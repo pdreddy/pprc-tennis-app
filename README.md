@@ -25,6 +25,7 @@ The installable PWA and Firebase workflow remain the live PPRC pilot. `backend/`
 ```bash
 chmod +x pprc.sh
 ./pprc.sh up          # PostgreSQL + FastAPI at http://localhost:8000/docs
+./pprc.sh up-api      # complete FastAPI-backed PWA with Auth emulator and fresh PPRC demo club
 ./pprc.sh test-all    # PWA, Firebase Functions, shared domain, and FastAPI checks
 ./pprc.sh down
 ```
