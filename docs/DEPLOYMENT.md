@@ -16,9 +16,9 @@ Any managed Postgres works (Render, Neon, Supabase, Railway, RDS). Use the conne
 - Behind a **Supabase / PgBouncer transaction pooler** (port 6543) also set `PPRC_DB_POOLER=true`.
 - The schema comes from `backend/sql/*.sql`, applied in order by `python backend/scripts/migrate.py` and recorded in
   `schema_migrations`. Set `PPRC_RUN_MIGRATIONS=true` and the container does this on every start.
-- **Existing database that was created by the app itself** (`create_all`): run `python scripts/migrate.py --baseline --through 014`
-  with `--through 014` to record 001–014 as applied, then a normal run applies 015 and 016 (they convert native enum columns to text
-  and add missing timestamp columns).
+- **Existing database that was created by the app itself** (`create_all`): run
+  `python scripts/migrate.py --baseline --through 014` once to record 001–014 as applied, then a normal run applies 015 and 016
+  (they convert native enum columns to text and add missing timestamp columns). Back up first.
 - `python backend/scripts/schema_drift.py` reports any difference between the models and the migrated database. CI runs it.
 
 ## 2. API
