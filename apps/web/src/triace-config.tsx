@@ -8,7 +8,7 @@ export const triaceDefaults = {
   doublesMatches: 2,
   superTiebreakMatches: 1,
   superTiebreakPoints: 10,
-  singlesPositions: [1, 2] as number[],
+  singlesPositions: [1, 2, 3] as number[],
   doublesPairs: [[1, 3], [2, 3]] as number[][],
   teamMinRating: 12,
   teamMaxRating: 18.5,

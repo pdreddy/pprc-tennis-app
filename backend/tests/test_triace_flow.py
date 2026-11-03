@@ -91,7 +91,7 @@ def test_triace_team_to_champion_flow():
             json={"score_home": 3, "score_away": 2, "home_singles_player_ids": home_players, "away_singles_player_ids": away_players},
         )
 
-    # Two match days let all three players satisfy the 40% singles eligibility rule.
+    # With two match days the rounded-down 40% minimum is 0; each player still plays singles at least once here.
     report(0, 1, 0, players[0:2], players[3:5])
     report(2, 3, 0, players[6:8], players[9:11])
     report(0, 2, 1, players[1:3], players[7:9])

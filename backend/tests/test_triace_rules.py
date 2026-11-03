@@ -35,8 +35,23 @@ def test_invalid_rules_rejected(override):
         TriaceRules.resolve(override, {})
 
 
-def test_required_singles_days():
-    assert TriaceRules.resolve({"minSinglesParticipationPct": 0.4}, {}).required_singles_days(5) == 2
+def test_required_singles_days_match_the_official_table():
+    # Rules page: 5-7 match days -> 2, 8 -> 3, 9 -> 3, 10-12 -> 4 (40%, rounded down).
+    rules = TriaceRules.resolve({"minSinglesParticipationPct": 0.4}, {})
+    assert {days: rules.required_singles_days(days) for days in range(5, 13)} == {5: 2, 6: 2, 7: 2, 8: 3, 9: 3, 10: 4, 11: 4, 12: 4}
+
+
+def test_required_singles_days_is_not_hurt_by_float_error():
+    rules = TriaceRules.resolve({"minSinglesParticipationPct": 0.3}, {})
+    assert rules.required_singles_days(10) == 3  # 10 * 0.3 is 3.0000000000000004 or 2.9999999999999996 depending on rounding
+
+
+def test_any_player_may_play_singles_by_default():
+    rules = TriaceRules()
+    assert rules.singles_positions == (1, 2, 3)
+    home, away = {"h1": 1, "h2": 2, "h3": 3}, {"a1": 1, "a2": 2, "a3": 3}
+    rubber = {"kind": "singles", "home_player_ids": ["h3"], "away_player_ids": ["a3"], "home_score": 6, "away_score": 3}
+    validate_encounter([rubber], 1, 0, False, home, away, rules)  # P3 singles is allowed
 
 
 HOME = {"h1": 1, "h2": 2, "h3": 3}

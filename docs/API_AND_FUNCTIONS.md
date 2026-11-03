@@ -75,11 +75,11 @@ Every TRIACE property is a rule stored on the event and division (`backend/app/t
 | `teamSize` | 3 | Players per team (2–6). Locked once teams register |
 | `singlesMatches` / `doublesMatches` / `superTiebreakMatches` | 2 / 2 / 1 | Matches per encounter; the total must be odd (no ties) |
 | `superTiebreakPoints` | 10 | Points the super-tiebreak winner must reach (5–21) |
-| `singlesPositions` | [1, 2] | Lineup positions allowed to play singles |
+| `singlesPositions` | [1, 2, 3] | Lineup positions allowed to play singles |
 | `doublesPairs` | [[1,3],[2,3]] | Lineup position pairs allowed in doubles |
 | `teamMinRating` / `teamMaxRating` | 12 / 18.5 | Combined UTR range (≤ teamSize × playerMaxRating) |
 | `playerMaxRating` | 20 | Highest UTR allowed for one player |
-| `minSinglesParticipationPct` | 0.4 | Share of match days each player must play singles to be playoff eligible |
+| `minSinglesParticipationPct` | 0.4 | Share of match days each player must play singles to be playoff eligible, rounded down (8 match days → 3) |
 | `playoffSize` | 4 | 2 (final only) or 4 (semifinals + final); can be overridden per bracket |
 | `pointsPerWin` / `pointsPerLoss` | 3 / 0 | Standings points |
 | `requireRubbersInRegularSeason` | false | Require match-by-match scores before regular-season results count (always required in playoffs) |

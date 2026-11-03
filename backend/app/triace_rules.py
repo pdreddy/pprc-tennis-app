@@ -1,6 +1,6 @@
 """Every TRIACE property as validated, organizer-configurable rules (pure; no database access)."""
 from dataclasses import dataclass
-from math import ceil
+from math import floor
 
 
 class RuleError(ValueError):
@@ -14,7 +14,7 @@ class TriaceRules:
     doubles_matches: int = 2
     super_tiebreak_matches: int = 1
     super_tiebreak_points: int = 10
-    singles_positions: tuple[int, ...] = (1, 2)
+    singles_positions: tuple[int, ...] = (1, 2, 3)  # any two of the three players may play singles on a match day
     doubles_pairs: tuple[tuple[int, int], ...] = ((1, 3), (2, 3))
     team_min_rating: float = 12.0
     team_max_rating: float = 18.5
@@ -106,7 +106,8 @@ class TriaceRules:
         return [set(pair) for pair in self.doubles_pairs]
 
     def required_singles_days(self, match_days: int) -> int:
-        return ceil(match_days * self.min_singles_participation_pct)
+        """Official rule: the share of match days, rounded down (8 days at 40% is 3.2, so 3). The epsilon absorbs float error."""
+        return floor(match_days * self.min_singles_participation_pct + 1e-9)
 
     def as_dict(self) -> dict:
         """camelCase form stored in event/division rules and returned by the API."""
