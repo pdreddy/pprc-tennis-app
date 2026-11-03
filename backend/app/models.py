@@ -6,6 +6,7 @@ from datetime import timezone
 
 from sqlalchemy import JSON, Boolean, Date, DateTime, Enum, ForeignKey, Index, Integer, Numeric, String, Text, TypeDecorator, UniqueConstraint, Uuid, func, text
 from sqlalchemy.dialects import postgresql
+from sqlalchemy.engine import Dialect
 
 # Portable column types: native JSONB/UUID on PostgreSQL, JSON/CHAR on SQLite (preview).
 JSONB = JSON().with_variant(postgresql.JSONB(), "postgresql")
@@ -17,12 +18,12 @@ class UTCDateTime(TypeDecorator):
     impl = DateTime(timezone=True)
     cache_ok = True
 
-    def process_bind_param(self, value, dialect):
+    def process_bind_param(self, value: datetime | None, dialect: Dialect) -> datetime | None:
         if value is not None and value.tzinfo is None:
             value = value.replace(tzinfo=timezone.utc)
         return value
 
-    def process_result_value(self, value, dialect):
+    def process_result_value(self, value: datetime | None, dialect: Dialect) -> datetime | None:
         if value is not None and value.tzinfo is None:
             value = value.replace(tzinfo=timezone.utc)
         return value

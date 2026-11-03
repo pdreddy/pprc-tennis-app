@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .models import AuditLog, Membership, MembershipRole, Notification
+from .recalc_queue import ratings_settled
 
 STAFF_ROLES = {MembershipRole.owner, MembershipRole.admin, MembershipRole.organizer}
 
@@ -27,8 +28,6 @@ async def notify(session: AsyncSession, club_id: UUID, user_id: str, kind: str, 
 
 
 async def require_role(session: AsyncSession, club_id: UUID, actor: str, roles: set[MembershipRole]) -> Membership:
-    from .rating_service import ratings_settled  # late import: rating_service imports this module
-
     await ratings_settled(club_id)
     membership = await session.scalar(select(Membership).where(Membership.club_id == club_id, Membership.user_id == actor))
     if membership is None or membership.role not in roles:

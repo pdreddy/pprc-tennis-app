@@ -10,13 +10,13 @@ from sqlalchemy import delete, event, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
+from . import recalc_queue
 from .common import notify
+from .database import SessionLocal
 from .models import PlayerPreference, PlayerProfile, PlayerRating, RatedMatch, RatingHistory
 from .pprc_rating import DEFAULT_START, FORMULA_VERSION, PROVISIONAL_MATCHES, RatedInput, clamp, is_rateable, parse_score, replay
 
 _locks: dict[UUID, asyncio.Lock] = defaultdict(asyncio.Lock)
-_dirty: set[UUID] = set()
-_workers: dict[UUID, asyncio.Task] = {}
 logger = logging.getLogger("uvicorn.error")
 
 
@@ -41,7 +41,7 @@ def _queue_after_commit(sync_session: Session) -> None:
     if clubs:
         loop = asyncio.get_running_loop()
         for club_id in clubs:
-            loop.call_soon(_start_worker, club_id)
+            loop.call_soon(recalc_queue.start, club_id, _replay)
 
 
 @event.listens_for(Session, "after_rollback")
@@ -49,35 +49,14 @@ def _drop_after_rollback(sync_session: Session) -> None:
     sync_session.info.pop("pprc_recalc", None)
 
 
-def _start_worker(club_id: UUID) -> None:
-    _dirty.add(club_id)
-    if club_id not in _workers:
-        _workers[club_id] = asyncio.get_running_loop().create_task(_worker(club_id))
-
-
-async def _worker(club_id: UUID) -> None:
-    """One worker per club; a burst of confirmations collapses into as few replays as possible."""
-    from .database import SessionLocal
-
+async def _replay(club_id: UUID) -> None:
+    """Background replay in its own session; a failure is logged and the next request retries."""
     try:
-        while club_id in _dirty:
-            _dirty.discard(club_id)
-            try:
-                async with SessionLocal() as session:
-                    await recalculate_club(session, club_id)
-                    await session.commit()
-            except Exception:
-                logger.exception("background rating recalculation failed for %s", club_id)
-    finally:
-        _workers.pop(club_id, None)
-
-
-async def ratings_settled(club_id: UUID | None = None) -> None:
-    """Wait for any pending replay (one club, or all) so reads never show half-updated ratings."""
-    current = asyncio.current_task()
-    tasks = [t for c, t in list(_workers.items()) if (club_id is None or c == club_id) and t is not current]
-    if tasks:
-        await asyncio.wait(tasks)
+        async with SessionLocal() as session:
+            await recalculate_club(session, club_id)
+            await session.commit()
+    except Exception:
+        logger.exception("background rating recalculation failed for %s", club_id)
 
 
 def score_fields(score_text: str | None, outcome: str, winner_side: int | None) -> dict:

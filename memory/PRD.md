@@ -27,5 +27,7 @@
 
 - 2026-06 round 8: ladder deadline warning a day ahead (in-app + email to both sides, once, scheduled matches only; ladder_alerts.py); Google Calendar link on accepted challenges with a time (90 min, court as location); free-text court on challenges and suggested times; Rivalries board on Rankings (club scope: most played / closest within 2 wins / one-sided, 2+ rated meetings, private players hidden). Challenge times now shown in the viewer's timezone; scheduler logs only clubs with sends. Migration 014. 130 dev tests + iteration 6 preview suite pass.
 
+- 2026-06 round 9 (code review): broke the common <-> rating_service import cycle (new dependency-free recalc_queue.py holds the background replay registry); split generate_draw (per-format builders), add_entry, ensure_entry (EntrySpec dataclass), build_elimination, advance_groups, player_standings, finalize_match, submit_result, h2h and rivalries into small helpers with identical behaviour; typed UTCDateTime; removed an unused import. pylint finds no cycles or undefined names. Test `is True/False/None` checks kept on purpose (strict JSON boolean/null checks; `==` would also accept 1/0).
+
 ## Backlog
 - P2: split admin.tsx/player.tsx; Stripe live payments (on hold by user choice).

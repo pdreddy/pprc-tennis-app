@@ -19,7 +19,7 @@ from .database import get_session
 from .emailer import send_email
 from .models import Challenge, Club, PlayerPreference, PlayerProfile, RatedMatch, RatingHistory
 from .members import require_club_admin
-from .rating_service import ratings_settled
+from .recalc_queue import ratings_settled
 from .ratings import ResultInput, club_ratings, hidden_for, is_staff, membership, names_for, rating_view, report_result, require_member, visible
 
 logger = logging.getLogger("uvicorn.error")
@@ -309,32 +309,41 @@ async def run_challenge_maintenance(club_id: UUID, session: AsyncSession = Depen
     return await challenge_maintenance(session, club_id)
 
 
+def rivalry_tally(rows: list[RatedMatch], names: dict[str, str], hidden: set[str]) -> tuple[dict, dict]:
+    """Wins per (sorted) pair of opponents and their latest meeting."""
+    tally: dict[tuple[str, str], list[int]] = {}
+    last: dict[tuple[str, str], datetime] = {}
+    for m in rows:
+        if m.winner_side not in (1, 2):
+            continue
+        pairs = [(one, two) for one in m.side_one for two in m.side_two if one not in hidden and two not in hidden and one in names and two in names]
+        for one, two in pairs:
+            a, b = sorted((one, two))
+            wins = tally.setdefault((a, b), [0, 0])
+            wins[0 if (m.winner_side == 1) == (a in m.side_one) else 1] += 1
+            last[(a, b)] = max(last.get((a, b), m.played_at), m.played_at)
+    return tally, last
+
+
+def rivalry_rows(tally: dict, last: dict, names: dict[str, str]) -> list[dict]:
+    """Pairs with 2+ meetings, leader first."""
+    rows = []
+    for (a, b), (a_wins, b_wins) in tally.items():
+        if a_wins + b_wins < 2:
+            continue
+        (lead, lead_wins), (trail, trail_wins) = sorted(((a, a_wins), (b, b_wins)), key=lambda x: -x[1])
+        rows.append({"a": {"user_id": lead, "display_name": names[lead]}, "b": {"user_id": trail, "display_name": names[trail]}, "a_wins": lead_wins, "b_wins": trail_wins, "meetings": a_wins + b_wins, "last_played_at": last[(a, b)]})
+    return rows
+
+
 @router.get("/v1/clubs/{club_id}/rivalries")
 async def rivalries(club_id: UUID, kind: Literal["singles", "doubles"] = "singles", limit: int = Query(5, ge=1, le=20), session: AsyncSession = Depends(get_session), actor: Actor = Depends(current_actor)) -> dict:
     """Most-played, closest and one-sided player pairs (2+ rated meetings); private players are left out."""
     viewer = await require_member(session, club_id, actor.user_id)
     hidden = await hidden_for(session, club_id, actor.user_id, is_staff(viewer))
     names = await names_for(session, club_id)
-    tally: dict[tuple[str, str], list[int]] = {}
-    last: dict[tuple[str, str], datetime] = {}
-    rows = (await session.scalars(select(RatedMatch).where(RatedMatch.club_id == club_id, RatedMatch.status == "finalized", RatedMatch.rated.is_(True), RatedMatch.kind == kind))).all()
-    for m in rows:
-        if m.winner_side not in (1, 2):
-            continue
-        for one in m.side_one:
-            for two in m.side_two:
-                if one in hidden or two in hidden or one not in names or two not in names:
-                    continue
-                a, b = sorted((one, two))
-                wins = tally.setdefault((a, b), [0, 0])
-                wins[0 if (m.winner_side == 1) == (a in m.side_one) else 1] += 1
-                last[(a, b)] = max(last.get((a, b), m.played_at), m.played_at)
-    pairs = []
-    for (a, b), (a_wins, b_wins) in tally.items():
-        if a_wins + b_wins < 2:
-            continue
-        lead, trail = ((a, a_wins), (b, b_wins)) if a_wins >= b_wins else ((b, b_wins), (a, a_wins))
-        pairs.append({"a": {"user_id": lead[0], "display_name": names[lead[0]]}, "b": {"user_id": trail[0], "display_name": names[trail[0]]}, "a_wins": lead[1], "b_wins": trail[1], "meetings": a_wins + b_wins, "last_played_at": last[(a, b)]})
+    matches = (await session.scalars(select(RatedMatch).where(RatedMatch.club_id == club_id, RatedMatch.status == "finalized", RatedMatch.rated.is_(True), RatedMatch.kind == kind))).all()
+    pairs = rivalry_rows(*rivalry_tally(matches, names, hidden), names)
     recent = lambda p: -p["last_played_at"].timestamp()  # noqa: E731
     return {
         "kind": kind,
@@ -364,46 +373,70 @@ async def public_head_to_head(slug: str, player_a: str, player_b: str, session: 
     return await h2h(session, club.id, player_a, player_b, lambda p: p is not None and p.visibility == "public", members - public)
 
 
-async def h2h(session: AsyncSession, club_id: UUID, player_a: str, player_b: str, can_see, hidden: set[str]) -> dict:
-    if player_a == player_b:
+async def visible_pair(session: AsyncSession, club_id: UUID, players: tuple[str, str], can_see) -> tuple[dict[str, str], dict]:
+    if players[0] == players[1]:
         raise HTTPException(status_code=422, detail="Choose two different players")
     names = await names_for(session, club_id)
-    profiles = {p.user_id: p for p in (await session.scalars(select(PlayerProfile).where(PlayerProfile.club_id == club_id, PlayerProfile.user_id.in_([player_a, player_b])))).all()}
-    for u in (player_a, player_b):
-        if u not in names or not can_see(profiles.get(u)):
-            raise HTTPException(status_code=404, detail="Player not available")
-    rows = (await session.scalars(select(RatedMatch).where(RatedMatch.club_id == club_id, RatedMatch.status == "finalized").order_by(RatedMatch.played_at.desc()).limit(5000))).all()
-    meetings = [m for m in rows if (player_a in m.side_one and player_b in m.side_two) or (player_a in m.side_two and player_b in m.side_one)]
-    history = {(h.rated_match_id, h.user_id): h for h in (await session.scalars(select(RatingHistory).where(RatingHistory.club_id == club_id, RatingHistory.rated_match_id.in_([m.id for m in meetings]), RatingHistory.user_id.in_([player_a, player_b])))).all()} if meetings else {}
+    profiles = {p.user_id: p for p in (await session.scalars(select(PlayerProfile).where(PlayerProfile.club_id == club_id, PlayerProfile.user_id.in_(players)))).all()}
+    if any(u not in names or not can_see(profiles.get(u)) for u in players):
+        raise HTTPException(status_code=404, detail="Player not available")
+    return names, profiles
 
-    def change(m: RatedMatch, u: str) -> dict | None:
-        h = history.get((m.id, u))
-        return {"before": round(float(h.rating_before), 2), "after": round(float(h.rating_after), 2), "delta": round(float(h.rating_after) - float(h.rating_before), 3)} if h else None
+
+async def meetings_between(session: AsyncSession, club_id: UUID, a: str, b: str) -> tuple[list[RatedMatch], dict]:
+    """Finalized matches with a and b on opposite sides, plus their rating-history rows."""
+    rows = (await session.scalars(select(RatedMatch).where(RatedMatch.club_id == club_id, RatedMatch.status == "finalized").order_by(RatedMatch.played_at.desc()).limit(5000))).all()
+    meetings = [m for m in rows if (a in m.side_one and b in m.side_two) or (a in m.side_two and b in m.side_one)]
+    if not meetings:
+        return [], {}
+    history = (await session.scalars(select(RatingHistory).where(RatingHistory.club_id == club_id, RatingHistory.rated_match_id.in_([m.id for m in meetings]), RatingHistory.user_id.in_([a, b])))).all()
+    return meetings, {(h.rated_match_id, h.user_id): h for h in history}
+
+
+def rating_change(history: dict, m: RatedMatch, user_id: str) -> dict | None:
+    h = history.get((m.id, user_id))
+    return {"before": round(float(h.rating_before), 2), "after": round(float(h.rating_after), 2), "delta": round(float(h.rating_after) - float(h.rating_before), 3)} if h else None
+
+
+def meeting_view(m: RatedMatch, a: str, b: str, history: dict, person) -> dict:
+    """One meeting from player A's point of view."""
+    a_side = 1 if a in m.side_one else 2
+    a_team, b_team = (m.side_one, m.side_two) if a_side == 1 else (m.side_two, m.side_one)
+    return {
+        "id": str(m.id), "kind": m.kind, "played_at": m.played_at, "score_text": m.score_text if a_side == 1 else flip_score(m.score_text),
+        "outcome": m.outcome, "rated": m.rated, "a_won": m.winner_side == a_side if m.winner_side in (1, 2) else None,
+        "a_partners": [person(u) for u in a_team if u != a], "b_partners": [person(u) for u in b_team if u != b],
+        "a_change": rating_change(history, m, a), "b_change": rating_change(history, m, b),
+    }
+
+
+def h2h_summary(matches: list[dict]) -> dict:
+    summary = {k: {"a_wins": 0, "b_wins": 0} for k in ("singles", "doubles")}
+    for m in matches:
+        if m["rated"] and m["a_won"] is not None:
+            summary[m["kind"]]["a_wins" if m["a_won"] else "b_wins"] += 1
+    return summary
+
+
+def h2h_player(user_id: str, profile: PlayerProfile | None, name: str, ordered_by_kind: dict) -> dict:
+    ratings = {}
+    for kind, ordered in ordered_by_kind.items():
+        row = next((r for r in ordered if r.user_id == user_id), None)
+        ratings[kind] = rating_view(row, ordered.index(row) + 1 if row and row.verified_matches else None)
+    return {"user_id": user_id, "display_name": profile.display_name if profile else name, "image_url": profile.image_url if profile else None, "city": profile.city if profile else None, "ratings": ratings}
+
+
+async def h2h(session: AsyncSession, club_id: UUID, player_a: str, player_b: str, can_see, hidden: set[str]) -> dict:
+    names, profiles = await visible_pair(session, club_id, (player_a, player_b), can_see)
+    meetings, history = await meetings_between(session, club_id, player_a, player_b)
 
     def person(u: str) -> dict:
         return {"user_id": "private", "display_name": "Private player"} if u in hidden else {"user_id": u, "display_name": names.get(u, u)}
 
-    matches, summary = [], {k: {"a_wins": 0, "b_wins": 0} for k in ("singles", "doubles")}
-    for m in meetings:
-        a_side = 1 if player_a in m.side_one else 2
-        a_won = m.winner_side == a_side if m.winner_side in (1, 2) else None
-        if m.rated and a_won is not None:
-            summary[m.kind]["a_wins" if a_won else "b_wins"] += 1
-        a_team, b_team = (m.side_one, m.side_two) if a_side == 1 else (m.side_two, m.side_one)
-        matches.append({
-            "id": str(m.id), "kind": m.kind, "played_at": m.played_at, "score_text": m.score_text if a_side == 1 else flip_score(m.score_text), "outcome": m.outcome, "rated": m.rated, "a_won": a_won,
-            "a_partners": [person(u) for u in a_team if u != player_a], "b_partners": [person(u) for u in b_team if u != player_b],
-            "a_change": change(m, player_a), "b_change": change(m, player_b),
-        })
-
-    ordered_by_kind = {kind: await club_ratings(session, club_id, kind) for kind in ("singles", "doubles")}
-
-    async def player(u: str) -> dict:
-        p = profiles.get(u)
-        ratings = {}
-        for kind, ordered in ordered_by_kind.items():
-            row = next((r for r in ordered if r.user_id == u), None)
-            ratings[kind] = rating_view(row, ordered.index(row) + 1 if row and row.verified_matches else None)
-        return {"user_id": u, "display_name": p.display_name if p else names[u], "image_url": p.image_url if p else None, "city": p.city if p else None, "ratings": ratings}
-
-    return {"a": await player(player_a), "b": await player(player_b), "summary": summary, "matches": matches}
+    matches = [meeting_view(m, player_a, player_b, history, person) for m in meetings]
+    ordered = {kind: await club_ratings(session, club_id, kind) for kind in ("singles", "doubles")}
+    return {
+        "a": h2h_player(player_a, profiles.get(player_a), names[player_a], ordered),
+        "b": h2h_player(player_b, profiles.get(player_b), names[player_b], ordered),
+        "summary": h2h_summary(matches), "matches": matches,
+    }

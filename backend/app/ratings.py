@@ -14,8 +14,9 @@ from .auth import Actor, current_actor
 from .common import STAFF_ROLES, audit, notify
 from .database import get_session
 from .models import Club, DivisionEntry, Membership, MembershipRole, PlayerPreference, PlayerProfile, PlayerRating, RatedMatch, RatingHistory
-from .pprc_rating import FORMULA_VERSION, MAX_RATING, MIN_RATING, OUTCOMES, FORMAT_WEIGHTS, PROVISIONAL_MATCHES
-from .rating_service import milestones_for, ratings_settled, recalculate_club, request_recalculation, score_fields
+from .pprc_rating import FORMULA_VERSION, MAX_RATING, MIN_RATING, OUTCOMES, FORMAT_WEIGHTS
+from .rating_service import milestones_for, recalculate_club, request_recalculation, score_fields
+from .recalc_queue import ratings_settled
 from .storage import get_object, put_object
 
 router = APIRouter()

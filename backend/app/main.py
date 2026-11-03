@@ -22,7 +22,8 @@ from .ratings import router as ratings_router
 from .members import router as members_router
 from .recaps import router as recaps_router
 from .challenges import router as challenges_router
-from .rating_service import ratings_settled, sync_triace_fixture
+from .rating_service import sync_triace_fixture
+from .recalc_queue import ratings_settled
 from .models import (
     AuditLog,
     Base,
