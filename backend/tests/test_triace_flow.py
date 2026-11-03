@@ -7,16 +7,18 @@ from datetime import datetime, timedelta, timezone
 import httpx
 
 BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
+# One keep-alive client: a new connection per call can exhaust ephemeral ports on long runs.
+CLIENT = httpx.Client(timeout=15)
 
 
 def request(method: str, path: str, user: str, **kwargs):
-    response = httpx.request(method, f"{BASE_URL}{path}", headers={"X-PPRC-User": user}, timeout=15, **kwargs)
+    response = CLIENT.request(method, f"{BASE_URL}{path}", headers={"X-PPRC-User": user}, **kwargs)
     assert response.status_code < 400, response.text
     return response.json()
 
 
 def request_error(method: str, path: str, user: str, **kwargs):
-    response = httpx.request(method, f"{BASE_URL}{path}", headers={"X-PPRC-User": user}, timeout=15, **kwargs)
+    response = CLIENT.request(method, f"{BASE_URL}{path}", headers={"X-PPRC-User": user}, **kwargs)
     assert response.status_code >= 400, response.text
     return response
 

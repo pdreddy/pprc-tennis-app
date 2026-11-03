@@ -120,7 +120,7 @@ export function CompetitionBoard({ division, staff, open = false }: { division: 
         {active.length === 0 && <Empty title="Nobody has entered yet" />}
         {active.map((entry) => (
           <div className="division-row" key={entry.id}>
-            <span><strong>{entryLabel(entry)}</strong>{entry.group_label ? ` · group ${entry.group_label}` : ""}{entry.seed ? ` · seed ${entry.seed}` : ""}{entry.rating != null ? ` · UTR ${entry.rating}` : ""}</span>
+            <span><strong>{entryLabel(entry)}</strong>{entry.group_label ? ` · group ${entry.group_label}` : ""}{entry.seed ? ` · seed ${entry.seed}` : ""}{entry.rating != null ? ` · PPRC ${entry.rating}` : ""}</span>
             {(staff || entry.user_id === user?.uid || entry.partner_user_id === user?.uid) && (
               <ConfirmAction
                 label="Withdraw"
@@ -155,14 +155,14 @@ export function CompetitionBoard({ division, staff, open = false }: { division: 
                 <Field label="Player Firebase UID"><input name="userId" required /></Field>
                 <Field label="Display name"><input name="displayName" /></Field>
                 {partnerFields}
-                <Field label="UTR"><input name="rating" type="number" min="0" max="20" step="0.01" /></Field>
-                <Field label="Seed" hint="Leave blank to seed by UTR"><input name="seed" type="number" min="1" /></Field>
+                <Field label="PPRC rating"><input name="rating" type="number" min="0" max="20" step="0.01" /></Field>
+                <Field label="Seed" hint="Leave blank to seed by PPRC rating"><input name="seed" type="number" min="1" /></Field>
               </FieldGrid>
             </Form>
           )}
           {!drawn && (
             <Action variant="primary" onClick={async () => { await generateApiDraw(id); await refresh(); }}>
-              {format === "ladder" ? "Seed ladder by seed and UTR" : format === "round_robin" ? "Generate round-robin schedule" : format === "swiss" ? "Generate round 1" : format === "groups_knockout" ? "Snake-draw groups and schedule matches" : "Generate bracket"}
+              {format === "ladder" ? "Seed ladder by seed and PPRC rating" : format === "round_robin" ? "Generate round-robin schedule" : format === "swiss" ? "Generate round 1" : format === "groups_knockout" ? "Snake-draw groups and schedule matches" : "Generate bracket"}
             </Action>
           )}
           {format === "swiss" && drawn && lastRound < swissTotal && (

@@ -26,7 +26,7 @@ const COMMUNITY_IMAGE =
   "https://images.unsplash.com/photo-1587683437362-da7775ffc532?crop=entropy&cs=srgb&fm=jpg&q=80&w=1200";
 
 const steps = [
-  { icon: UserRound, title: "Build your player profile", body: "Add your UTR or club rating as a reference so organizers can place you in the right division." },
+  { icon: UserRound, title: "Build your player profile", body: "Pick a starting level. Your PPRC Rating then grows from every verified match you play." },
   { icon: ListOrdered, title: "Enter a division at your level", body: "Pick singles, doubles or a TRIACE team. Full divisions keep a fair, first-come waitlist." },
   { icon: CalendarCheck, title: "Play your scheduled matches", body: "Draws, courts and times land in your schedule, with reminders in the app." },
   { icon: CheckCircle2, title: "Confirm scores, climb the table", body: "Report a score, your opponent confirms, and standings and brackets update instantly." },
@@ -70,7 +70,7 @@ function Hero() {
           Every week.
         </h1>
         <p className="lp-lead lp-rise lp-d2">
-          Leagues, ladders and tournaments for every tennis player at PPRC. Bring your UTR as a reference, enter the
+          Leagues, ladders and tournaments for every tennis player at PPRC. Earn your own PPRC Rating, enter the
           right division, and let the app handle draws, schedules and scores.
         </p>
         <div className="lp-actions lp-rise lp-d3">
@@ -109,8 +109,8 @@ function ScoreCard() {
         <span className="lp-live">Confirmed</span>
       </div>
       {[
-        { name: "J. Lawson", rating: "UTR 7.4", sets: [6, 4, 10], won: true },
-        { name: "A. Mehta", rating: "UTR 7.1", sets: [3, 6, 7], won: false },
+        { name: "J. Lawson", rating: "PPRC 7.40", sets: [6, 4, 10], won: true },
+        { name: "A. Mehta", rating: "PPRC 7.10", sets: [3, 6, 7], won: false },
       ].map((row) => (
         <div key={row.name} className={`lp-score-row${row.won ? " is-won" : ""}`}>
           <span className="lp-score-name">

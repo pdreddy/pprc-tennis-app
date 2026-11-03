@@ -6,7 +6,7 @@ export default defineConfig({
   timeout: 60000,
   expect: { timeout: 15000 },
   use: {
-    baseURL: "http://127.0.0.1:5173",
+    baseURL: process.env.PPRC_BASE_URL ?? "http://127.0.0.1:5173",
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
     launchOptions: {
@@ -16,7 +16,7 @@ export default defineConfig({
       args: ["--no-sandbox"],
     },
   },
-  webServer: {
+  webServer: process.env.PPRC_BASE_URL ? undefined : {
     command: "pnpm --filter @pprc/web exec vite --host 127.0.0.1",
     url: "http://127.0.0.1:5173",
     // Firebase's local emulator wrapper sets CI=1 even on a developer

@@ -36,6 +36,16 @@ Apply `backend/sql/002_multiclub_tournament.sql` and `backend/sql/003_tenant_rls
 
 The original Next.js prototype below remains intact. Its `app/`, `lib/`, and SQLite `data/` paths are independent of the new Events module. Existing root `dev`, `test`, `seed`, `build` commands still refer to that prototype. Never run its seed command to initialize Events.
 
+## PPRC Rating and player ecosystem
+
+API mode includes PPRC's own rating system — **PPRC Rating**, never UTR. Singles and doubles are rated separately on a 1.00–16.50 scale, stay **Provisional** until five verified matches, and carry a reliability score. Only finalized results with a real score are rated; every confirmation, correction or void replays the club deterministically. Formula, versioning and limitations: [docs/PPRC_RATING.md](docs/PPRC_RATING.md).
+
+Screens: `/players` (directory + filters), `/players/:id` (profile, ratings, rating history chart, form, partners), `/rankings` (club and all-clubs, singles/doubles, filters, pagination, 30-day movement), `/ladder`, `/me/matches` (report, confirm, dispute; organizers verify, correct, void) and `/me/rating` (onboarding and profile privacy).
+
+API: `GET/PUT /v1/clubs/{club}/players/me`, `GET /v1/clubs/{club}/players`, `GET /v1/clubs/{club}/players/{user}`, `GET /v1/public/clubs/{slug}/players/{user}`, `GET /v1/clubs/{club}/rankings`, `GET /v1/public/rankings`, `POST /v1/clubs/{club}/match-results`, `POST /v1/match-results/{id}/{confirm|dispute|finalize|void}`, `POST /v1/clubs/{club}/ratings/recalculate`, `GET /v1/rating/formula`.
+
+`./pprc.sh test-rating-ui` runs the PPRC Rating Playwright flows against the Docker API with one-click demo sign-in (`VITE_AUTH_MODE=demo`, local/staging only; it relies on the development-only `X-PPRC-User` header).
+
 ## Run locally
 
 Prerequisites: Node 22 (production Functions target), pnpm 11.25+, Java 21+, and Chromium for Playwright. The cloud environment includes checksum-verified Node 22.23.3 and runs Functions with that runtime. Install a Playwright-managed Chromium on a normal workstation and set `PLAYWRIGHT_CHROMIUM_PATH` to that binary, or use `/usr/bin/chromium` on this cloud machine.

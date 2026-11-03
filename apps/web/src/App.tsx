@@ -6,7 +6,9 @@ import {
   NavLink,
   useNavigate,
   useLocation,
+  Navigate,
 } from "react-router-dom";
+import { apiEnabled } from "./api";
 import { signOut } from "firebase/auth";
 import {
   CalendarDays,
@@ -50,6 +52,12 @@ const Results = lazy(() =>
   import("./player").then((m) => ({ default: m.Results })),
 );
 const Admin = lazy(() => import("./admin").then((m) => ({ default: m.Admin })));
+const PlayersDirectory = lazy(() => import("./players").then((m) => ({ default: m.PlayersDirectory })));
+const PlayerPage = lazy(() => import("./players").then((m) => ({ default: m.PlayerPage })));
+const RankingsPage = lazy(() => import("./players").then((m) => ({ default: m.RankingsPage })));
+const MyRating = lazy(() => import("./players").then((m) => ({ default: m.MyRating })));
+const MyMatches = lazy(() => import("./players").then((m) => ({ default: m.MyMatches })));
+const LadderPage = lazy(() => import("./players").then((m) => ({ default: m.LadderPage })));
 const EventWizard = lazy(() =>
   import("./admin").then((m) => ({ default: m.EventWizard })),
 );
@@ -82,11 +90,24 @@ function Layout() {
           className={menu ? "open" : ""}
           onClick={() => setMenu(false)}
         >
-          <NavLink to="/events">Explore events</NavLink>
-          <NavLink to="/my-events">My events</NavLink>
-          <NavLink to="/schedule">Schedule</NavLink>
-          <NavLink to="/results">Results</NavLink>
-          {admin && <NavLink to="/admin">Admin portal</NavLink>}
+          {apiEnabled ? (
+            <>
+              <NavLink to="/events" data-testid="nav-events">Events</NavLink>
+              <NavLink to="/players" data-testid="nav-players">Players</NavLink>
+              <NavLink to="/rankings" data-testid="nav-rankings">Rankings</NavLink>
+              <NavLink to="/ladder" data-testid="nav-ladder">Ladder</NavLink>
+              <NavLink to="/me/matches" data-testid="nav-my-matches">My matches</NavLink>
+              <NavLink to="/me/rating" data-testid="nav-my-rating">My rating</NavLink>
+            </>
+          ) : (
+            <>
+              <NavLink to="/events">Explore events</NavLink>
+              <NavLink to="/my-events">My events</NavLink>
+              <NavLink to="/schedule">Schedule</NavLink>
+              <NavLink to="/results">Results</NavLink>
+            </>
+          )}
+          {admin && <NavLink to="/admin" data-testid="nav-admin">Admin</NavLink>}
         </nav>
         <div className="header-actions">
           {user ? (
@@ -128,6 +149,12 @@ function Layout() {
           <Routes>
             <Route path="/" element={<Landing />} />
             <Route path="/events" element={<Discover />} />
+            <Route path="/players" element={<RequireUser><PlayersDirectory /></RequireUser>} />
+            <Route path="/players/:userId" element={<PlayerPage />} />
+            <Route path="/rankings" element={<RankingsPage />} />
+            <Route path="/ladder" element={<LadderPage />} />
+            <Route path="/me/rating" element={<RequireUser><MyRating /></RequireUser>} />
+            <Route path="/me/matches" element={<RequireUser><MyMatches /></RequireUser>} />
             <Route path="/events/:eventId" element={<EventDetail />} />
             <Route
               path="/register/:eventId/:divisionId"
@@ -152,16 +179,16 @@ function Layout() {
             <Route
               path="/schedule"
               element={
-                <RequireUser>
+                apiEnabled ? <Navigate to="/me/matches" replace /> : <RequireUser>
                   <Schedule />
                 </RequireUser>
               }
             />
-            <Route path="/results" element={<Results />} />
+            <Route path="/results" element={apiEnabled ? <Navigate to="/rankings" replace /> : <Results />} />
             <Route
               path="/profile"
               element={
-                <RequireUser>
+                apiEnabled ? <Navigate to="/me/rating" replace /> : <RequireUser>
                   <Profile />
                 </RequireUser>
               }

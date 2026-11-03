@@ -16,6 +16,7 @@ from .auth import Actor, current_actor
 from .common import audit, notify, require_role
 from .triace_rules import TRIACE_RULE_KEYS, RuleError, TriaceRules, validate_encounter
 from .competitions import router as competitions_router, sync_entries_for_registration
+from .ratings import router as ratings_router
 from .models import (
     AuditLog,
     Base,
@@ -293,6 +294,7 @@ app.add_middleware(RequestLimitMiddleware, writes_per_minute=get_settings().pprc
 
 
 app.include_router(competitions_router)
+app.include_router(ratings_router)
 
 
 @app.get("/health")

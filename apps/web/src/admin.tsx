@@ -87,8 +87,8 @@ export function Admin() {
         {[
           ["", "Overview", Activity],
           ["events", "Events", CalendarDays],
-          ["courts", "Courts & venues", MapPin],
-          ["members", "Members & roles", Users],
+          // Courts and the member directory are Firebase-only; API mode uses /players instead.
+          ...(apiEnabled ? [] : [["courts", "Courts & venues", MapPin], ["members", "Members & roles", Users]]),
           ["audit", "Audit history", Shield],
         ].map(([path, label, Icon]) => {
           const I = Icon as typeof CalendarDays;
@@ -1000,7 +1000,7 @@ function TriaceEventOperations({ event, divisions }: { event: Entity; divisions:
             await refresh(); setMessage("Team added for organizer approval.");
           }}>
             <Field label="Team name"><input name="teamName" required /></Field>
-            {Array.from({ length: config.teamSize }, (_, index) => index + 1).map((position) => <div className="form-grid" key={position}><Field label={`Player ${position} Firebase UID`}><input name={`player${position}`} required /></Field><Field label={`Player ${position} UTR`}><input name={`rating${position}`} type="number" min="0" max={config.playerMaxRating} step="0.01" required /></Field></div>)}
+            {Array.from({ length: config.teamSize }, (_, index) => index + 1).map((position) => <div className="form-grid" key={position}><Field label={`Player ${position} Firebase UID`}><input name={`player${position}`} required /></Field><Field label={`Player ${position} rating`}><input name={`rating${position}`} type="number" min="0" max={config.playerMaxRating} step="0.01" required /></Field></div>)}
           </Form>
           {(teams.data ?? []).map((team) => <div className="division-row" key={team.id}><span><strong>{team.name}</strong> · {team.status}</span>{team.status === "pending" && <Action onClick={async () => { await approveApiTeam(team.id); await refresh(); }}>Approve team</Action>}</div>)}
         </Panel>
@@ -1403,7 +1403,7 @@ const triaceDivision = {
   teamMaxRating: 18.5,
   minSinglesParticipationPct: 0.4,
   encounterFormat: "2 singles, 2 doubles, 1 super tiebreak; first to 3 points",
-  eligibilityNotes: "Three-player teams. Combined UTR 12.0–18.5. Every player must appear in singles on at least 40% of team match days to qualify for playoffs.",
+  eligibilityNotes: "Three-player teams. Combined rating 12.0–18.5. Every player must appear in singles on at least 40% of team match days to qualify for playoffs.",
 };
 export function EventWizard() {
   const { member, user } = useSession(),
@@ -1654,7 +1654,7 @@ export function EventWizard() {
             </div>
             {eventType === "TRIACE 2.0" && (
               <p className="notice">
-                TRIACE defaults are loaded: three-player teams, combined UTR 12.0–18.5, round robin, the top two teams per group advancing, and a best-of-five playoff encounter with two singles, two doubles, and a 10-point super tiebreak.
+                TRIACE defaults are loaded: three-player teams, combined rating 12.0–18.5, round robin, the top two teams per group advancing, and a best-of-five playoff encounter with two singles, two doubles, and a 10-point super tiebreak.
               </p>
             )}
             <Field label="Cover image (JPEG, PNG or WebP; under 5 MB)">
@@ -2130,8 +2130,8 @@ function IndividualTournamentSetup({ format }: { format: string }) {
           <Field label="Registration closes"><input name="registrationClose" type="datetime-local" required /></Field>
           <Field label="Entries (players or pairs)"><input name="capacity" type="number" min="2" max="256" defaultValue="16" required /></Field>
           <Field label="Entry fee (USD)"><input name="fee" type="number" min="0" step="0.01" defaultValue="0" required /></Field>
-          <Field label="Minimum UTR (optional)"><input name="minRating" type="number" min="0" max="20" step="0.1" /></Field>
-          <Field label="Maximum UTR (optional)"><input name="maxRating" type="number" min="0" max="20" step="0.1" /></Field>
+          <Field label="Minimum PPRC rating (optional)"><input name="minRating" type="number" min="0" max="20" step="0.1" /></Field>
+          <Field label="Maximum PPRC rating (optional)"><input name="maxRating" type="number" min="0" max="20" step="0.1" /></Field>
           {format === "ladder" && <Field label="Challenge range (places above)"><input name="challengeRange" type="number" min="1" max="10" defaultValue="3" required /></Field>}
           {(format === "round_robin" || format === "swiss" || format === "groups_knockout") && <Field label="Points per win"><input name="pointsPerWin" type="number" min="1" max="10" defaultValue="2" required /></Field>}
           {format === "groups_knockout" && (

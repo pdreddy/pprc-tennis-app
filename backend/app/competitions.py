@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .auth import Actor, current_actor
 from .common import STAFF_ROLES, audit, notify, require_role
 from .database import get_session
+from .rating_service import sync_competition_result
 from .formats import (
     DEAD,
     ENTRY_TYPES,
@@ -596,6 +597,20 @@ async def player_standings(division_id: UUID, session: AsyncSession = Depends(ge
     return [PlayerStandingRead(display_name=names.get(row["subject_id"], row["subject_id"]), **row) for row in table]
 
 
+async def rate_competition_match(session: AsyncSession, division: Division, match: CompetitionMatch, winner: str) -> None:
+    """Feed the verified result into PPRC Rating (walkovers are stored but never rated)."""
+    if not match.player_one_id or not match.player_two_id or DEAD in {match.player_one_id, match.player_two_id}:
+        return
+    one, two = await sides(session, match)
+    now = datetime.now(timezone.utc)
+    played_at = match.starts_at if match.starts_at and match.starts_at <= now else now
+    await sync_competition_result(
+        session, division.club_id, division.id, match.id, sorted(one), sorted(two),
+        winner_side=1 if winner == match.player_one_id else 2, score_text=match.score_text,
+        score_one=match.score_one, score_two=match.score_two, played_at=played_at, doubles=is_doubles(division),
+    )
+
+
 async def finalize_match(session: AsyncSession, division: Division, match: CompetitionMatch, winner: str, *, correction: bool) -> None:
     """Record the winner and move players along the bracket, ladder or reset logic."""
     previous_winner = match.winner_id
@@ -606,6 +621,7 @@ async def finalize_match(session: AsyncSession, division: Division, match: Compe
             if target is not None and target.status in {"reported", "finalized"}:
                 raise HTTPException(status_code=409, detail="The next round has already been played; correct that result first")
     match.winner_id, match.status = winner, "finalized"
+    await rate_competition_match(session, division, match, winner)
     if match.round_name == "grand_final":
         reset = await session.scalar(select(CompetitionMatch).where(CompetitionMatch.division_id == division.id, CompetitionMatch.round_name == "grand_final_reset"))
         if reset is not None:

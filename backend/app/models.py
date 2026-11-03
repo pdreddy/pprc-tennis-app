@@ -298,3 +298,81 @@ class CompetitionMatch(Base):
     loser_match_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("competition_matches.id", ondelete="SET NULL"), nullable=True)
     loser_slot: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), server_default=func.now())
+
+
+class PlayerProfile(Timestamped, Base):
+    """Club-scoped player profile. Visibility: public (anyone), club (members), private (self + staff)."""
+    __tablename__ = "player_profiles"
+    __table_args__ = (UniqueConstraint("club_id", "user_id", name="uq_player_profile_club_user"),)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    club_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("clubs.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[str] = mapped_column(String(128), index=True)
+    display_name: Mapped[str] = mapped_column(String(160))
+    city: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
+    state: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    home_club: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    image_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    preferred_sport: Mapped[str] = mapped_column(String(40), default="tennis")
+    age_group: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    gender_category: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    visibility: Mapped[str] = mapped_column(String(16), default="club")
+    starting_singles: Mapped[float] = mapped_column(Numeric(5, 2), default=5)
+    starting_doubles: Mapped[float] = mapped_column(Numeric(5, 2), default=5)
+
+
+class PlayerRating(Base):
+    """Current PPRC Rating per player and kind (singles/doubles); rebuilt by replay."""
+    __tablename__ = "player_ratings"
+    __table_args__ = (UniqueConstraint("club_id", "user_id", "kind", name="uq_player_rating"),)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    club_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("clubs.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[str] = mapped_column(String(128), index=True)
+    kind: Mapped[str] = mapped_column(String(16))
+    rating: Mapped[float] = mapped_column(Numeric(6, 4), index=True)
+    reliability: Mapped[float] = mapped_column(Numeric(5, 1), default=0)
+    verified_matches: Mapped[int] = mapped_column(Integer, default=0)
+    wins: Mapped[int] = mapped_column(Integer, default=0)
+    losses: Mapped[int] = mapped_column(Integer, default=0)
+    provisional: Mapped[bool] = mapped_column(Boolean, default=True)
+    last_played_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    formula_version: Mapped[str] = mapped_column(String(32))
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), server_default=func.now(), onupdate=func.now())
+
+
+class RatedMatch(Timestamped, Base):
+    """A singles/doubles result that may feed PPRC Rating once finalized."""
+    __tablename__ = "rated_matches"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    club_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("clubs.id", ondelete="CASCADE"), index=True)
+    source: Mapped[str] = mapped_column(String(16), default="reported")  # reported | competition
+    source_id: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True)
+    division_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("divisions.id", ondelete="SET NULL"), nullable=True, index=True)
+    kind: Mapped[str] = mapped_column(String(16))
+    side_one: Mapped[list] = mapped_column(JSONB, default=list)
+    side_two: Mapped[list] = mapped_column(JSONB, default=list)
+    score_text: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    games_one: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    games_two: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    winner_side: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    outcome: Mapped[str] = mapped_column(String(16), default="completed")
+    match_format: Mapped[str] = mapped_column(String(16), default="best_of_3")
+    played_at: Mapped[datetime] = mapped_column(UTCDateTime(), index=True)
+    status: Mapped[str] = mapped_column(String(16), default="reported", index=True)  # reported | finalized | disputed | cancelled
+    rated: Mapped[bool] = mapped_column(Boolean, default=False)
+    reported_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    confirmed_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    dispute_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    correction_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class RatingHistory(Base):
+    __tablename__ = "rating_history"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    club_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("clubs.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[str] = mapped_column(String(128), index=True)
+    kind: Mapped[str] = mapped_column(String(16))
+    rated_match_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("rated_matches.id", ondelete="CASCADE"))
+    rating_before: Mapped[float] = mapped_column(Numeric(6, 4))
+    rating_after: Mapped[float] = mapped_column(Numeric(6, 4))
+    played_at: Mapped[datetime] = mapped_column(UTCDateTime(), index=True)
+    formula_version: Mapped[str] = mapped_column(String(32))

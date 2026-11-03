@@ -141,6 +141,8 @@ export const listApiEvents = () => apiRequest<ApiEvent[]>(`/v1/clubs/${apiClubId
 export const listPublicApiEvents = () => publicApiRequest<ApiEvent[]>(`/v1/public/clubs/${apiClubSlug}/events`);
 export const getPublicApiEvent = (eventId: string) => publicApiRequest<ApiEvent>(`/v1/public/events/${eventId}`);
 export const listPublicApiDivisions = (eventId: string) => publicApiRequest<ApiDivision[]>(`/v1/public/events/${eventId}/divisions`);
+// Staff can read draft-event divisions; the public endpoint only serves published events.
+export const listApiEventDivisions = async (eventId: string, clubId = apiClubId) => (await apiRequest<ApiDivision[]>(`/v1/clubs/${clubId}/divisions`)).filter((division) => division.event_id === eventId);
 export const getApiEvent = (eventId: string) => apiRequest<ApiEvent>(`/v1/events/${eventId}`);
 export const getMyApiMembership = () => apiRequest<ApiMembership>(`/v1/clubs/${apiClubId}/memberships/me`);
 export const createApiEvent = (event: ApiEventInput) => apiRequest<ApiEvent>(`/v1/clubs/${apiClubId}/events`, { method: "POST", body: JSON.stringify(event) });
@@ -199,3 +201,37 @@ export const cancelApiLadderChallenge = (matchId: string) => apiRequest<void>(`/
 export const generateApiSwissRound = (divisionId: string) => apiRequest<ApiCompetitionMatch[]>(`/v1/divisions/${divisionId}/swiss/next-round`, { method: "POST", body: JSON.stringify({}) });
 export const awardApiWalkover = (matchId: string, winnerId: string, reason: string) => apiRequest<ApiCompetitionMatch>(`/v1/competition-matches/${matchId}/walkover`, { method: "POST", body: JSON.stringify({ winner_id: winnerId, reason }) });
 export const advanceApiGroups = (divisionId: string) => apiRequest<ApiCompetitionMatch[]>(`/v1/divisions/${divisionId}/groups/advance`, { method: "POST", body: JSON.stringify({}) });
+
+/** PPRC Rating, player profiles, rankings and player-reported results. */
+export type RatingKind = "singles" | "doubles";
+export type ApiRating = { rating: number; reliability: number; provisional: boolean; verified_matches: number; wins: number; losses: number; rank: number | null; last_played_at: string | null; formula_version: string };
+export type ApiProfile = { user_id: string; display_name: string; city?: string | null; state?: string | null; home_club?: string | null; image_url?: string | null; preferred_sport?: string; has_profile: boolean; age_group?: string | null; gender_category?: string | null; visibility?: "public" | "club" | "private"; starting_singles?: number; starting_doubles?: number };
+export type ApiSidePlayer = { user_id: string; display_name: string };
+export type ApiResult = { id: string; source: "reported" | "competition"; kind: RatingKind; status: "reported" | "finalized" | "disputed" | "cancelled"; outcome: string; rated: boolean; score_text: string | null; winner_side: 1 | 2 | null; match_format: string; played_at: string; reported_by: string | null; dispute_reason: string | null; correction_reason: string | null; side_one: ApiSidePlayer[]; side_two: ApiSidePlayer[] };
+export type ApiPlayerDetail = { profile: ApiProfile; ratings: Record<RatingKind, ApiRating | null>; recent_form: ("W" | "L")[]; record: { wins: number; losses: number }; history: { kind: RatingKind; played_at: string; rating: number }[]; recent_matches?: ApiResult[]; doubles_partners?: ApiSidePlayer[] };
+export type ApiPage<T> = { items: T[]; total: number; page: number; page_size: number };
+export type ApiDirectoryRow = ApiProfile & { rating: ApiRating | null };
+export type ApiRankingRow = ApiProfile & ApiRating & { rank: number; movement?: number; club_name?: string };
+export type ProfileInput = Omit<ApiProfile, "user_id" | "has_profile">;
+export type ResultInput = { kind: RatingKind; partner_id?: string; opponent_ids: string[]; score_text?: string; outcome: string; match_format: string; winner_side?: 1 | 2; played_at?: string };
+
+const query = (params: Record<string, unknown>) => {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) if (value !== undefined && value !== "" && value !== null) search.set(key, String(value));
+  const text = search.toString();
+  return text ? `?${text}` : "";
+};
+export const getMyPlayer = () => apiRequest<ApiPlayerDetail>(`/v1/clubs/${apiClubId}/players/me`);
+export const saveMyPlayer = (profile: ProfileInput) => apiRequest<ApiPlayerDetail>(`/v1/clubs/${apiClubId}/players/me`, { method: "PUT", body: JSON.stringify(profile) });
+export const getPlayer = (userId: string) => apiRequest<ApiPlayerDetail>(`/v1/clubs/${apiClubId}/players/${encodeURIComponent(userId)}`);
+export const getPublicPlayer = (userId: string) => publicApiRequest<ApiPlayerDetail>(`/v1/public/clubs/${apiClubSlug}/players/${encodeURIComponent(userId)}`);
+export const listPlayers = (filters: Record<string, unknown>) => apiRequest<ApiPage<ApiDirectoryRow>>(`/v1/clubs/${apiClubId}/players${query(filters)}`);
+export const listClubRankings = (filters: Record<string, unknown>) => apiRequest<ApiPage<ApiRankingRow>>(`/v1/clubs/${apiClubId}/rankings${query(filters)}`);
+export const listPlatformRankings = (filters: Record<string, unknown>) => publicApiRequest<ApiPage<ApiRankingRow>>(`/v1/public/rankings${query(filters)}`);
+export const listMyResults = () => apiRequest<ApiResult[]>(`/v1/clubs/${apiClubId}/match-results`);
+export const listClubResults = (status?: string) => apiRequest<ApiResult[]>(`/v1/clubs/${apiClubId}/match-results${query({ mine: false, status })}`);
+export const reportResult = (input: ResultInput) => apiRequest<ApiResult>(`/v1/clubs/${apiClubId}/match-results`, { method: "POST", body: JSON.stringify(input) });
+export const confirmResult = (id: string) => apiRequest<ApiResult>(`/v1/match-results/${id}/confirm`, { method: "POST" });
+export const disputeResult = (id: string, reason: string) => apiRequest<ApiResult>(`/v1/match-results/${id}/dispute`, { method: "POST", body: JSON.stringify({ reason }) });
+export const finalizeResult = (id: string, input: { score_text?: string; outcome?: string; winner_side?: 1 | 2; reason: string }) => apiRequest<ApiResult>(`/v1/match-results/${id}/finalize`, { method: "POST", body: JSON.stringify(input) });
+export const voidResult = (id: string, reason: string) => apiRequest<ApiResult>(`/v1/match-results/${id}/void`, { method: "POST", body: JSON.stringify({ reason }) });

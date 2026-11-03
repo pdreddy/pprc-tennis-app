@@ -4,7 +4,7 @@ test("original PPRC discovery shell and mobile navigation remain usable", async 
 }) => {
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
-  await page.goto("/");
+  await page.goto("/events");
   await expect(
     page.getByRole("heading", {
       name: "More than a match. A place to belong.",

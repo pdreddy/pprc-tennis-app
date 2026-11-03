@@ -19,6 +19,7 @@ import {
   getPublicApiEvent,
   getApiEvent,
   listPublicApiDivisions,
+  listApiEventDivisions,
   listPublicApiEvents,
   listMyApiRegistrations,
   listApiNotifications,
@@ -245,7 +246,7 @@ export function useEvent(id: string) {
   const divisions = useQuery({
       queryKey: ["event-divisions", apiEnabled ? "api" : "firebase", id],
       queryFn: async () => apiEnabled
-        ? (await listPublicApiDivisions(id)).map(toUiDivision)
+        ? (await (["clubAdmin", "eventAdmin"].includes(String(member?.role)) ? listApiEventDivisions(id) : listPublicApiDivisions(id))).map(toUiDivision)
         : getList("divisions", filters),
       enabled: !!e.data,
     }),

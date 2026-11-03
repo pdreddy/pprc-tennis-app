@@ -1,0 +1,46 @@
+/* Players, rankings and PPRC Rating. Prefixed `pr-`. */
+.pr-rating { display: inline-flex; flex-direction: column; align-items: flex-start; line-height: 1.1; }
+.pr-rating strong { font: 700 26px/1 "Space Grotesk", sans-serif; color: var(--navy); font-variant-numeric: tabular-nums; }
+.pr-rating em { font-style: normal; font-size: 11px; color: var(--muted); margin-top: 4px; }
+.pr-rating.is-empty { color: var(--muted); font-size: 13px; }
+.pr-prov { display: inline-block; font-style: normal; font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #8a5a00 !important; background: #fff4de; border: 1px solid #f2d9a4; border-radius: 999px; padding: 1px 7px; margin-left: 6px; }
+.pr-rel { display: inline-block; width: 90px; height: 6px; border-radius: 99px; background: #e6edf2; overflow: hidden; vertical-align: middle; }
+.pr-rel i { display: block; height: 100%; background: linear-gradient(90deg, #087f80, #3cc1a5); border-radius: inherit; transition: width 0.4s; }
+.pr-move { display: inline-flex; align-items: center; gap: 2px; font-size: 12px; font-weight: 700; color: var(--muted); }
+.pr-move.up { color: #0b6b4b; } .pr-move.down { color: #a32727; }
+.pr-avatar { width: 52px; height: 52px; flex: none; border-radius: 16px; display: grid; place-items: center; background: var(--navy); color: #d7f25c; font: 700 17px "Space Grotesk", sans-serif; object-fit: cover; }
+.pr-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 16px 0 22px; }
+.pr-filters input, .pr-filters select { width: 100%; padding: 11px 13px; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
+.pr-filters .search-field { grid-column: span 2; }
+.pr-toolbar { display: flex; flex-wrap: wrap; gap: 12px; margin: 12px 0; }
+.pr-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; margin: 12px 0 20px; }
+.pr-player { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 14px; padding: 14px 16px; border-radius: 18px; background: #fff; border: 1px solid var(--line); transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s; }
+.pr-player:hover { transform: translateY(-2px); border-color: #9fb5c8; box-shadow: 0 10px 24px #0a193112; color: inherit; }
+.pr-player > span:nth-child(2) { display: flex; flex-direction: column; min-width: 0; }
+.pr-player small { color: var(--muted); }
+.pr-player .pr-rating strong { font-size: 20px; }
+.pr-pager { display: flex; align-items: center; justify-content: center; gap: 14px; margin: 12px 0 24px; }
+.pr-hero { display: flex; flex-wrap: wrap; align-items: center; gap: 20px; padding: 26px; border-radius: 24px; background: var(--navy); color: #fff; margin-bottom: 16px; }
+.pr-hero h1 { color: #fff; margin: 4px 0 8px; }
+.pr-hero .eyebrow { color: #d7f25c; }
+.pr-hero .pr-avatar { width: 76px; height: 76px; font-size: 24px; background: #ffffff18; }
+.pr-hero > div { flex: 1; min-width: 200px; }
+.pr-form { display: flex; gap: 6px; }
+.pr-form span { width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center; font-size: 12px; font-weight: 800; }
+.pr-form .w { background: #d7f25c; color: #0b1f30; } .pr-form .l { background: #ffffff22; color: #fff; }
+.pr-rating-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.pr-card { display: grid; gap: 8px; padding: 18px 20px; border-radius: 18px; background: #fff; border: 1px solid var(--line); }
+.pr-card .pp-section-title { margin: 0; }
+.pr-card small { color: var(--muted); }
+.pr-card .pr-rating strong { font-size: 40px; }
+.pr-chart { width: 100%; height: 180px; }
+.pr-chart polyline { fill: none; stroke: var(--teal); stroke-width: 2.5; stroke-linejoin: round; }
+.pr-chart circle { fill: #fff; stroke: var(--navy); stroke-width: 2; }
+.pr-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.pr-chip { padding: 6px 12px; border-radius: 999px; background: #eef3f6; font-weight: 600; font-size: 14px; }
+.pr-tags { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+@media (max-width: 600px) {
+  .pr-filters .search-field { grid-column: auto; }
+  .pr-hero { padding: 20px; }
+  .pr-card .pr-rating strong { font-size: 32px; }
+}

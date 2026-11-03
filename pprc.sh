@@ -4,7 +4,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 RUNTIME_DIR="$ROOT/.local/pprc"
-PPRC_CLUB_ID="bbe8f388-df0b-5f70-820a-e36720a5f3ff"
+# uuid5 of "club:pprc" in backend/scripts/seed_fresh_club.py
+PPRC_CLUB_ID="82a25bc1-9def-58d4-bc37-4be4c1b8fd6d"
 
 need() { command -v "$1" >/dev/null || { echo "Missing required command: $1" >&2; exit 1; }; }
 wait_for() { local url="$1"; for _ in $(seq 1 60); do curl -fsS "$url" >/dev/null && return 0; sleep 1; done; echo "Timed out waiting for $url" >&2; return 1; }
@@ -115,7 +116,23 @@ case "${1:-help}" in
     pnpm events:integration
     PPRC_REUSE_DEV_SERVER=1 pnpm events:e2e
     pnpm events:ui
+    "$0" test-rating-ui
     echo "All local PPRC checks passed. Start the app with: $0 up"
+    ;;
+  test-rating-ui)
+    # PPRC Rating browser flows against the Docker API with one-click demo sign-in (local only).
+    need pnpm; need curl
+    docker compose up -d --build
+    wait_for http://localhost:8000/health
+    apply_api_schema
+    seed_api_demo_club
+    stop_background rating-web
+    start_background rating-web env VITE_DATA_PROVIDER=api VITE_AUTH_MODE=demo VITE_USE_EMULATORS=false \
+      VITE_API_BASE_URL=http://localhost:8000 VITE_PPRC_CLUB_ID="$PPRC_CLUB_ID" VITE_PPRC_CLUB_SLUG=pprc \
+      pnpm --filter @pprc/web exec vite --host 127.0.0.1 --port 5174 --strictPort
+    wait_for http://127.0.0.1:5174
+    PPRC_API_UI=1 PPRC_BASE_URL=http://127.0.0.1:5174 pnpm exec playwright test tests/rating.spec.ts || { stop_background rating-web; exit 1; }
+    stop_background rating-web
     ;;
   *)
     cat <<'USAGE'
@@ -127,6 +144,7 @@ Usage: ./pprc.sh <command>
   test-all          Run PWA/shared/backend build checks plus FastAPI syntax checks
   test-api          Apply local API migrations and run FastAPI black-box tests
   verify-local      Install dependencies and run all API, Firebase, browser, and static checks
+  test-rating-ui    Run the PPRC Rating Playwright flows (players, rankings, results, ladder)
 USAGE
     ;;
 esac

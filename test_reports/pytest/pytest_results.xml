@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="8" time="106.065" timestamp="2026-11-03T00:07:07.561584+00:00" hostname="agent-env-36063aaa-955f-46bb-b567-73276414ec28"><testcase classname="tests.test_api_gaps_public" name="test_public_events_listed" time="0.197" /><testcase classname="tests.test_api_gaps_public" name="test_duplicate_club_slug_409" time="0.253" /><testcase classname="tests.test_api_gaps_public" name="test_duplicate_existing_pprc_slug_409" time="0.105" /><testcase classname="tests.test_api_gaps_public" name="test_body_over_1mb_413" time="0.207" /><testcase classname="tests.test_api_gaps_public" name="test_rate_limit_429_only_above_600" time="104.400"><failure message="AssertionError: [404, 404, 404]&#10;assert 429 in [404, 404, 404]">def test_rate_limit_429_only_above_600():
+        user = f"rl_{uuid.uuid4().hex[:8]}"
+        url = f"{BASE}/v1/notifications/{uuid.uuid4()}/read"
+    
+        def hit(_):
+            return requests.post(url, headers=H(user), timeout=30).status_code
+    
+        with ThreadPoolExecutor(max_workers=40) as ex:
+            codes = list(ex.map(hit, range(600)))
+        assert 429 not in codes, f"429 before 600: {codes.count(429)}"
+        extra = [requests.post(url, headers=H(user), timeout=30).status_code for _ in range(3)]
+&gt;       assert 429 in extra, extra
+E       AssertionError: [404, 404, 404]
+E       assert 429 in [404, 404, 404]
+
+tests/test_api_gaps_public.py:76: AssertionError</failure></testcase><testcase classname="tests.test_api_gaps_public" name="test_patch_triace_event_syncs_all_divisions" time="0.451" /><testcase classname="tests.test_api_gaps_public" name="test_playoff_seeds_endpoint" time="0.217" /><testcase classname="tests.test_api_gaps_public" name="test_playoff_seeds_404_unknown" time="0.097" /></testsuite></testsuites>
