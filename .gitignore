@@ -21,3 +21,10 @@ test-results/
 **/.env.*
 !**/.env.example
 *.tsbuildinfo
+.env
+.env.*
+*.env
+credentials.json
+*.pem
+*.key
+.credentials
