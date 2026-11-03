@@ -389,3 +389,4 @@ class PlayerPreference(Base):
     weekly_recap: Mapped[bool] = mapped_column(Boolean, default=False)
     recap_sent_week: Mapped[str | None] = mapped_column(String(10), nullable=True)
     milestones_notified: Mapped[list] = mapped_column(JSONB, default=list)
+    last_self_recap_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)

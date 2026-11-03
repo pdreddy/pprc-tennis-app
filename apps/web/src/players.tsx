@@ -341,15 +341,17 @@ function ResultList({ title, results }: { title: string; results: ApiResult[] })
   );
 }
 
-function ReportForm({ opponent }: { opponent?: string }) {
+function ReportForm({ opponent }: { opponent?: { id: string; name: string } }) {
   const qc = useQueryClient();
   const [kind, setKind] = useState<RatingKind>("singles");
   const [formKey, setFormKey] = useState(0);
   const players = useQuery({ queryKey: ["players", "all"], queryFn: () => listPlayers({ page_size: 100 }) });
   const { user } = useSession();
-  const options = (players.data?.items ?? []).filter((p) => p.user_id !== user?.uid);
+  const listed = (players.data?.items ?? []).filter((p) => p.user_id !== user?.uid);
+  // A fair-match pick may sit outside the first page of players; keep it selectable.
+  const options = opponent && !listed.some((p) => p.user_id === opponent.id) ? [{ user_id: opponent.id, display_name: opponent.name }, ...listed] : listed;
   const select = (name: string, label: string) => (
-    <Field label={label}><select key={`${name}-${opponent ?? ""}`} name={name} required data-testid={`report-${name}`} defaultValue={name === "opponent" ? opponent ?? "" : ""}><option value="">Choose a player</option>{options.map((p) => <option key={p.user_id} value={p.user_id}>{p.display_name}</option>)}</select></Field>
+    <Field label={label}><select key={`${name}-${opponent?.id ?? ""}`} name={name} required data-testid={`report-${name}`} defaultValue={name === "opponent" ? opponent?.id ?? "" : ""}><option value="">Choose a player</option>{options.map((p) => <option key={p.user_id} value={p.user_id}>{p.display_name}</option>)}</select></Field>
   );
   return (
     <Panel title="Report a match" action={<Tabs label="Match kind" value={kind} onChange={setKind} options={kinds} />}>
@@ -383,7 +385,7 @@ function ReportForm({ opponent }: { opponent?: string }) {
 
 export function MyMatches() {
   const { member } = useSession();
-  const [opponent, setOpponent] = useState<string>();
+  const [opponent, setOpponent] = useState<{ id: string; name: string }>();
   const staff = isStaff(member?.role);
   const mine = useQuery({ queryKey: ["results", "mine"], queryFn: listMyResults, enabled: !!member });
   const queue = useQuery({ queryKey: ["results", "queue"], queryFn: () => listClubResults(), enabled: staff });
@@ -394,7 +396,7 @@ export function MyMatches() {
       <p className="eyebrow">RESULTS</p>
       <h1>My matches</h1>
       {pending.length > 0 && <Callout tone="warn">{pending.length} result{pending.length > 1 ? "s" : ""} waiting for confirmation.</Callout>}
-      <FairMatches onPick={(id) => { setOpponent(id); document.getElementById("report-match")?.scrollIntoView({ behavior: "smooth" }); }} />
+      <FairMatches onPick={(picked) => { setOpponent(picked); document.getElementById("report-match")?.scrollIntoView({ behavior: "smooth" }); }} />
       <div id="report-match"><ReportForm opponent={opponent} /></div>
       {mine.isLoading ? <p role="status">Loading…</p> : <ResultList title="My results" results={mine.data ?? []} />}
       {staff && <ResultList title="Club results needing attention" results={(queue.data ?? []).filter((r) => r.status === "reported" || r.status === "disputed")} />}

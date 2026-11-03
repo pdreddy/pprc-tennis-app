@@ -239,3 +239,35 @@ def test_recap_template_passes_email_guardrails():
     html = recap_html("<b>Al</b>", {"kinds": [], "opponents": [{"display_name": "<script>", "rating": 6.0, "gap": 0.1}]}, "https://pprc.example.com")
     _assert_safe_email("Your PPRC weekly rating recap", html)
     assert "<script>" not in html and "&lt;b&gt;" in html
+
+
+def test_recap_batch_survives_a_bad_recipient(monkeypatch):
+    import asyncio
+
+    from app import recaps
+
+    class Prefs:
+        def __init__(self, user_id):
+            self.user_id, self.email, self.recap_sent_week, self.weekly_recap = user_id, f"{user_id}@example.com", None, True
+
+    class Scalars:
+        def __init__(self, rows):
+            self.rows = rows
+
+        def all(self):
+            return self.rows
+
+    class FakeSession:
+        async def scalars(self, _):
+            return Scalars([Prefs("bad"), Prefs("good")])
+
+        async def commit(self):
+            pass
+
+    async def fake_send(session, club_id, prefs):
+        if prefs.user_id == "bad":
+            raise ValueError("blocked by the email gate")
+
+    monkeypatch.setattr(recaps, "send_recap", fake_send)
+    result = asyncio.run(recaps.send_club_recaps(FakeSession(), uuid.uuid4()))
+    assert result["sent"] == 1 and result["failed"] == 1

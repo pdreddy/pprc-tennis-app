@@ -71,7 +71,7 @@ async def fair_matches(session: AsyncSession, club_id: UUID, user_id: str, kind:
         gap = float(r.rating) - me
         if r.user_id == user_id or r.user_id not in members or abs(gap) > spread or not visible(profiles.get(r.user_id), user_id, staff):
             continue
-        meetings = [m for m in played if r.user_id in m.side_one or r.user_id in m.side_two]
+        meetings = [m for m in played if m.winner_side in (1, 2) and (r.user_id in m.side_one or r.user_id in m.side_two)]
         wins = sum(1 for m in meetings if m.winner_side and (m.winner_side == 1) == (user_id in m.side_one))
         p = profiles.get(r.user_id)
         rows.append({

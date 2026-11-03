@@ -54,6 +54,13 @@ API: `GET/PUT /v1/clubs/{club}/players/me`, `GET /v1/clubs/{club}/players`, `GET
 
 Profile photos are uploaded from the phone (resized to 512 px in the browser), stored in Emergent object storage and served by `GET /v1/player-photos/...`. Milestone cards (rating established, club top 10/5/3/No. 1) can be shared from **My rating** through the phone share sheet or downloaded as a PNG.
 
+## Club roles, fair matches and weekly recap
+
+- **Admin > Members & roles** (club admins): set each member to Player, Organizer or Club admin. The owner and your own role are protected; changes are audited and the member gets an in-app notification.
+- **Fair match finder** on My matches: members within ±0.25 / ±0.5 / ±1.0 of your PPRC Rating, closest first, with head-to-head and one-tap "Report match".
+- **Milestone alerts**: reaching a milestone creates one in-app notification linking to the shareable card.
+- **Weekly rating recap** (Emergent managed email): opt-in per player; sent automatically Mondays 8:00 America/Chicago (`PPRC_WEEKLY_RECAP=true`, in-process scheduler) and on demand by admins. Needs `EMERGENT_EMAIL_KEY` and `EMAIL_FROM_NAME`. Migration `backend/sql/010_player_preferences.sql`.
+
 ## Run locally
 
 Prerequisites: Node 22 (production Functions target), pnpm 11.25+, Java 21+, and Chromium for Playwright. The cloud environment includes checksum-verified Node 22.23.3 and runs Functions with that runtime. Install a Playwright-managed Chromium on a normal workstation and set `PLAYWRIGHT_CHROMIUM_PATH` to that binary, or use `/usr/bin/chromium` on this cloud machine.

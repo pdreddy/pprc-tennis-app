@@ -1,0 +1,46 @@
+{
+  "summary": "I tested the hosted preview with real Clerk ticket sign-ins for Alex (player) and Blair (club admin), backend pytest and Playwright. Backend: the new suite tests/test_iteration3_roles_fair_recaps.py passes 17/17, and together with the iteration-2 preview suite 31/31 pass. The dev-header server suite has 114 passed, 2 skipped and 0 failed. Members & roles works: GET members as a player returns 403, unauthenticated returns 401, and Blair gets the list. PATCHing your own role or the owner's returns 409, an invalid role 422, an unknown member 404, and a player trying to PATCH gets 403. A role change saves and sends the 'You are now organizer' notification. Fair match opponents stay within the spread and are sorted by closeness (spread 0.25/0.5/1.0, singles/doubles; invalid kind or spread returns 422). POST /recaps/send as a player returns 403. The UI works as Blair: the 'Members & roles' sidebar link goes to /admin/members; Blair's own row and the owner row show plain text with no select; the search box filters to Alex; changing Alex to Organizer saves and survives a reload; and the send-recaps status reads 'Sent 0 of 0 opted-in players for 2026-W45' (repeatable). The UI also works as Alex: /notifications shows 'You are now organizer', one 'New milestone: PPRC singles rating established' and one 'Club top 10' (no duplicates); the 'View and share card' link opens /me/rating; the new-milestone banner shows (the milestones are dated 2026-11-03, within 7 days) with 2 share buttons; the weekly-recap checkbox label includes the email, and once checked and saved it stays checked after a reload; 'Email me my recap' shows 'Sent to alex+clerk_test@example.com' and a second press shows 'You can send yourself a recap once an hour'. The fair match finder shows ±0.25 → 1 row, ±0.5 → 2, ±1.0 → 6; in Doubles the Report buttons are hidden; Report match preselects the opponent (player7) in report-opponent and scrolls to it. Weekly recap idempotency: the test ran on Monday 22:26 Chicago time, so the in-process scheduler sent Alex's recap on its own right after he opted in (recap_sent_week=2026-W45). Admin send-now then returned sent 0 of 1 opted in, twice, so it is idempotent. Mobile 390px: /me/rating, /me/matches, /rankings, /players, /notifications and /admin/members have no page-level horizontal overflow. Regression: rankings, the players directory (18 cards), report/confirm and photo upload work (iteration-2 preview suite re-run). At the end I set Alex back to Player and checked that /admin/members then shows 'Administrator access required'. One real defect: the once-an-hour self-recap limit is kept in memory and is lost on a backend restart. I reproduced it: after a hot reload, a second POST /recaps/me inside the hour returned 200 and sent another email.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/v1/clubs/{club}/recaps/me", "issue": "The once-an-hour limit is stored in a process-local dict (recaps._self_sends). Any restart, hot reload, deploy or extra worker resets it. Reproduced: after a backend reload, a second call within the hour returned 200 and sent a second email instead of 429. Store the last self-send time on PlayerPreference (DB) instead."},
+      {"endpoint": "POST /api/v1/clubs/{club}/recaps/send + weekly_scheduler", "issue": "send_club_recaps only catches HTTPException. send_email raises ValueError from _assert_safe_email outside its try, for example when a display name contains a blocked phrase such as 'send your password'. That error stops the whole batch for every later recipient, and the admin endpoint returns 500. Catch Exception for each recipient and count it as failed."},
+      {"endpoint": "recaps.recap_data / members.fair_matches", "issue": "Win/loss counting assumes winner_side is set: a finalized match with winner_side None counts as a loss in head-to-head and is miscounted in the weekly W-L (as a win if the player is on side two)."},
+      {"endpoint": "weekly_scheduler", "issue": "logger.info('weekly recap ...') never shows in the supervisor logs (log level), so you cannot see whether the automatic Monday run happened. It did run during this test (Alex's recap_sent_week was set to 2026-W45 with no admin send)."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "MyMatches / FairMatches onPick", "issue": "scrollIntoView on #report-match leaves the 'Report a match' panel heading and tabs under the sticky header after scrolling; add scroll-margin-top to #report-match.", "selector": "#report-match", "priority": "LOW"},
+      {"component": "ReportForm", "issue": "Opponent options come from listPlayers(page_size 100). With more than 100 members, a fair-match opponent outside the first page cannot be preselected (the select falls back to 'Choose a player').", "selector": "[data-testid=report-opponent]", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Admin > Members & roles", "issues": ["The members-search input has no visible border or background; it looks like plain grey placeholder text, not an input box."]},
+      {"screen": "My matches (390px)", "issues": ["The Fair match finder title wraps to 2 lines and the Singles/Doubles tabs stack vertically, making a tall header. The 'Report a match' header wraps the same way."]},
+      {"screen": "Fair match finder", "issues": ["data-testid=fair-matches is only on the <ul> when there are results; the empty state ('No one in range yet') has no test id."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iteration3_roles_fair_recaps.py", "/app/backend/tests/test_clerk_preview_auth.py", "/app/test_reports/pytest/iteration3.xml", "/app/test_reports/pytest/iteration3_dev.xml"],
+  "action_items": [
+    "Persist the /recaps/me hourly rate limit in the DB (for example PlayerPreference.last_self_recap_at); the in-memory dict resets on restart or with more than one worker.",
+    "In send_club_recaps, catch all exceptions for each recipient (not only HTTPException) so one bad recipient cannot stop the weekly batch or make /recaps/send return 500.",
+    "Handle winner_side None in head-to-head and weekly W-L counts.",
+    "Style the members-search input (border/background like the other inputs).",
+    "Add scroll-margin-top to #report-match so the report form is not hidden under the sticky header."
+  ],
+  "critical_code_review_comments": [
+    "recaps._self_sends is an in-process dict: not durable, not shared between workers.",
+    "A self-sent recap does not set recap_sent_week, so a player who presses 'Email me my recap' still gets the weekly email the same week. Probably intended, but confirm.",
+    "The scheduler fires whenever weekday==0 and hour>=8, every 15 minutes and on every restart. It is idempotent per week, but anyone who opts in late Monday gets an email within 15 minutes; that is acceptable, just document it.",
+    "set_member_role lets any admin demote another admin. Fine for now, but there is no guard against demoting the last non-owner admin."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration3_roles_fair_recaps.py", "/app/backend/tests/_mint_tickets.py"],
+  "success_rate": {"backend": "100% (31/31 preview, 114 passed/2 skipped dev); 1 minor rate-limit durability defect", "frontend": "100% of requested flows passed; minor UX/design issues"},
+  "test_credentials": "Used /app/memory/test_credentials.md: Alex (alex+clerk_test@example.com, player) and Blair (blair+clerk_test@example.com, club admin). Sign-in tickets minted with backend/tests/_mint_tickets.py (Clerk /sign_in_tokens; it does not wipe Alex's photo, unlike scripts/clerk_preview_testers.py).",
+  "seed_data_creation": "No new seed data. State changes: Alex's role went player→organizer→player (restored); Alex opted in to the weekly recap (weekly_recap=1, recap_sent_week=2026-W45); 3 recap emails went to alex+clerk_test@example.com (1 automatic weekly, 2 self-sends). Blair is still not opted in; no demo players were opted in.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Mint tickets: cd /app/backend/tests && /root/.venv/bin/python _mint_tickets.py > /tmp/t.json, then open <preview>/sign-in?__clerk_ticket=<t>. Creating or editing files under /app/backend triggers a uvicorn hot reload, which also resets the in-memory recap rate limit. Run the dev suite with: uvicorn server:app --port 8765 (NOT app.main:app) plus PPRC_ENVIRONMENT=development DATABASE_URL=sqlite+aiosqlite:////app/data/test.db PPRC_SEED_DEMO=false PPRC_RATE_LIMIT_WRITES_PER_MINUTE=0 PPRC_WEEKLY_RECAP=false, then API_BASE_URL=http://127.0.0.1:8765/api pytest --ignore the two preview suites. To test 'Sent 1 of 1' through the button, reset recap_sent_week for Alex in pprc.db, or test in a later ISO week. Alex user_3LZiH8Z6sMSW6dzL0u97FJRDhFV, Blair user_3LZiHDWUfNX2bYSqFVHRHqNYeSh, owner uid 'admin'.",
+  "rca of the issue": "Self-recap limit bypass: recaps.py keeps `_self_sends: dict[str, datetime]` at module level. A uvicorn reload (WatchFiles) or restart re-imports the module and clears it. Repro: POST /recaps/me (200), restart the backend, POST again within the hour → 200 instead of 429. Fix: persist the timestamp in PlayerPreference and check it there."
+}

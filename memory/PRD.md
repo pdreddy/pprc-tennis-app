@@ -17,6 +17,8 @@
 
 - 2026-06 round 3: TRIACE rubbers feed PPRC Rating (migration 009); profile photo upload (Emergent object storage, magic-byte check); milestone cards with share sheet / PNG download; Emergent-managed sign-in (Google + email code) in hosted preview with auto-join and ADMIN_EMAIL admin; dev header disabled on hosted preview. 123 backend tests pass on a dev-header test server; testing agent iteration 2 verified real sign-in UI flows.
 
+- 2026-06 round 4: admin member roles (members.py + Admin > Members & roles); fair match finder; milestone in-app notifications + "New milestone" banner; weekly recap email via Emergent managed email (opt-in, Monday 8am Central scheduler + admin send + self-send once/hour stored in DB). 146 backend tests pass; testing agent iteration 3 verified UI; its minor findings fixed.
+
 ## Backlog
 - P1: background worker for recalculation; admin UI to promote members; Playwright flows for Emergent sign-in (ticket based).
 - P2: ladder expiry background job; groups+knockout same-group R1 avoidance; split admin.tsx/player.tsx; Stripe live payments.

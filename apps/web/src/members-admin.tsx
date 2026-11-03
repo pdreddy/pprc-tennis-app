@@ -4,6 +4,7 @@ import { Mail } from "lucide-react";
 import { listMembers, sendRecapsNow, setMemberRole } from "./api";
 import { Callout, DataTable } from "./components";
 import { Empty, Panel } from "./ui";
+import "./players.css";
 
 const roles = [
   { value: "player", label: "Player" },

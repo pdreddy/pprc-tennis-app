@@ -12,7 +12,7 @@ const spreads = [
 ];
 
 /** Opponents whose PPRC Rating is close to yours, closest first. */
-export function FairMatches({ onPick }: { onPick?: (userId: string) => void }) {
+export function FairMatches({ onPick }: { onPick?: (opponent: { id: string; name: string }) => void }) {
   const [kind, setKind] = useState<RatingKind>("singles");
   const [spread, setSpread] = useState("0.5");
   const q = useQuery({ queryKey: ["fair-matches", kind, spread], queryFn: () => listFairMatches(kind, Number(spread)) });
@@ -23,7 +23,7 @@ export function FairMatches({ onPick }: { onPick?: (userId: string) => void }) {
         <Tabs label="Rating range" value={spread} onChange={setSpread} options={spreads} />
       </div>
       {q.isLoading ? <p role="status">Finding opponents…</p> : q.error ? <p role="alert" className="error">{(q.error as Error).message}</p> : !q.data?.length ? (
-        <Empty title="No one in range yet">Widen the range or play a first verified match to get a rating.</Empty>
+        <div data-testid="fair-matches-empty"><Empty title="No one in range yet">Widen the range or play a first verified match to get a rating.</Empty></div>
       ) : (
         <ul className="pr-fair" data-testid="fair-matches">
           {q.data.map((o) => (
@@ -37,7 +37,7 @@ export function FairMatches({ onPick }: { onPick?: (userId: string) => void }) {
                 <strong>{o.rating.toFixed(2)}</strong>
                 <small className={o.gap > 0 ? "up" : o.gap < 0 ? "down" : ""}>{o.gap > 0 ? "+" : ""}{o.gap.toFixed(2)}{o.provisional ? " · P" : ""}</small>
               </span>
-              {onPick && kind === "singles" && <button className="button secondary small" onClick={() => onPick(o.user_id)} data-testid={`fair-match-report-${o.user_id}`}>Report match</button>}
+              {onPick && kind === "singles" && <button className="button secondary small" onClick={() => onPick({ id: o.user_id, name: o.display_name })} data-testid={`fair-match-report-${o.user_id}`}>Report match</button>}
             </li>
           ))}
         </ul>

@@ -63,6 +63,8 @@
   .pr-card .pr-rating strong { font-size: 32px; }
 }
 .pr-hero-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; }
+#report-match { scroll-margin-top: 96px; }
+@media (max-width: 600px) { .panel .section-heading { flex-wrap: wrap; gap: 8px; } }
 .pr-avatar.sm { width: 40px; height: 40px; border-radius: 12px; font-size: 14px; }
 .pr-fair-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 10px; }
 .pr-fair-head .hint { margin: 0; }

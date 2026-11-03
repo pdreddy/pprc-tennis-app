@@ -19,10 +19,9 @@ from .members import fair_matches, require_club_admin
 from .models import Club, PlayerPreference, PlayerProfile, RatedMatch, RatingHistory
 from .ratings import club_ratings, require_member
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("uvicorn.error")  # shows up in the server log
 router = APIRouter()
 CLUB_TZ = ZoneInfo("America/Chicago")
-_self_sends: dict[str, datetime] = {}
 
 
 def week_key(now: datetime | None = None) -> str:
@@ -46,6 +45,7 @@ async def recap_data(session: AsyncSession, club_id: UUID, user_id: str) -> dict
         previous = sorted(then, key=lambda u: -then[u])
         mine_week = [h for h in week if h.user_id == user_id]
         matches = [m for m in (await session.scalars(select(RatedMatch).where(RatedMatch.club_id == club_id, RatedMatch.kind == kind, RatedMatch.status == "finalized", RatedMatch.rated.is_(True), RatedMatch.played_at > since))).all() if user_id in m.side_one or user_id in m.side_two]
+        matches = [m for m in matches if m.winner_side in (1, 2)]
         wins = sum(1 for m in matches if (m.winner_side == 1) == (user_id in m.side_one))
         rank = rated.index(mine) + 1
         out["kinds"].append({
@@ -104,6 +104,9 @@ async def send_club_recaps(session: AsyncSession, club_id: UUID) -> dict:
             failed += 1
             if exc.status_code == 503:
                 break  # owner billing state: stop for now, the next run resumes
+        except Exception:
+            failed += 1  # one bad recipient never stops the batch
+            logger.exception("weekly recap failed for %s", prefs.user_id)
     return {"week": key, "sent": sent, "failed": failed, "opted_in": len(recipients)}
 
 
@@ -123,11 +126,17 @@ async def send_my_recap(club_id: UUID, session: AsyncSession = Depends(get_sessi
     prefs = await session.scalar(select(PlayerPreference).where(PlayerPreference.club_id == club_id, PlayerPreference.user_id == actor.user_id))
     if prefs is None or not prefs.email:
         raise HTTPException(status_code=409, detail="Sign in with a verified email to receive recaps")
-    last = _self_sends.get(actor.user_id)
+    last = prefs.last_self_recap_at
     if last and datetime.now(timezone.utc) - last < timedelta(hours=1):
         raise HTTPException(status_code=429, detail="You can send yourself a recap once an hour")
-    await send_recap(session, club_id, prefs)
-    _self_sends[actor.user_id] = datetime.now(timezone.utc)
+    prefs.last_self_recap_at = datetime.now(timezone.utc)
+    await session.commit()  # stored before sending so restarts or extra workers cannot double-send
+    try:
+        await send_recap(session, club_id, prefs)
+    except Exception:
+        prefs.last_self_recap_at = last  # a failed send should not lock the player out for an hour
+        await session.commit()
+        raise
     return {"sent_to": prefs.email}
 
 
