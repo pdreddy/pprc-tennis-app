@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -11,6 +12,10 @@ class Settings(BaseSettings):
     pprc_bootstrap_schema: bool = True
     pprc_environment: str = "development"
     firebase_project_id: str | None = None
+    clerk_secret_key: str | None = None
+    # "auto" keeps the legacy behaviour (Clerk when its secret is set, otherwise Firebase). Pin "clerk" or
+    # "firebase" in deployed environments so a stray variable can never switch the token verifier.
+    pprc_auth_provider: Literal["auto", "clerk", "firebase"] = "auto"
     stripe_secret_key: str | None = None
     stripe_webhook_secret: str | None = None
     pprc_app_origin: str = "http://localhost:5173"
@@ -21,6 +26,23 @@ class Settings(BaseSettings):
     @property
     def cors_origins(self) -> list[str]:
         return [origin.strip() for origin in self.pprc_cors_origins.split(",") if origin.strip()]
+
+    @property
+    def auth_provider(self) -> Literal["clerk", "firebase"] | None:
+        """The one verifier used for bearer tokens, or None when nothing is configured."""
+        if self.pprc_auth_provider != "auto":
+            return self.pprc_auth_provider
+        if self.clerk_secret_key:
+            return "clerk"
+        return "firebase" if self.firebase_project_id else None
+
+    def auth_config_error(self) -> str | None:
+        """Why bearer-token auth cannot work with the current settings, if it cannot."""
+        if self.auth_provider == "clerk" and not self.clerk_secret_key:
+            return "PPRC_AUTH_PROVIDER=clerk requires CLERK_SECRET_KEY"
+        if self.auth_provider == "firebase" and not self.firebase_project_id:
+            return "PPRC_AUTH_PROVIDER=firebase requires FIREBASE_PROJECT_ID"
+        return None
 
     @property
     def allow_development_header(self) -> bool:

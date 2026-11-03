@@ -286,9 +286,10 @@ async def ranked_playoff_teams(session: AsyncSession, division: Division) -> lis
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     settings = get_settings()
-    if not settings.allow_development_header and not settings.firebase_project_id and not os.environ.get("CLERK_SECRET_KEY"):
-        # Fail fast: without this every request would 401 and the misconfiguration is easy to miss.
-        raise RuntimeError("Configure FIREBASE_PROJECT_ID or Emergent-managed auth when PPRC_ENVIRONMENT is not 'development'")
+    # Fail fast: a pinned provider without its credentials, or no provider outside development, would 401 every request.
+    problem = settings.auth_config_error() or (None if settings.allow_development_header or settings.auth_provider else "Configure PPRC_AUTH_PROVIDER with FIREBASE_PROJECT_ID or CLERK_SECRET_KEY when PPRC_ENVIRONMENT is not 'development'")
+    if problem:
+        raise RuntimeError(problem)
     if settings.pprc_bootstrap_schema:
         async with engine.begin() as connection:
             await connection.run_sync(Base.metadata.create_all)

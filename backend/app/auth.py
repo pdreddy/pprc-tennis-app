@@ -1,5 +1,4 @@
 """Authentication boundary: Emergent-managed (Clerk) sessions, Firebase ID tokens, or the local demo header."""
-import os
 from dataclasses import dataclass
 
 from fastapi import Header, HTTPException, status
@@ -33,7 +32,7 @@ def _clerk_actor(token: str) -> Actor:
         try:
             response = requests.get(
                 f"https://api.clerk.com/v1/users/{user_id}", timeout=10,
-                headers={"Authorization": f"Bearer {os.environ['CLERK_SECRET_KEY']}", "User-Agent": "pprc-api"},
+                headers={"Authorization": f"Bearer {get_settings().clerk_secret_key}", "User-Agent": "pprc-api"},
             )
         except requests.RequestException as exc:
             raise HTTPException(status_code=503, detail="Sign-in service is busy. Please try again in a moment.") from exc
@@ -79,9 +78,12 @@ async def current_actor(
     """Accept Emergent-managed (Clerk) or Firebase bearer tokens; permit the demo header in local development only."""
     if authorization and authorization.lower().startswith("bearer "):
         token = authorization.split(" ", 1)[1].strip()
-        if os.environ.get("CLERK_SECRET_KEY"):
+        provider = get_settings().auth_provider
+        if provider == "clerk":
             return await run_in_threadpool(_clerk_actor, token)
-        return _verify_firebase_token(token)
+        if provider == "firebase":
+            return _verify_firebase_token(token)
+        raise HTTPException(status_code=401, detail="Token verification is not configured")
     if get_settings().allow_development_header and x_pprc_user:
         return Actor(user_id=x_pprc_user, name=x_pprc_user)
     raise HTTPException(
