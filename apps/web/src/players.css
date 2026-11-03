@@ -43,7 +43,9 @@
 .pr-chart-wrap figcaption strong { color: var(--navy); }
 .pr-chart polyline { fill: none; stroke: var(--teal); stroke-width: 2.5; stroke-linejoin: round; }
 .pr-chart circle { fill: #fff; stroke: var(--navy); stroke-width: 2; }
-.pr-photo-upload { display: grid; gap: 6px; justify-items: start; }
+.pr-photo-upload { display: contents; }
+.pr-photo-upload [role="alert"] { order: 3; flex-basis: 100%; margin: 0; }
+.pr-player strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pr-milestones { display: grid; gap: 10px; margin-bottom: 16px; }
 .pr-milestone { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 14px; padding: 16px 18px; border-radius: 18px; background: linear-gradient(100deg, #0b1f30, #14395a); color: #fff; animation: lp-rise 0.5s both; }
 .pr-milestone > svg { color: #d7f25c; }

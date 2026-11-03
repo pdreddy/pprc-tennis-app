@@ -15,6 +15,8 @@
 - 2026-06 round 2: PPRC Rating engine `pprc-rating-1.0` + docs/PPRC_RATING.md; profiles with onboarding starting level & visibility; directory, profile pages with history chart, partners, form; club & all-clubs rankings (filters, pagination, 30-day movement); report/confirm/dispute/verify/correct/void; tournament & ladder results feed ratings; private players anonymised; ladder page; API-mode nav and redirects of Firebase-only screens; seed with rated demo matches + ladder; UI "UTR" labels replaced by PPRC rating; `./pprc.sh test-rating-ui` + verify-local; README/RELEASE_READINESS updated; fixed wrong PPRC_CLUB_ID in pprc.sh.
 - Tests: 128 backend tests pass (incl. 11 rating unit, 12 rating API, testing-agent regression); 4 Playwright rating flows pass against preview.
 
+- 2026-06 round 3: TRIACE rubbers feed PPRC Rating (migration 009); profile photo upload (Emergent object storage, magic-byte check); milestone cards with share sheet / PNG download; Emergent-managed sign-in (Google + email code) in hosted preview with auto-join and ADMIN_EMAIL admin; dev header disabled on hosted preview. 123 backend tests pass on a dev-header test server; testing agent iteration 2 verified real sign-in UI flows.
+
 ## Backlog
-- P1: real Firebase sign-in in hosted preview; TRIACE rubbers feeding PPRC Rating; background worker for recalculation; profile image upload.
+- P1: background worker for recalculation; admin UI to promote members; Playwright flows for Emergent sign-in (ticket based).
 - P2: ladder expiry background job; groups+knockout same-group R1 avoidance; split admin.tsx/player.tsx; Stripe live payments.

@@ -256,6 +256,7 @@ export function RequireUser({ children }: { children: ReactNode }) {
         Loading your session…
       </div>
     );
+  if (!user && emergentAuth) return <Navigate to="/sign-in" replace />;
   return user ? (
     <>{children}</>
   ) : (

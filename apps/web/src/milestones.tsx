@@ -28,7 +28,8 @@ export function PhotoUpload() {
           await qc.invalidateQueries();
           setState({ busy: false, error: "" });
         } catch (error) {
-          setState({ busy: false, error: (error as Error).message || "Upload failed" });
+          const message = (error as Error).message || "";
+          setState({ busy: false, error: /decod|read that image/i.test(message) || error instanceof DOMException ? "Choose a JPEG, PNG or WebP photo." : message || "Upload failed" });
         }
       }} />
       <button type="button" className="button secondary small" disabled={state.busy} onClick={() => input.current?.click()} data-testid="upload-photo-btn">

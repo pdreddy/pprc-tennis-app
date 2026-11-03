@@ -48,6 +48,6 @@ R'        = clamp(R + delta, 1.00, 16.50)
 - No cross-club rating pooling: a player's rating in one club is independent of another club.
 - Recalculation is a full club replay: fine for thousands of matches; very large clubs should move it to a worker queue.
 - Recency is relative to the recalculation time, so ratings can drift slightly when re-run months later with no new matches.
-- TRIACE team rubbers are not yet fed into PPRC Rating (team fixtures keep their own standings).
+- TRIACE rubbers are rated once the team fixture is finalized: singles and super tiebreaks as singles (a super tiebreak counts as one game, format weight 0.4), pairs as doubles, other rubbers as pro sets (0.8). Reported or disputed fixtures are stored but not rated.
 - Players without a profile start at 5.00.
 - Profile images are URLs; uploads are deferred.

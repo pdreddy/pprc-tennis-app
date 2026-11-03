@@ -1,5 +1,6 @@
 """Player profiles, PPRC Rating, rankings and player-reported results (club-scoped)."""
 import os
+from itertools import groupby
 from datetime import datetime, timedelta, timezone
 from typing import Literal
 from uuid import UUID, uuid4
@@ -175,6 +176,8 @@ async def save_my_player(club_id: UUID, payload: ProfileInput, session: AsyncSes
     profile = await session.scalar(select(PlayerProfile).where(PlayerProfile.club_id == club_id, PlayerProfile.user_id == actor.user_id))
     rated = await session.scalar(select(PlayerRating.id).where(PlayerRating.club_id == club_id, PlayerRating.user_id == actor.user_id, PlayerRating.verified_matches > 0).limit(1))
     values = payload.model_dump(exclude={"starting_singles", "starting_doubles"})
+    if "image_url" not in payload.model_fields_set:
+        values.pop("image_url")  # omitted means keep the current photo
     if profile is None:
         profile = PlayerProfile(club_id=club_id, user_id=actor.user_id, **values, starting_singles=payload.starting_singles or 5, starting_doubles=payload.starting_doubles or payload.starting_singles or 5)
         session.add(profile)
@@ -269,23 +272,22 @@ async def milestones_for(session: AsyncSession, club_id: UUID, user_id: str) -> 
         ratings: dict[str, float] = {}
         played = 0
         best_rank: int | None = None
-        rows = [row for row in history if row.kind == kind]
-        for h in rows:
-            ratings[h.user_id] = float(h.rating_after)
-            # Evaluate once every player of this match has been updated.
-            last_of_match = h is rows[-1] or rows[rows.index(h) + 1].rated_match_id != h.rated_match_id
-            mine = next((r for r in rows if r.rated_match_id == h.rated_match_id and r.user_id == user_id), None)
-            if not last_of_match or mine is None:
+        for _, match_rows in groupby((row for row in history if row.kind == kind), key=lambda row: row.rated_match_id):
+            match_rows = list(match_rows)
+            for row in match_rows:
+                ratings[row.user_id] = float(row.rating_after)
+            mine = next((row for row in match_rows if row.user_id == user_id), None)
+            if mine is None:
                 continue
-            h = mine
             played += 1
-            rating = round(float(h.rating_after), 2)
+            rating = round(float(mine.rating_after), 2)
             rank = 1 + sum(1 for other, value in ratings.items() if other != user_id and value > ratings[user_id])
-            base = {"kind": kind, "date": h.played_at, "rating": rating, "rank": rank, "field": len(ratings)}
+            base = {"kind": kind, "date": mine.played_at, "rating": rating, "rank": rank, "field": len(ratings)}
             if played == PROVISIONAL_MATCHES:
                 found.append({**base, "id": f"{kind}-established", "type": "established", "title": f"PPRC {kind} rating established", "detail": f"{rating:.2f} after {played} verified matches"})
-            for threshold in RANK_THRESHOLDS:
-                if rank <= threshold and (best_rank is None or best_rank > threshold) and len(ratings) > threshold:
+            # Strictest threshold first, so jumping straight to No. 1 is celebrated as No. 1.
+            for threshold in sorted(RANK_THRESHOLDS):
+                if rank <= threshold and len(ratings) > threshold and (best_rank is None or best_rank > threshold):
                     label = "No. 1 in the club" if threshold == 1 else f"Club top {threshold}"
                     found.append({**base, "id": f"{kind}-top{threshold}", "type": "rank", "title": f"{label} · {kind}", "detail": f"Ranked #{rank} of {len(ratings)} at {rating:.2f}"})
                     break
@@ -316,6 +318,15 @@ MAX_PHOTO_BYTES = 3_000_000
 PHOTO_PREFIX = "/api/v1/player-photos/"
 
 
+def image_signature_matches(data: bytes, content_type: str) -> bool:
+    """Check the file's magic bytes so the declared type cannot smuggle other content."""
+    if content_type == "image/jpeg":
+        return data[:3] == b"\xff\xd8\xff"
+    if content_type == "image/png":
+        return data[:8] == b"\x89PNG\r\n\x1a\n"
+    return data[:4] == b"RIFF" and data[8:12] == b"WEBP"
+
+
 @router.post("/v1/clubs/{club_id}/players/me/photo")
 async def upload_photo(club_id: UUID, file: UploadFile = File(...), session: AsyncSession = Depends(get_session), actor: Actor = Depends(current_actor)) -> dict:
     await require_member(session, club_id, actor.user_id)
@@ -327,6 +338,8 @@ async def upload_photo(club_id: UUID, file: UploadFile = File(...), session: Asy
     data = await file.read(MAX_PHOTO_BYTES + 1)
     if len(data) > MAX_PHOTO_BYTES:
         raise HTTPException(status_code=413, detail="Photos must be 3 MB or smaller")
+    if not image_signature_matches(data, file.content_type):
+        raise HTTPException(status_code=415, detail="Upload a JPEG, PNG or WebP image")
     app_name = os.environ.get("PPRC_APP_NAME", "pprc")
     path = f"{app_name}/player-photos/{club_id}/{uuid4()}.{PHOTO_TYPES[file.content_type]}"
     try:
@@ -348,7 +361,7 @@ async def player_photo(path: str, session: AsyncSession = Depends(get_session)) 
         data, content_type = await run_in_threadpool(get_object, path)
     except Exception as exc:
         raise HTTPException(status_code=404, detail="Photo not found") from exc
-    return Response(content=data, media_type=content_type, headers={"Cache-Control": "private, max-age=86400"})
+    return Response(content=data, media_type=content_type, headers={"Cache-Control": "private, max-age=86400", "X-Content-Type-Options": "nosniff"})
 
 
 async def history_rank_movement(session: AsyncSession, club_id: UUID, kind: str, rows: list[PlayerRating], days: int = 30) -> dict[str, int]:

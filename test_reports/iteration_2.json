@@ -1,0 +1,48 @@
+{
+  "summary": "Tested the hosted preview with real Clerk sign-in (ticket flow as Alex) plus backend pytest. Backend: a new preview suite with Clerk Bearer tokens (14/14 pass) covers clerk/config, 401 without a token, 401 for the X-PPRC-User header, 401 for an invalid bearer, 200 with a Clerk JWT, idempotent join (role player), join on an unknown club (404), photo upload/serve (200 image/*), 415 for non-images, 413 for files over 3 MB, a 404 photo path, rankings/directory, and report vs Blair with Blair confirming (self-confirm rejected). The dev-header server suite (TRIACE feed, rating flow, rules; 108 passed, 2 skipped) passes. A new repro test confirms a milestone bug: a player who enters a field of more than 10 at #1 gets only 'Club top 10', not 'No. 1'. Frontend: / landing, Sign in -> /sign-in Clerk card ('Continue to PPRC', Google, email field), /signin -> /sign-in, ticket sign-in, the session staying after a refresh, Bearer getToken 200 vs 401 without a token, /me/rating (Alex Tester, singles card, milestones, share download pprc-singles-established.png 1080x1350 PNG + 'Card downloaded'), photo upload (hero <img> /api/v1/player-photos/...jpg, 512x512, 200 image/jpeg), non-image error alert, /rankings and /players showing Alex and his avatar image, /me/matches report vs Blair (reported + 'waiting for confirmation' callout), sign out back to the signed-out landing, and mobile 390px (no horizontal overflow on /sign-in, /players, /me/rating) all work.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/v1/clubs/{club}/players/me (milestones_for)", "issue": "Rank milestones check thresholds from loosest to strictest (10,5,3,1), then `break`, and set best_rank to the actual rank. A player who jumps straight to #1–#3 of a field of more than 10 gets only 'Club top 10' (with detail 'Ranked #1 of 13'), and top 5/3/No.1 can never be earned later. Repro: tests/test_milestone_rank_jump.py (dev server) -> milestones {'singles-top10'}. Fix: loop over (1,3,5,10) and award the strictest threshold reached that was not reached before, or award every newly crossed threshold."},
+      {"endpoint": "milestones_for", "issue": "O(n^2): `rows.index(h)` plus `next(...)` over all club history rows for every row, on every /players/me and public player call. This will slow down as the club's history grows. Group rows by rated_match_id once instead."},
+      {"endpoint": "auth._clerk_actor", "issue": "When the Clerk /users lookup fails (network or 5xx), requests.HTTPError is not handled, so the API returns a bare 500. Map it to 503 with a 'try again' message. Do not fall back to a default role. Also, the 401 detail says 'Use a Firebase Bearer token, or X-PPRC-User…', which is misleading in the Clerk preview."},
+      {"endpoint": "POST /players/me/photo + GET /player-photos", "issue": "The upload trusts the client's content_type and never checks the file's magic bytes. The file is then served with that type and without X-Content-Type-Options: nosniff. Validate the image signature and add nosniff."},
+      {"endpoint": "PUT /api/v1/clubs/{club}/players/me", "issue": "PUT without image_url resets the photo to null. scripts/clerk_preview_testers.py does this, so every re-run (needed for each new ticket) wipes Alex's uploaded photo. Make image_url optional/unchanged when omitted, or have the script keep it."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "PhotoUpload error", "issue": "A non-image shows the raw browser DOMException text 'The source image could not be decoded.' Show a friendly message such as 'Choose a JPEG, PNG or WebP photo'. The alert also renders inline in the hero action row and pushes 'Edit profile' to the right on desktop (layout shift).", "selector": ".pr-photo-upload [role=alert]", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/me/rating signed out", "issues": ["It does not redirect to /sign-in. RequireUser shows an inline 'Your next match starts here' panel with a Sign in link to /signin, which then redirects. This works, but the review asked for a redirect. Optional: send the user straight to /sign-in and return them to the page afterwards."]},
+      {"screen": "/players directory card", "issues": ["Long names ('Club Administrator') overlap the rating number '5.00' in the card."]},
+      {"screen": "/me/matches report form", "issues": ["'Played on' uses the browser's native datetime-local picker instead of the shadcn-style date picker used elsewhere."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_clerk_preview_auth.py", "/app/backend/tests/test_milestone_rank_jump.py", "/app/test_reports/pytest/iteration2_clerk.xml", "/app/test_reports/pytest/iteration2_dev.xml"],
+  "action_items": [
+    "Fix the rank milestone threshold logic in backend/app/ratings.py milestones_for (award the strictest newly reached threshold). Make tests/test_milestone_rank_jump.py pass on the dev server.",
+    "Make milestones_for linear (group by rated_match_id).",
+    "Handle Clerk user-lookup failures in _clerk_actor as 503 instead of 500, and update the 401 detail text.",
+    "Show a friendly error for non-image photo picks and stop the alert from shifting the hero buttons.",
+    "Keep image_url on PUT /players/me when it is omitted, or update clerk_preview_testers.py so it does not wipe Alex's photo.",
+    "Optional: magic-byte check and nosniff header on photos; fix the directory name/rating overlap."
+  ],
+  "critical_code_review_comments": [
+    "ratings.py milestones_for threshold loop (10,5,3,1)+break gives the weakest milestone when someone jumps ranks (confirmed by repro).",
+    "milestones_for is O(n^2) on full club history per request.",
+    "clerk_auth.verify_session_token does not check the 'azp' (authorized party) claim, so any token from the same Clerk instance is accepted. This is acceptable in preview; consider it for production.",
+    "Unverified-email Clerk users can still self-join as player; only the admin role is gated on email_verified. This matches the intent.",
+    "MilestoneCard.share has no try/catch around renderCard and no busy state; a canvas failure gives an unhandled rejection and no feedback."
+  ],
+  "updated_files": ["/app/backend/tests/test_clerk_preview_auth.py (new)", "/app/backend/tests/test_milestone_rank_jump.py (new repro, run against dev-header server)"],
+  "success_rate": {"backend": "99% (122/123: 14/14 preview Clerk + 108/108 dev suite; 1 new repro fails for the milestone bug)", "frontend": "95% (all requested flows pass; minor UX/design issues only)"},
+  "test_credentials": "Used /app/memory/test_credentials.md: alex+clerk_test@example.com and blair+clerk_test@example.com (Clerk dev users, code 424242). Signed in through the ticket script. The admin account damu.palavali@gmail.com was not tested (it is the owner's real account).",
+  "seed_data_creation": "Added rated singles matches Alex vs Blair (6-4 3-6 10-8 and 6-4 6-4, both confirmed). One more report from the UI, Alex vs Blair 6-2 6-2, is still 'reported' (unconfirmed). Alex now has a small red PNG profile photo, uploaded through the API. The temporary /app/data/test.db dev server was stopped and the file deleted; /app/data/pprc.db was untouched.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Preview suite: cd /app/backend && /root/.venv/bin/python -m pytest -q tests/test_clerk_preview_auth.py. It mints Clerk JWTs with the secret key via load_dotenv; never print the key. Dev suite: start uvicorn on :8765 with PPRC_ENVIRONMENT=development DATABASE_URL=sqlite+aiosqlite:////app/data/test.db PPRC_SEED_DEMO=false PPRC_RATE_LIMIT_WRITES_PER_MINUTE=0, then run API_BASE_URL=http://127.0.0.1:8765/api pytest --ignore=tests/test_clerk_preview_auth.py. test_milestone_rank_jump should pass after the fix. For UI, a ticket can be minted with clerk('/sign_in_tokens', {user_id}) without re-running the tester script, which wipes Alex's photo. Opening /sign-in?__clerk_ticket=<t> signs in directly; no manual Clerk.signIn needed. The players/me response nests the profile under 'profile'.",
+  "rca of the issue": "Milestone rank bug: in milestones_for, `for threshold in (10,5,3,1): if rank <= threshold and (best_rank is None or best_rank > threshold) and len(ratings) > threshold: append top{threshold}; break` picks the first (loosest) threshold. best_rank is then set to the real rank (e.g. 1), so `best_rank > threshold` is false for every stricter threshold afterwards. Repro: 12 players at 6.0 play 6 matches; a 9.0-start player wins one match and is #1 of 13, but milestones = {'singles-top10'}. Mitigation: iterate (1,3,5,10) and award the first threshold the player meets that was not met before, or award every newly crossed threshold."
+}

@@ -30,11 +30,15 @@ def _clerk_actor(token: str) -> Actor:
 
     user_id = verify_session_token(token)["sub"]
     if user_id not in _clerk_users:
-        response = requests.get(
-            f"https://api.clerk.com/v1/users/{user_id}", timeout=10,
-            headers={"Authorization": f"Bearer {os.environ['CLERK_SECRET_KEY']}", "User-Agent": "pprc-api"},
-        )
-        response.raise_for_status()
+        try:
+            response = requests.get(
+                f"https://api.clerk.com/v1/users/{user_id}", timeout=10,
+                headers={"Authorization": f"Bearer {os.environ['CLERK_SECRET_KEY']}", "User-Agent": "pprc-api"},
+            )
+        except requests.RequestException as exc:
+            raise HTTPException(status_code=503, detail="Sign-in service is busy. Please try again in a moment.") from exc
+        if not response.ok:
+            raise HTTPException(status_code=503, detail="Sign-in service is busy. Please try again in a moment.")
         data = response.json()
         primary = next((e for e in data.get("email_addresses", []) if e["id"] == data.get("primary_email_address_id")), None)
         name = " ".join(part for part in (data.get("first_name"), data.get("last_name")) if part) or None
@@ -82,5 +86,5 @@ async def current_actor(
         return Actor(user_id=x_pprc_user, name=x_pprc_user)
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Use a Firebase Bearer token, or X-PPRC-User in local development only",
+        detail="Sign in required",
     )

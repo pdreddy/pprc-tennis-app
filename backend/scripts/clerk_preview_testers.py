@@ -41,7 +41,7 @@ a, b = user("alex+clerk_test@example.com", "Alex"), user("blair+clerk_test@examp
 ta, tb = token(a["id"]), token(b["id"])
 for tok, name, level in ((ta, "Alex Tester", 7.0), (tb, "Blair Tester", 7.0)):
     api("POST", f"/v1/clubs/{CLUB}/join", tok)
-    api("PUT", f"/v1/clubs/{CLUB}/players/me", tok, {"display_name": name, "city": "Prosper", "visibility": "public", "starting_singles": level, "starting_doubles": level})
+    api("PUT", f"/v1/clubs/{CLUB}/players/me", tok, {"display_name": name, "city": "Prosper", "visibility": "public"} if api("GET", f"/v1/clubs/{CLUB}/players/me", tok)["profile"]["has_profile"] else {"display_name": name, "city": "Prosper", "visibility": "public", "starting_singles": level, "starting_doubles": level})
 me = api("GET", f"/v1/clubs/{CLUB}/players/me", ta)
 if me["ratings"]["singles"]["verified_matches"] < 5:
     for score in ("6-2 6-3", "6-4 6-4", "7-5 6-3", "6-1 6-2", "6-3 7-6"):

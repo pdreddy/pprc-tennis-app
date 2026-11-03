@@ -46,6 +46,14 @@ API: `GET/PUT /v1/clubs/{club}/players/me`, `GET /v1/clubs/{club}/players`, `GET
 
 `./pprc.sh test-rating-ui` runs the PPRC Rating Playwright flows against the Docker API with one-click demo sign-in (`VITE_AUTH_MODE=demo`, local/staging only; it relies on the development-only `X-PPRC-User` header).
 
+## Sign-in modes (`VITE_AUTH_MODE`)
+
+- `firebase` (default): Firebase Auth, verified by the API with `FIREBASE_PROJECT_ID`.
+- `emergent`: Emergent-managed sign-in (Google or a one-time code by email) used by the hosted preview. The API verifies the session (`backend/clerk_auth.py`), new accounts join the club as players on first visit (`POST /v1/clubs/{club}/join`), and verified emails listed in `ADMIN_EMAIL` join as club admin.
+- `demo`: one-click seeded accounts for local Playwright runs only (requires `PPRC_ENVIRONMENT=development`).
+
+Profile photos are uploaded from the phone (resized to 512 px in the browser), stored in Emergent object storage and served by `GET /v1/player-photos/...`. Milestone cards (rating established, club top 10/5/3/No. 1) can be shared from **My rating** through the phone share sheet or downloaded as a PNG.
+
 ## Run locally
 
 Prerequisites: Node 22 (production Functions target), pnpm 11.25+, Java 21+, and Chromium for Playwright. The cloud environment includes checksum-verified Node 22.23.3 and runs Functions with that runtime. Install a Playwright-managed Chromium on a normal workstation and set `PLAYWRIGHT_CHROMIUM_PATH` to that binary, or use `/usr/bin/chromium` on this cloud machine.
