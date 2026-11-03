@@ -60,4 +60,6 @@ TRIACE 2.0, round robin, single elimination, double elimination, Swiss and ladde
 - Tier bands default to the rules page (17.50–22.00 / 11.50–17.00), not the 2025 app's defaults (17.00–22.00 / 11.50–16.50). Combined ratings between 17.00 and 17.50 fit no tier and cannot register; the owner should confirm the bands.
 - Tiers are opt-in per division (`tiers` empty keeps the old combined-rating window) so existing divisions keep working.
 - The challenge rule is provisional in the rules page and off by default. Swaps are applied to the final regular-season table; if the owner means "swap at the time of the match", that needs a decision.
-- Not ported from the 2025 registration app: ace-name masking, consent/rules-accepted flags, CSV export and per-player "higher of singles/doubles rating". The web admin can edit tiers and challenge settings but has no screen to create a challenge yet (API only).
+- Ported from the 2025 app: name masking, consent and rules acceptance, CSV export, config revisions, safe tier removal, idempotent registration and the rules deck.
+- Deliberately not ported: **anonymous registration**. A PPRC team is a roster of accounts, because lineups, singles-day eligibility and PPRC ratings are tracked per player. Firebase anonymous sign-in still works for a captain, but every player on the roster needs a PPRC user id.
+- Still open: per-player "higher of singles/doubles rating" and a minimum player rating. The web admin can edit tiers and challenge settings but has no screen to create a challenge (API only).

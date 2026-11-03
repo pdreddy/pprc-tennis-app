@@ -157,10 +157,10 @@ export const getMyApiMembership = () => apiRequest<ApiMembership>(`/v1/clubs/${a
 export const joinApiClub = () => apiRequest<ApiMembership>(`/v1/clubs/${apiClubId}/join`, { method: "POST" });
 export const createApiEvent = (event: ApiEventInput) => apiRequest<ApiEvent>(`/v1/clubs/${apiClubId}/events`, { method: "POST", body: JSON.stringify(event) });
 export const createApiTriaceEvent = (event: ApiEventInput, division: ApiDivisionInput) => apiRequest<ApiEvent>(`/v1/clubs/${apiClubId}/triace-events`, { method: "POST", body: JSON.stringify({ event, division }) });
-export const updateApiEvent = (eventId: string, event: Partial<ApiEventInput> & { status?: ApiEvent["status"]; audit_reason: string }) => apiRequest<ApiEvent>(`/v1/events/${eventId}`, { method: "PATCH", body: JSON.stringify(event) });
+export const updateApiEvent = (eventId: string, event: Partial<ApiEventInput> & { status?: ApiEvent["status"]; audit_reason: string; expected_revision?: number }) => apiRequest<ApiEvent>(`/v1/events/${eventId}`, { method: "PATCH", body: JSON.stringify(event) });
 export const createApiDivision = (eventId: string, division: ApiDivisionInput) => apiRequest<ApiDivision>(`/v1/events/${eventId}/divisions`, { method: "POST", body: JSON.stringify(division) });
 export const listApiTeams = (divisionId?: string) => apiRequest<ApiTeam[]>(`/v1/clubs/${apiClubId}/teams${divisionId ? `?division_id=${divisionId}` : ""}`);
-export const createApiTeam = (team: { division_id: string; name: string; members: { user_id: string; rating: number; lineup_position: number }[] }) => apiRequest<ApiTeam>(`/v1/clubs/${apiClubId}/teams`, { method: "POST", body: JSON.stringify(team) });
+export const createApiTeam = (team: { division_id: string; name: string; members: { user_id: string; rating: number; lineup_position: number }[]; selected_tier?: string; consent?: boolean; rules_accepted?: boolean; client_id?: string }) => apiRequest<ApiTeam>(`/v1/clubs/${apiClubId}/teams`, { method: "POST", body: JSON.stringify(team) });
 export const approveApiTeam = (teamId: string) => apiRequest<ApiTeam>(`/v1/teams/${teamId}/approve`, { method: "POST" });
 export const listApiFixtures = (divisionId: string) => apiRequest<ApiFixture[]>(`/v1/clubs/${apiClubId}/fixtures?division_id=${divisionId}`);
 export const createApiFixture = (fixture: { division_id: string; home_team_id: string; away_team_id: string; starts_at: string }) => apiRequest<ApiFixture>(`/v1/clubs/${apiClubId}/fixtures`, { method: "POST", body: JSON.stringify(fixture) });
@@ -283,3 +283,16 @@ export const confirmResult = (id: string) => apiRequest<ApiResult>(`/v1/match-re
 export const disputeResult = (id: string, reason: string) => apiRequest<ApiResult>(`/v1/match-results/${id}/dispute`, { method: "POST", body: JSON.stringify({ reason }) });
 export const finalizeResult = (id: string, input: { score_text?: string; outcome?: string; winner_side?: 1 | 2; reason: string }) => apiRequest<ApiResult>(`/v1/match-results/${id}/finalize`, { method: "POST", body: JSON.stringify(input) });
 export const voidResult = (id: string, reason: string) => apiRequest<ApiResult>(`/v1/match-results/${id}/void`, { method: "POST", body: JSON.stringify({ reason }) });
+
+/** Organizer CSV of a TRIACE division's teams (formula prefixes are neutralised by the API). */
+export async function downloadApiTeamsCsv(divisionId: string): Promise<void> {
+  const headers: Record<string, string> = {};
+  if (demoAuth) { const user = currentDemoUser(); if (!user) throw new ApiError("Sign in before using the PPRC API", 401); headers["X-PPRC-User"] = user.uid; }
+  else if (emergentAuth) { const token = await getExternalToken(); if (!token) throw new ApiError("Sign in before using the PPRC API", 401); headers.Authorization = `Bearer ${token}`; }
+  const response = await fetch(`${apiBaseUrl}/v1/divisions/${divisionId}/teams.csv`, { headers });
+  if (!response.ok) throw new ApiError(`Export failed (${response.status})`, response.status);
+  const url = URL.createObjectURL(await response.blob());
+  const link = Object.assign(document.createElement("a"), { href: url, download: `triace-${divisionId}.csv` });
+  link.click();
+  URL.revokeObjectURL(url);
+}

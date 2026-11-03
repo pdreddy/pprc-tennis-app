@@ -1,0 +1,8 @@
+.triace-deck { display: grid; gap: 1rem; }
+.triace-card { background: var(--panel, #fff); border: 1px solid var(--line, #d7dee5); border-radius: 18px; padding: 1.5rem; min-height: 14rem; touch-action: pan-y; }
+.triace-card h2 { margin: .25rem 0 .75rem; }
+.triace-deck-nav { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
+.triace-dots { display: flex; gap: .4rem; }
+.triace-dots i { width: .6rem; height: .6rem; border-radius: 50%; background: var(--line, #d7dee5); }
+.triace-dots i.seen { background: #9bb4c4; }
+.triace-dots i.on { background: var(--brand, #087f80); }

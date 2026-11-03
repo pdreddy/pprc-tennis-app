@@ -96,3 +96,13 @@ Scoring rules (`singles*`, `doubles*`, `superTiebreak*`, `points*`) cannot chang
 - `GET /v1/divisions/{id}/tiers` lists teams with their placement; `POST /v1/divisions/{id}/tiers/recalculate` (organizer) re-places every team after the bands or ratings change and returns `{reviewed, moved, unchanged, unassigned}`.
 - `POST /v1/divisions/{id}/playoffs/generate` without `size` follows `playoffSize`. A three-team bracket creates a `playoff_eliminator` fixture (2nd v 3rd); finalizing it creates the `playoff_final` against 1st.
 - `POST /v1/divisions/{id}/challenges` creates a `challenge` fixture. Challenge fixtures do not count in the regular-season table; when the challenger wins, the two teams' table positions are swapped in the playoff seeding (`/playoff-seeds`). Swaps are applied to the final regular-season order, oldest challenge first.
+
+### Registration, privacy and exports
+
+- `requireConsent` (default false): team registration must send `consent` and `rules_accepted` as true. Both flags are stored on the team.
+- `aceNameMaskingEnabled` (default true): `GET /v1/public/divisions/{id}/tiers` (no sign-in; only published, closed or completed events) lists approved teams per tier with a captain first name, player ratings and combined rating. Account ids never appear. Other players' names are included only when masking is off **and** the team consented.
+- `GET /v1/divisions/{id}/teams.csv` (organizer): every player name plus placement and consent flags; cells starting with `=`, `+`, `-` or `@` get an apostrophe prefix so spreadsheets do not run them.
+- `client_id` on `POST /v1/clubs/{id}/teams` makes retries idempotent: the same owner and payload returns the same team; any other use of the id is a 409.
+- `PATCH /v1/events/{id}` accepts `expected_revision`. Rule saves bump `rules.configRevision`; a stale revision is a 409 ("Configuration changed in another session"). A tier that still has teams cannot be removed: deactivate it, save, recalculate, then remove it.
+- Registration open/close is the event status: `published` accepts team registration, `closed` does not (the admin "Open/Close registration" buttons).
+- The web registration page shows the nine rule cards first (generated from the division's rules); the accept button unlocks after every card has been viewed.

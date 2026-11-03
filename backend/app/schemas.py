@@ -53,6 +53,8 @@ class EventUpdate(BaseModel):
     entry_fee_cents: int | None = Field(default=None, ge=0)
     status: EventStatus | None = None
     rules: dict | None = None
+    # Admin-config concurrency: the `configRevision` the editor loaded. A stale value is rejected with 409.
+    expected_revision: int | None = Field(default=None, ge=0)
     audit_reason: str = Field(min_length=5, max_length=500)
 
 
@@ -145,6 +147,10 @@ class TeamCreate(BaseModel):
     name: str = Field(min_length=2, max_length=160)
     # Tier preference when the division uses tiers: a tier id, "higher" (highest eligible) or "both".
     selected_tier: str = Field(default="higher", max_length=40)
+    consent: bool = False  # players agree to be listed; required when the division sets requireConsent
+    rules_accepted: bool = False
+    # Optional client-generated id: retrying the same registration returns the same team instead of a duplicate.
+    client_id: str | None = Field(default=None, pattern=r"^[a-zA-Z0-9_-]{16,80}$")
     members: list[TeamMemberInput] = Field(min_length=2, max_length=6)
 
 
@@ -232,6 +238,22 @@ class PlayoffSeedRead(BaseModel):
     team_name: str
     points: int
     eligible: bool
+
+
+class PublicTierTeam(BaseModel):
+    team_id: UUID
+    team_name: str
+    captain_first_name: str
+    player_ratings: list[float]
+    combined_rating: float | None
+    player_names: list[str] | None = None  # only when masking is off and the team consented
+    registered_at: datetime
+
+
+class PublicTier(BaseModel):
+    id: str
+    name: str
+    teams: list[PublicTierTeam]
 
 
 class ChallengeCreate(BaseModel):

@@ -145,6 +145,8 @@ class TriaceRules:
     challenge_challenger_positions: tuple[int, ...] = (5, 6)
     challenge_target_positions: tuple[int, ...] = (2, 3, 4)
     challenge_cutoff_weeks: int = 3
+    require_consent: bool = False  # registration needs the player-consent and rules-accepted flags
+    ace_name_masking: bool = True  # public lists hide player names unless an organizer turns this off (and the team consented)
 
     # ---- construction -------------------------------------------------------------------
     @classmethod
@@ -177,6 +179,8 @@ class TriaceRules:
                 challenge_challenger_positions=tuple(int(v) for v in merged.get("challengeChallengerPositions", defaults.challenge_challenger_positions)),
                 challenge_target_positions=tuple(int(v) for v in merged.get("challengeTargetPositions", defaults.challenge_target_positions)),
                 challenge_cutoff_weeks=int(merged.get("challengeCutoffWeeks", defaults.challenge_cutoff_weeks)),
+                require_consent=bool(merged.get("requireConsent", defaults.require_consent)),
+                ace_name_masking=bool(merged.get("aceNameMaskingEnabled", defaults.ace_name_masking)),
             )
         except (TypeError, ValueError, KeyError, AttributeError) as exc:
             raise RuleError("TRIACE rules contain a value of the wrong type") from exc
@@ -266,6 +270,8 @@ class TriaceRules:
             "challengeChallengerPositions": list(self.challenge_challenger_positions),
             "challengeTargetPositions": list(self.challenge_target_positions),
             "challengeCutoffWeeks": self.challenge_cutoff_weeks,
+            "requireConsent": self.require_consent,
+            "aceNameMaskingEnabled": self.ace_name_masking,
         }
 
 

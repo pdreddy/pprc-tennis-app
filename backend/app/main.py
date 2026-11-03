@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
 
-from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import func, select
@@ -17,7 +17,8 @@ from .limits import RequestLimitMiddleware
 from .database import engine, get_session
 from .auth import Actor, current_actor
 from .common import audit, notify, require_role
-from .triace_rules import OFFICIAL_TIERS, TRIACE_RULE_KEYS, RuleError, TriaceRules, apply_challenge_swaps, assign_selected_tier, challenge_problem, hundredths, listed_tiers, playoff_size_for, validate_encounter
+from .triace_registration import csv_text, first_name, registration_signature, removed_tier_ids, tiers_still_used
+from .triace_rules import OFFICIAL_TIERS, TRIACE_RULE_KEYS, RuleError, TriaceRules, apply_challenge_swaps, assign_selected_tier, challenge_problem, hundredths, listed_tiers, ordered_tiers, playoff_size_for, validate_encounter
 from .competitions import router as competitions_router, sync_entries_for_registration
 from .ratings import router as ratings_router
 from .members import router as members_router
@@ -67,6 +68,8 @@ from .schemas import (
     TeamRead,
     TeamEligibilityRead,
     PlayoffSeedRead,
+    PublicTier,
+    PublicTierTeam,
     ChallengeCreate,
     TierRecalculationRead,
     TierTeamRead,
@@ -111,6 +114,11 @@ async def guard_triace_rule_changes(session: AsyncSession, division: Division, c
         raise HTTPException(status_code=409, detail="Team size cannot change after teams have registered")
     scoring = {"singlesMatches", "doublesMatches", "superTiebreakMatches", "superTiebreakPoints", "singlesPositions", "doublesPairs", "pointsPerWin", "pointsPerLoss"}
     has_results = await session.scalar(select(Fixture.id).where(Fixture.division_id == division.id, Fixture.status != FixtureStatus.scheduled).limit(1))
+    removed = removed_tier_ids({t.id for t in current.tiers}, {t.id for t in proposed.tiers})
+    if removed:
+        metas = [t.metadata_ or {} for t in (await session.scalars(select(Team).where(Team.division_id == division.id, Team.status != TeamStatus.rejected))).all()]
+        if (still := tiers_still_used(removed, metas)):
+            raise HTTPException(status_code=409, detail=f"A removed tier still has teams ({', '.join(sorted(still))}). Deactivate it, save, and recalculate before removing it.")
     if has_results and changed & scoring:
         raise HTTPException(status_code=409, detail=f"These rules cannot change after results exist: {', '.join(sorted(changed & scoring))}")
 
@@ -519,6 +527,9 @@ async def update_event(
     await require_role(session, event.club_id, actor.user_id, {MembershipRole.owner, MembershipRole.admin, MembershipRole.organizer})
     if event.status == EventStatus.completed and payload.status not in {None, EventStatus.completed}:
         raise HTTPException(status_code=409, detail="Completed events cannot be reopened")
+    revision = int((event.rules or {}).get("configRevision", 0))
+    if payload.rules is not None and payload.expected_revision is not None and payload.expected_revision != revision:
+        raise HTTPException(status_code=409, detail="Configuration changed in another session. Reload settings before saving.")
     divisions = list((await session.scalars(select(Division).where(Division.event_id == event.id))).all())
     triace_divisions = [division for division in divisions if is_triace_division(division)]
     proposed_rules = payload.rules if payload.rules is not None else event.rules
@@ -537,6 +548,8 @@ async def update_event(
             division.capacity = payload.capacity if payload.capacity is not None else event.capacity
     if triace_divisions and payload.rules is not None:
         payload.rules = {**payload.rules, **triace_rules_for(proposed_rules, {}).as_dict()}
+    if payload.rules is not None:
+        payload.rules = {**payload.rules, "configRevision": revision + 1}
     for field, value in payload.model_dump(exclude_none=True, exclude={"audit_reason"}).items():
         setattr(event, field, value)
     await audit(session, event.club_id, actor.user_id, "event.updated", "event", str(event.id), payload.audit_reason)
@@ -920,6 +933,15 @@ async def create_triace_team(
     if event is None or event.status != EventStatus.published:
         raise HTTPException(status_code=409, detail="TRIACE registration is not open")
     rules = triace_rules_for(event.rules, division.rules)
+    if rules.require_consent and not (payload.consent and payload.rules_accepted):
+        raise HTTPException(status_code=422, detail="Player consent and acceptance of the tournament rules are required")
+    signature = registration_signature(payload.name, [(m.user_id, m.rating, m.lineup_position) for m in payload.members], payload.selected_tier)
+    if payload.client_id:
+        earlier = [t for t in (await session.scalars(select(Team).where(Team.division_id == division.id))).all() if (t.metadata_ or {}).get("clientId") == payload.client_id]
+        if earlier:
+            if earlier[0].captain_user_id == actor.user_id and (earlier[0].metadata_ or {}).get("signature") == signature:
+                return earlier[0]  # a retry of the same registration
+            raise HTTPException(status_code=409, detail="This registration identifier is already in use")
     minimum, maximum = rules.team_min_rating, rules.team_max_rating
     if len(payload.members) != rules.team_size or len({member.user_id for member in payload.members}) != rules.team_size:
         raise HTTPException(status_code=422, detail=f"TRIACE teams require {rules.team_size} distinct players")
@@ -991,7 +1013,10 @@ async def create_triace_team(
         name=payload.name,
         captain_user_id=actor.user_id,
         status=TeamStatus.pending,
-        metadata_={"combinedRating": total_rating, **placement},
+        metadata_={
+            "combinedRating": total_rating, **placement, "signature": signature, "consent": payload.consent, "rulesAccepted": payload.rules_accepted,
+            **({"clientId": payload.client_id} if payload.client_id else {}),
+        },
     )
     session.add(team)
     await session.flush()
@@ -1394,6 +1419,53 @@ async def recalculate_tiers(division_id: UUID, session: AsyncSession = Depends(g
     await audit(session, division.club_id, actor.user_id, "triace.tiers.recalculated", "division", str(division.id))
     await session.commit()
     return TierRecalculationRead(**summary)
+
+
+async def team_roster(session: AsyncSession, team: Team) -> list[tuple[TeamMember, str]]:
+    """Active members in lineup order with their club display names."""
+    members = (await session.scalars(select(TeamMember).where(TeamMember.team_id == team.id, TeamMember.active.is_(True)).order_by(TeamMember.lineup_position))).all()
+    names = {m.user_id: m.display_name for m in (await session.scalars(select(Membership).where(Membership.club_id == team.club_id, Membership.user_id.in_([x.user_id for x in members])))).all()}
+    return [(member, names.get(member.user_id) or member.user_id) for member in members]
+
+
+@app.get("/v1/divisions/{division_id}/teams.csv")
+async def export_teams_csv(division_id: UUID, session: AsyncSession = Depends(get_session), actor: Actor = Depends(current_actor)) -> Response:
+    """Organizer export with every player name; spreadsheet formula prefixes are neutralised."""
+    division, _ = await triace_division(session, division_id, STAFF, actor)
+    teams = (await session.scalars(select(Team).where(Team.division_id == division.id, Team.status != TeamStatus.rejected).order_by(Team.name))).all()
+    rows = []
+    for team in teams:
+        meta, roster = team.metadata_ or {}, await team_roster(session, team)
+        rows.append([
+            team.id, team.name, team.captain_user_id, "; ".join(f"{name} ({float(m.rating or 0):g})" for m, name in roster), meta.get("combinedRating"),
+            meta.get("selectedTier"), meta.get("assignedTier") or "Unassigned", meta.get("consent"), meta.get("rulesAccepted"), team.status.value, team.created_at.isoformat() if team.created_at else "",
+        ])
+    return Response(csv_text(rows), media_type="text/csv", headers={"Content-Disposition": f'attachment; filename="triace-{division.id}.csv"'})
+
+
+@app.get("/v1/public/divisions/{division_id}/tiers", response_model=list[PublicTier])
+async def public_tier_lists(division_id: UUID, session: AsyncSession = Depends(get_session)) -> list[PublicTier]:
+    """Signed-out tier lists for a published TRIACE division. Account ids are never shown; player names only when
+    the division turned masking off and the team consented."""
+    division = await session.get(Division, division_id)
+    event = await session.get(Event, division.event_id) if division and division.event_id else None
+    if division is None or not is_triace_division(division) or event is None or event.status not in {EventStatus.published, EventStatus.closed, EventStatus.completed}:
+        raise HTTPException(status_code=404, detail="Division not found")
+    rules = await division_triace_rules(session, division)
+    teams = (await session.scalars(select(Team).where(Team.division_id == division.id, Team.status == TeamStatus.approved).order_by(Team.created_at))).all()
+    lists: dict[str, list[PublicTierTeam]] = {t.id: [] for t in ordered_tiers(rules.tiers)}
+    for team in teams:
+        meta, roster = team.metadata_ or {}, await team_roster(session, team)
+        captain = next((name for m, name in roster if m.user_id == team.captain_user_id), None)
+        show_names = not rules.ace_name_masking and bool(meta.get("consent") and meta.get("rulesAccepted"))
+        entry = PublicTierTeam(
+            team_id=team.id, team_name=team.name, captain_first_name=first_name(captain, team.captain_user_id), player_ratings=[float(m.rating or 0) for m, _ in roster],
+            combined_rating=meta.get("combinedRating"), player_names=[name for m, name in roster if m.user_id != team.captain_user_id] if show_names else None, registered_at=team.created_at,
+        )
+        for tier_id in meta.get("listedTiers") or []:
+            if tier_id in lists:
+                lists[tier_id].append(entry)
+    return [PublicTier(id=t.id, name=t.name, teams=lists[t.id]) for t in ordered_tiers(rules.tiers)]
 
 
 @app.post("/v1/divisions/{division_id}/challenges", response_model=FixtureRead, status_code=status.HTTP_201_CREATED)

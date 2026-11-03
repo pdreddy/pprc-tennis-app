@@ -26,7 +26,7 @@ import { MembersRoles } from "./members-admin";
 import { CompetitionBoard } from "./competition";
 import { OptionCards, FieldGrid, Callout, StatusBadge } from "./components";
 import { TriaceConfigSummary, TriaceRulesFields, describeEncounter, readTriaceConfig, triaceRulesFromForm } from "./triace-config";
-import { apiEnabled, isIndividualFormat, tournamentFormats, approveApiTeam, correctApiFixtureResult, createApiFixture, createApiTeam, generateApiPlayoffs, getApiChampion, listApiFixtures, listApiStandings, listApiTeams, submitApiFixtureResult } from "./api";
+import { apiEnabled, isIndividualFormat, tournamentFormats, approveApiTeam, downloadApiTeamsCsv, correctApiFixtureResult, createApiFixture, createApiTeam, generateApiPlayoffs, getApiChampion, listApiFixtures, listApiStandings, listApiTeams, submitApiFixtureResult } from "./api";
 import {
   canManage,
   formats,
@@ -955,6 +955,7 @@ function TriaceEventOperations({ event, divisions }: { event: Entity; divisions:
           <Action variant="primary" onClick={() => save("published")}>Open registration</Action>
           <Action onClick={() => save("closed")}>Close registration</Action>
           <Action onClick={() => save("completed")}>Complete event</Action>
+          {division && <Action onClick={() => downloadApiTeamsCsv(division.id)}>Download teams (CSV)</Action>}
         </div>
       </Panel>
       <TriaceConfigSummary config={config} />
@@ -975,6 +976,8 @@ function TriaceEventOperations({ event, divisions }: { event: Entity; divisions:
                   allowWaitlist: form.get("allowWaitlist") === "on",
                 },
                 audit_reason: text(form, "reason"),
+                // Rejected with 409 if another administrator saved first; reload to pick up their changes.
+                expected_revision: Number(rules.configRevision ?? 0),
               },
             });
             setMessage("TRIACE configuration saved with an audit record.");

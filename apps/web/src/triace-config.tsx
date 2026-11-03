@@ -31,6 +31,8 @@ export const triaceDefaults = {
   challengeChallengerPositions: [5, 6] as number[],
   challengeTargetPositions: [2, 3, 4] as number[],
   challengeCutoffWeeks: 3,
+  requireConsent: false,
+  aceNameMaskingEnabled: true,
 };
 export type TriaceConfig = typeof triaceDefaults;
 
@@ -62,6 +64,8 @@ export function readTriaceConfig(rules: Record<string, unknown> | undefined): Tr
     challengeChallengerPositions: list(r.challengeChallengerPositions, triaceDefaults.challengeChallengerPositions),
     challengeTargetPositions: list(r.challengeTargetPositions, triaceDefaults.challengeTargetPositions),
     challengeCutoffWeeks: num(r.challengeCutoffWeeks, triaceDefaults.challengeCutoffWeeks),
+    requireConsent: r.requireConsent === true,
+    aceNameMaskingEnabled: r.aceNameMaskingEnabled !== false,
   };
 }
 
@@ -101,6 +105,8 @@ export function triaceRulesFromForm(form: FormData): TriaceConfig {
     challengeChallengerPositions: parseList(String(form.get("challengeChallengerPositions") ?? "")),
     challengeTargetPositions: parseList(String(form.get("challengeTargetPositions") ?? "")),
     challengeCutoffWeeks: n("challengeCutoffWeeks"),
+    requireConsent: form.get("requireConsent") === "on",
+    aceNameMaskingEnabled: form.get("aceNameMaskingEnabled") === "on",
   };
 }
 
@@ -149,6 +155,9 @@ export function TriaceRulesFields({ config = triaceDefaults, lockTeamSize = fals
       <Field label="Tier bands (combined rating)" hint="One per line: id | name | min | max | order (1 = highest). Prefix an id with ~ to deactivate. Leave empty to use only the combined-rating window above. Official: GOAT 17.5-22, Rising 11.5-17.">
         <textarea name="tiers" rows={3} defaultValue={formatTiers(config.tiers)} placeholder={formatTiers(officialTiers)} />
       </Field>
+      <SectionTitle>Registration and privacy</SectionTitle>
+      <label className="check"><input name="requireConsent" type="checkbox" defaultChecked={config.requireConsent} /> Registration requires player consent and acceptance of the rules</label>
+      <label className="check"><input name="aceNameMaskingEnabled" type="checkbox" defaultChecked={config.aceNameMaskingEnabled} /> Hide player names on public tier lists (captain shows a first name only; names appear only when this is off and the team consented)</label>
       <SectionTitle>Challenge rule (provisional)</SectionTitle>
       <label className="check"><input name="challengeEnabled" type="checkbox" defaultChecked={config.challengeEnabled} /> Let lower-table teams challenge once; a win swaps table positions</label>
       <FieldGrid>

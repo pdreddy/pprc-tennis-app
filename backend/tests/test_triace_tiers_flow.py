@@ -7,13 +7,13 @@ from test_triace_flow import request, request_error
 NOW = datetime.now(timezone.utc)
 
 
-def setup(prefix: str, team_count: int, division_rules: dict, rating: float = 5):
+def setup(prefix: str, team_count: int, division_rules: dict, names: dict[int, str] | None = None):
     owner = f"owner-{uuid.uuid4().hex[:8]}"
     suffix = uuid.uuid4().hex[:8]
     club_id = request("POST", "/v1/clubs", owner, json={"slug": f"{prefix}-{suffix}", "name": f"{prefix} club"})["id"]
     players = [f"p-{suffix}-{i}" for i in range(team_count * 3)]
-    for player in players:
-        request("POST", f"/v1/clubs/{club_id}/memberships", owner, json={"user_id": player, "display_name": player})
+    for index, player in enumerate(players):
+        request("POST", f"/v1/clubs/{club_id}/memberships", owner, json={"user_id": player, "display_name": (names or {}).get(index, player)})
     event = request("POST", f"/v1/clubs/{club_id}/events", owner, json={"name": "TRIACE", "starts_at": NOW.isoformat(), "capacity": 48, "rules": {}})
     division = request("POST", f"/v1/events/{event['id']}/divisions", owner, json={"name": "Open", "format": "triace_team_round_robin", "capacity": 12, "rules": division_rules})
     request("POST", f"/v1/events/{event['id']}/publish", owner)
@@ -133,3 +133,82 @@ def test_challenge_rule_is_off_unless_enabled():
     teams = [add_team(owner, club_id, division, players, i) for i in range(6)]
     response = request_error("POST", f"/v1/divisions/{division['id']}/challenges", owner, json={"challenger_team_id": teams[4]["id"], "defender_team_id": teams[1]["id"], "starts_at": NOW.isoformat()})
     assert "not enabled" in response.text
+
+
+def roster(players, index, rating=6.0):
+    return [{"user_id": p, "rating": rating, "lineup_position": n + 1} for n, p in enumerate(players[index * 3: index * 3 + 3])]
+
+
+def test_consent_is_required_when_the_division_asks_for_it():
+    owner, club_id, event, division, players = setup("consent", 2, {"teamMinRating": 12, "teamMaxRating": 22, "requireConsent": True})
+    body = {"division_id": division["id"], "name": "Team 1", "members": roster(players, 0)}
+    assert "consent" in request_error("POST", f"/v1/clubs/{club_id}/teams", players[0], json=body).text.lower()
+    assert request_error("POST", f"/v1/clubs/{club_id}/teams", players[0], json={**body, "consent": True}).status_code == 422
+    request("POST", f"/v1/clubs/{club_id}/teams", players[0], json={**body, "consent": True, "rules_accepted": True})
+
+
+def test_registration_retries_are_idempotent():
+    owner, club_id, event, division, players = setup("idem", 2, {"teamMinRating": 12, "teamMaxRating": 22})
+    body = {"division_id": division["id"], "name": "Team 1", "members": roster(players, 0), "client_id": "retry-id-0123456789"}
+    first = request("POST", f"/v1/clubs/{club_id}/teams", players[0], json=body)
+    again = request("POST", f"/v1/clubs/{club_id}/teams", players[0], json=body)
+    assert again["id"] == first["id"]
+    assert len(request("GET", f"/v1/clubs/{club_id}/teams?division_id={division['id']}", owner)) == 1
+    other = {**body, "name": "Different team", "members": roster(players, 1)}
+    assert request_error("POST", f"/v1/clubs/{club_id}/teams", players[3], json=other).status_code == 409  # same id, different payload
+    assert request_error("POST", f"/v1/clubs/{club_id}/teams", players[3], json={**body, "name": "Team 1"}).status_code == 409  # same id, other owner
+
+
+def test_public_lists_hide_names_unless_masking_is_off_and_the_team_consented():
+    owner, club_id, event, division, players = setup("public", 2, {"tiers": OFFICIAL, "requireConsent": True}, names={0: "Sam Smith", 1: "Alex Ace", 2: "Jo Ace", 3: "Kim Lee", 4: "Ray Ace", 5: "Pat Ace"})
+    for index in (0, 1):
+        team = request("POST", f"/v1/clubs/{club_id}/teams", players[index * 3], json={
+            "division_id": division["id"], "name": f"Team {index + 1}", "members": roster(players, index), "consent": True, "rules_accepted": True})
+        request("POST", f"/v1/teams/{team['id']}/approve", owner)
+    path = f"/v1/public/divisions/{division['id']}/tiers"
+    public = httpx_get(path)
+    goat = next(t for t in public if t["id"] == "goat")
+    assert [t["team_name"] for t in goat["teams"]] == ["Team 1", "Team 2"]
+    assert all(t["player_names"] is None for t in goat["teams"]) and goat["teams"][0]["captain_first_name"] == "Sam"
+    assert "p-" not in str(public)  # no account ids anywhere
+    request("PATCH", f"/v1/events/{event['id']}", owner, json={"rules": {"aceNameMaskingEnabled": False}, "audit_reason": "Publish names"})
+    shown = next(t for t in httpx_get(path) if t["id"] == "goat")["teams"]
+    assert all(t["player_names"] for t in shown)
+
+
+def httpx_get(path):
+    from test_triace_flow import BASE_URL, CLIENT
+    response = CLIENT.get(f"{BASE_URL}{path}")  # deliberately no auth header
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def test_unpublished_divisions_have_no_public_list():
+    owner, club_id, event, division, players = setup("draft", 1, {"tiers": OFFICIAL})
+    from test_triace_flow import BASE_URL, CLIENT
+    assert CLIENT.get(f"{BASE_URL}/v1/public/divisions/{uuid.uuid4()}/tiers").status_code == 404
+
+
+def test_csv_export_is_organizer_only_and_escapes_formulas():
+    owner, club_id, event, division, players = setup("csv", 1, {"teamMinRating": 12, "teamMaxRating": 22})
+    team = request("POST", f"/v1/clubs/{club_id}/teams", players[0], json={"division_id": division["id"], "name": "=HYPERLINK(1)", "members": roster(players, 0)})
+    assert team["name"] == "=HYPERLINK(1)"
+    from test_triace_flow import BASE_URL, CLIENT
+    path = f"{BASE_URL}/v1/divisions/{division['id']}/teams.csv"
+    assert CLIENT.get(path, headers={"X-PPRC-User": players[0]}).status_code == 403
+    response = CLIENT.get(path, headers={"X-PPRC-User": owner})
+    assert response.status_code == 200 and response.headers["content-type"].startswith("text/csv")
+    assert "'=HYPERLINK(1)" in response.text and '"=HYPERLINK' not in response.text
+
+
+def test_stale_config_saves_and_populated_tier_removal_are_refused():
+    owner, club_id, event, division, players = setup("rev", 1, {"tiers": OFFICIAL})
+    request("POST", f"/v1/clubs/{club_id}/teams", players[0], json={"division_id": division["id"], "name": "Team 1", "members": roster(players, 0, 4.5)})  # 13.5 -> Rising
+    revision = request("GET", f"/v1/events/{event['id']}", owner)["rules"].get("configRevision", 0)
+    saved = request("PATCH", f"/v1/events/{event['id']}", owner, json={"rules": {"pointsPerWin": 2}, "expected_revision": revision, "audit_reason": "First editor"})
+    assert saved["rules"]["configRevision"] == revision + 1
+    stale = request_error("PATCH", f"/v1/events/{event['id']}", owner, json={"rules": {"pointsPerWin": 1}, "expected_revision": revision, "audit_reason": "Second editor"})
+    assert stale.status_code == 409 and "another session" in stale.text
+    # Rising still has a team, so removing it is refused until the tier is deactivated and teams are re-placed.
+    only_goat = [OFFICIAL[0]]
+    assert "still has teams" in request_error("PATCH", f"/v1/events/{event['id']}", owner, json={"rules": {"tiers": only_goat}, "audit_reason": "Drop Rising"}).text

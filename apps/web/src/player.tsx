@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ScoreForm } from "./scoring";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -17,6 +17,7 @@ import { apiEnabled, createApiTeam, getPublicApiEvent, isIndividualFormat } from
 import { CompetitionBoard } from "./competition";
 import { Tabs } from "./components";
 import { readTriaceConfig } from "./triace-config";
+import { TriaceRulesDeck, rulesAlreadyAccepted } from "./triace-rules";
 import {
   Panel,
   Dialog,
@@ -406,12 +407,25 @@ export function TriaceTeamRegistration() {
   const { eventId = "", divisionId = "" } = useParams();
   const { event, divisions, error } = useEvent(eventId);
   const navigate = useNavigate();
+  const [accepted, setAccepted] = useState(() => rulesAlreadyAccepted(eventId));
+  // One id per visit: a double click or a retry after a dropped connection returns the same team instead of a duplicate.
+  const clientId = useRef(`reg-${crypto.randomUUID()}`);
   const division = divisions.find((item) => item.id === divisionId);
   if (error) return <div className="page error">{error.message}</div>;
   if (!event || !division) return <div className="page" role="status">Loading TRIACE registration…</div>;
   if (!apiEnabled) return <div className="page"><Empty title="TRIACE registration is available through the PPRC API" /></div>;
   const config = readTriaceConfig({ ...((event.rules ?? {}) as Record<string, unknown>), ...((division.rules ?? {}) as Record<string, unknown>) });
   const positions = Array.from({ length: config.teamSize }, (_, index) => index + 1);
+  if (!accepted) {
+    return (
+      <div className="page narrow">
+        <Link className="text-link" to={`/events/${eventId}`}>← Event details</Link>
+        <p className="eyebrow">TRIACE RULES</p>
+        <h1>Read the rules before you register</h1>
+        <TriaceRulesDeck config={config} eventId={eventId} onAccepted={() => setAccepted(true)} />
+      </div>
+    );
+  }
   return (
     <div className="page narrow">
       <Link className="text-link" to={`/events/${eventId}`}>← Event details</Link>
@@ -424,6 +438,10 @@ export function TriaceTeamRegistration() {
             division_id: divisionId,
             name: text(form, "teamName"),
             members: positions.map((position) => ({ user_id: text(form, `player${position}Uid`), rating: number(form, `player${position}Rating`), lineup_position: position })),
+            selected_tier: text(form, "selectedTier") || "higher",
+            consent: form.get("consent") === "on",
+            rules_accepted: true,
+            client_id: clientId.current,
           });
           navigate(`/events/${eventId}`);
         }}>
@@ -432,7 +450,9 @@ export function TriaceTeamRegistration() {
             <Field label={`Player ${position} PPRC user ID`}><input name={`player${position}Uid`} required /></Field>
             <Field label={`Player ${position} UTR`}><input name={`player${position}Rating`} type="number" min="0" max={config.playerMaxRating} step="0.01" required /></Field>
           </div>)}
-          <p className="muted">Combined UTR must be between {config.teamMinRating} and {config.teamMaxRating}. The organizer will approve eligible teams before fixtures are created.</p>
+          {config.tiers.length > 0 && <Field label="Tier"><select name="selectedTier" defaultValue="higher"><option value="higher">Highest tier my team qualifies for</option>{config.tiers.filter((t) => t.active).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}<option value="both">Both of the top two tiers (if I qualify for the top tier)</option></select></Field>}
+          <label className="check"><input name="consent" type="checkbox" required={config.requireConsent} /> All players agree to be listed in this tournament{config.aceNameMaskingEnabled ? "" : " (including their names on public tier lists)"}</label>
+          <p className="muted">{config.tiers.length ? "Your combined rating must fall inside an active tier." : `Combined UTR must be between ${config.teamMinRating} and ${config.teamMaxRating}.`} The organizer will approve eligible teams before fixtures are created.</p>
         </Form>
       </Panel>
     </div>
