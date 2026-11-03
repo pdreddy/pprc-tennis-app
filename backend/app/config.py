@@ -1,13 +1,39 @@
 from functools import lru_cache
 from typing import Literal
 
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def normalize_database_url(url: str) -> str:
+    """Accept what hosts hand out (postgres://, postgresql://, ?sslmode=require) and return the asyncpg form SQLAlchemy needs."""
+    parts = urlsplit(url.strip())
+    if not parts.scheme.startswith(("postgres", "postgresql")):
+        return url  # sqlite+aiosqlite for local previews
+    query = []
+    for key, value in parse_qsl(parts.query, keep_blank_values=True):
+        if key == "sslmode":  # libpq spelling; asyncpg calls it `ssl`
+            key = "ssl"
+        if key in {"channel_binding"}:  # libpq-only option some hosts append
+            continue
+        query.append((key, value))
+    return urlunsplit(("postgresql+asyncpg", parts.netloc, parts.path, urlencode(query), parts.fragment))
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     database_url: str = "postgresql+asyncpg://pprc:pprc@localhost:5432/pprc"
+    @field_validator("database_url")
+    @classmethod
+    def _asyncpg_url(cls, value: str) -> str:
+        return normalize_database_url(value)
+
+    # PgBouncer/Supabase transaction pooler (port 6543): asyncpg's prepared-statement cache must be off.
+    pprc_db_pooler: bool = False
+    pprc_db_pool_size: int = 5
     pprc_cors_origins: str = "http://localhost:5173"
     # None = create tables automatically in development only; deployed schemas are managed with sql/*.sql.
     pprc_bootstrap_schema: bool | None = None

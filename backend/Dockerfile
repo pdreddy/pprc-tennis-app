@@ -1,14 +1,24 @@
-FROM python:3.12-slim
-
+# Build the API image:   docker build -t pprc-api backend
+# Test image (adds pytest): docker build --target test -t pprc-api-tests backend
+FROM python:3.12-slim AS base
+ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PIP_NO_CACHE_DIR=1
 WORKDIR /app
 COPY pyproject.toml ./
 COPY app ./app
+RUN pip install .
+COPY clerk_auth.py docker-entrypoint.sh ./
 COPY sql ./sql
 COPY scripts ./scripts
+RUN chmod +x docker-entrypoint.sh && useradd --system --uid 1001 pprc
+
+FROM base AS test
 COPY tests ./tests
-RUN pip install --no-cache-dir ".[dev]"
-RUN useradd --system --uid 1001 pprc
+RUN pip install ".[dev]"
 USER pprc
+
+FROM base AS runtime
+USER pprc
+ENV PORT=8000
 EXPOSE 8000
-HEALTHCHECK --interval=10s --timeout=3s --retries=5 CMD python -c "import urllib.request as u; u.urlopen('http://localhost:8000/health', timeout=2)"
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+HEALTHCHECK --interval=15s --timeout=3s --start-period=20s --retries=5 CMD python -c "import os,urllib.request as u; u.urlopen('http://localhost:%s/health' % os.environ.get('PORT','8000'), timeout=2)"
+ENTRYPOINT ["./docker-entrypoint.sh"]

@@ -1,0 +1,41 @@
+# Render Blueprint: API + managed PostgreSQL. Connect the repo, then fill the variables marked `sync: false`.
+# Any Docker host works the same way (Fly.io, Railway, Cloud Run): build backend/Dockerfile, set the same variables.
+databases:
+  - name: pprc-db
+    plan: basic-256mb
+    databaseName: pprc
+    user: pprc
+
+services:
+  - type: web
+    name: pprc-api
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase: { name: pprc-db, property: connectionString }
+      - key: PPRC_ENVIRONMENT
+        value: production
+      - key: PPRC_RUN_MIGRATIONS      # applies backend/sql on every deploy; recorded in schema_migrations
+        value: "true"
+      - key: PPRC_BOOTSTRAP_SCHEMA
+        value: "false"
+      - key: PPRC_TRUST_PROXY         # Render terminates TLS and sets X-Forwarded-For
+        value: "true"
+      - key: PPRC_AUTH_PROVIDER
+        value: firebase               # or clerk
+      - key: FIREBASE_PROJECT_ID
+        sync: false
+      - key: CLERK_SECRET_KEY
+        sync: false
+      - key: PPRC_APP_ORIGIN          # the Netlify site, e.g. https://pprc.netlify.app
+        sync: false
+      - key: PPRC_CORS_ORIGINS        # same origin (comma-separate extra ones)
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false

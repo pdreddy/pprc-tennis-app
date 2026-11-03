@@ -19,6 +19,41 @@ jobs:
       - name: End-to-end API tests
         run: docker compose --profile test up --build --abort-on-container-exit --exit-code-from api-tests api-tests
 
+  postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env: { POSTGRES_DB: pprc, POSTGRES_USER: pprc, POSTGRES_PASSWORD: pprc }
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U pprc -d pprc" --health-interval 3s --health-timeout 3s --health-retries 20
+    env:
+      DATABASE_URL: postgres://pprc:pprc@localhost:5432/pprc
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install ./backend[dev]
+      - name: Apply SQL migrations to an empty database
+        working-directory: backend
+        run: python scripts/migrate.py
+      - name: Models and migrated schema agree
+        working-directory: backend
+        run: python scripts/schema_drift.py
+      - name: "API tests against Postgres (production path - migrations, no create_all)"
+        working-directory: backend
+        env:
+          PPRC_BOOTSTRAP_SCHEMA: "false"
+          PPRC_ENVIRONMENT: development
+          PPRC_APP_ORIGIN: http://localhost:5173
+          PPRC_RATE_LIMIT_WRITES_PER_MINUTE: "0"
+          API_BASE_URL: http://localhost:8000
+        run: |
+          uvicorn app.main:app --port 8000 &
+          for i in $(seq 1 30); do curl -sf localhost:8000/health && break; sleep 1; done
+          pytest -q --ignore=tests/test_clerk_preview_auth.py
+
   frontend:
     runs-on: ubuntu-latest
     steps:
@@ -31,3 +66,6 @@ jobs:
       - run: pnpm frontend:typecheck
       - run: pnpm events:lint
       - run: pnpm shared:test
+      - name: Production build (as Netlify runs it)
+        run: pnpm --filter @pprc/web build
+        env: { VITE_DATA_PROVIDER: api, VITE_USE_EMULATORS: "false", VITE_API_BASE_URL: "https://api.example.test" }

@@ -8,6 +8,11 @@ from sqlalchemy import JSON, Boolean, Date, DateTime, Enum, ForeignKey, Index, I
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.engine import Dialect
 
+# Enum columns are plain text holding the enum value (matching backend/sql, which uses text + CHECK), never native PG enum types.
+def enum_values(enum_class) -> list[str]:
+    return [member.value for member in enum_class]
+
+
 # Portable column types: native JSONB/UUID on PostgreSQL, JSON/CHAR on SQLite (preview).
 JSONB = JSON().with_variant(postgresql.JSONB(), "postgresql")
 UUID = Uuid
@@ -92,7 +97,7 @@ class Membership(Timestamped, Base):
     club_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("clubs.id", ondelete="CASCADE"), index=True)
     user_id: Mapped[str] = mapped_column(String(128), index=True)
     display_name: Mapped[str] = mapped_column(String(160))
-    role: Mapped[MembershipRole] = mapped_column(Enum(MembershipRole), default=MembershipRole.player)
+    role: Mapped[MembershipRole] = mapped_column(Enum(MembershipRole, native_enum=False, length=32, values_callable=enum_values), default=MembershipRole.player)
 
 
 class Event(Timestamped, Base):
@@ -103,7 +108,7 @@ class Event(Timestamped, Base):
     starts_at: Mapped[datetime] = mapped_column(UTCDateTime(), index=True)
     capacity: Mapped[int] = mapped_column(Integer, default=32)
     entry_fee_cents: Mapped[int] = mapped_column(Integer, default=0)
-    status: Mapped[EventStatus] = mapped_column(Enum(EventStatus), default=EventStatus.draft)
+    status: Mapped[EventStatus] = mapped_column(Enum(EventStatus, native_enum=False, length=32, values_callable=enum_values), default=EventStatus.draft)
     rules: Mapped[dict] = mapped_column(JSONB, default=dict)
 
 
@@ -114,7 +119,7 @@ class Registration(Timestamped, Base):
     club_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("clubs.id", ondelete="CASCADE"), index=True)
     event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("events.id", ondelete="CASCADE"), index=True)
     user_id: Mapped[str] = mapped_column(String(128), index=True)
-    status: Mapped[RegistrationStatus] = mapped_column(Enum(RegistrationStatus))
+    status: Mapped[RegistrationStatus] = mapped_column(Enum(RegistrationStatus, native_enum=False, length=32, values_callable=enum_values))
     waitlist_position: Mapped[int | None] = mapped_column(Integer, nullable=True)
     checked_in_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
 
@@ -173,7 +178,7 @@ class Team(Timestamped, Base):
     division_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("divisions.id", ondelete="SET NULL"), nullable=True, index=True)
     name: Mapped[str] = mapped_column(String(160))
     captain_user_id: Mapped[str] = mapped_column(String(128))
-    status: Mapped[TeamStatus] = mapped_column(Enum(TeamStatus), default=TeamStatus.pending)
+    status: Mapped[TeamStatus] = mapped_column(Enum(TeamStatus, native_enum=False, length=32, values_callable=enum_values), default=TeamStatus.pending)
     metadata_: Mapped[dict] = mapped_column("metadata", JSONB, default=dict)
 
 
@@ -200,7 +205,7 @@ class Fixture(Timestamped, Base):
     score_home: Mapped[int | None] = mapped_column(Integer, nullable=True)
     score_away: Mapped[int | None] = mapped_column(Integer, nullable=True)
     winner_team_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("teams.id", ondelete="SET NULL"), nullable=True)
-    status: Mapped[FixtureStatus] = mapped_column(Enum(FixtureStatus), default=FixtureStatus.scheduled)
+    status: Mapped[FixtureStatus] = mapped_column(Enum(FixtureStatus, native_enum=False, length=32, values_callable=enum_values), default=FixtureStatus.scheduled)
     result_detail: Mapped[dict] = mapped_column(JSONB, default=dict)
     round_name: Mapped[str] = mapped_column(String(64), default="regular")
     bracket_position: Mapped[int | None] = mapped_column(Integer, nullable=True)

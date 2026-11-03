@@ -32,3 +32,12 @@ def test_applied_file_missing_from_disk_is_refused():
 def test_real_sql_directory_has_unique_ordered_names():
     names = sorted(p.name for p in migrate.SQL_DIR.glob("*.sql"))
     assert names and len({n.split("_")[0] for n in names}) == len(names)
+
+
+@pytest.mark.parametrize("raw,expected", [
+    ("postgres://u:p@h/db", "postgresql://u:p@h/db"),
+    ("postgresql+asyncpg://u:p@h/db?ssl=require", "postgresql://u:p@h/db?sslmode=require"),
+    ("postgresql://u:p@h/db?sslmode=require&channel_binding=require", "postgresql://u:p@h/db?sslmode=require"),
+])
+def test_migration_dsn_accepts_every_host_spelling(raw, expected):
+    assert migrate.dsn(raw) == expected

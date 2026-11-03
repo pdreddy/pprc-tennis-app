@@ -51,3 +51,26 @@ def test_app_origin_has_no_trailing_slash(monkeypatch):
 
     monkeypatch.setattr(config, "get_settings", lambda: make(pprc_app_origin="https://x.example/"))
     assert config.app_origin() == "https://x.example"
+
+
+@pytest.mark.parametrize("raw,expected", [
+    ("postgres://u:p@host:5432/db", "postgresql+asyncpg://u:p@host:5432/db"),
+    ("postgresql://u:p@host/db", "postgresql+asyncpg://u:p@host/db"),
+    ("postgresql+asyncpg://u:p@host/db", "postgresql+asyncpg://u:p@host/db"),
+    ("postgres://u:p@host/db?sslmode=require", "postgresql+asyncpg://u:p@host/db?ssl=require"),
+    ("postgresql://u:p@host/db?sslmode=require&channel_binding=require", "postgresql+asyncpg://u:p@host/db?ssl=require"),
+    ("postgresql://u:p%40x@host/db?application_name=pprc", "postgresql+asyncpg://u:p%40x@host/db?application_name=pprc"),
+    ("sqlite+aiosqlite:///tmp/x.db", "sqlite+aiosqlite:///tmp/x.db"),
+])
+def test_database_urls_are_normalised_for_asyncpg(raw, expected):
+    assert make(database_url=raw).database_url == expected
+
+
+def test_pooler_mode_disables_prepared_statements():
+    from app.database import engine_options
+
+    assert engine_options(make(database_url="sqlite+aiosqlite:///x.db")) == {}
+    plain = engine_options(make(database_url="postgres://u:p@h/db"))
+    assert plain["pool_pre_ping"] and "connect_args" not in plain
+    pooled = engine_options(make(database_url="postgres://u:p@h:6543/db", pprc_db_pooler=True))
+    assert pooled["connect_args"]["statement_cache_size"] == 0
