@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
@@ -283,6 +284,9 @@ async def ranked_playoff_teams(session: AsyncSession, division: Division) -> lis
     return ranked
 
 
+logger = logging.getLogger("uvicorn.error")
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     settings = get_settings()
@@ -290,7 +294,9 @@ async def lifespan(_: FastAPI):
     problem = settings.auth_config_error() or (None if settings.allow_development_header or settings.auth_provider else "Configure PPRC_AUTH_PROVIDER with FIREBASE_PROJECT_ID or CLERK_SECRET_KEY when PPRC_ENVIRONMENT is not 'development'")
     if problem:
         raise RuntimeError(problem)
-    if settings.pprc_bootstrap_schema:
+    if settings.bootstrap_schema:
+        if not settings.allow_development_header:
+            logger.warning("PPRC_BOOTSTRAP_SCHEMA is on outside development: create_all never alters existing tables, so apply backend/sql migrations instead")
         async with engine.begin() as connection:
             await connection.run_sync(Base.metadata.create_all)
     stop, scheduler = asyncio.Event(), None
@@ -307,7 +313,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="PPRC Multi-club API", version="0.1.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=get_settings().cors_origins, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
-app.add_middleware(RequestLimitMiddleware, writes_per_minute=get_settings().pprc_rate_limit_writes_per_minute, max_body_bytes=get_settings().pprc_max_body_bytes)
+app.add_middleware(RequestLimitMiddleware, writes_per_minute=get_settings().pprc_rate_limit_writes_per_minute, max_body_bytes=get_settings().pprc_max_body_bytes, trust_proxy=get_settings().pprc_trust_proxy)
 
 
 app.include_router(competitions_router)
@@ -783,6 +789,12 @@ async def confirm_development_payment(
     return CheckoutRead(payment_id=payment.id, status="paid", development=True)
 
 
+STRIPE_OUTCOMES = {
+    "checkout.session.completed": "paid", "checkout.session.async_payment_succeeded": "paid",
+    "checkout.session.async_payment_failed": "failed", "checkout.session.expired": "failed",
+}
+
+
 @app.post("/v1/webhooks/stripe", status_code=status.HTTP_204_NO_CONTENT)
 async def stripe_webhook(request: Request, session: AsyncSession = Depends(get_session)) -> None:
     settings = get_settings()
@@ -798,22 +810,27 @@ async def stripe_webhook(request: Request, session: AsyncSession = Depends(get_s
         )
     except Exception as exc:
         raise HTTPException(status_code=400, detail="Invalid Stripe webhook") from exc
-    if event["type"] not in {"checkout.session.completed", "checkout.session.async_payment_succeeded"}:
+    outcome = STRIPE_OUTCOMES.get(event["type"])
+    if outcome is None:
         return
     checkout = event["data"]["object"]
-    payment_id = (checkout.get("metadata") or {}).get("payment_id")
-    if not payment_id:
-        return
-    payment = await session.get(Payment, UUID(payment_id))
+    try:
+        payment_id = UUID(str((checkout.get("metadata") or {}).get("payment_id")))
+    except ValueError:
+        return  # not one of ours; a 4xx would only make Stripe retry forever
+    # Lock the row so two concurrent deliveries of the same event cannot both apply it.
+    payment = await session.scalar(select(Payment).where(Payment.id == payment_id).with_for_update())
     if payment is None or payment.provider_reference != checkout["id"]:
         raise HTTPException(status_code=400, detail="Payment reconciliation failed")
-    if payment.status != "paid":
-        payment.status = "paid"
+    if payment.status != "pending":
+        return  # already settled: replays and out-of-order events are no-ops (a paid payment is never downgraded)
+    payment.status = outcome
+    if outcome == "paid":
         registration = await session.get(Registration, payment.registration_id)
         if registration:
             registration.status = RegistrationStatus.confirmed
-        await audit(session, payment.club_id, "stripe", "payment.paid", "payment", str(payment.id))
-        await session.commit()
+    await audit(session, payment.club_id, "stripe", f"payment.{outcome}", "payment", str(payment.id))
+    await session.commit()
 
 
 @app.post("/v1/events/{event_id}/divisions", response_model=DivisionRead, status_code=status.HTTP_201_CREATED)

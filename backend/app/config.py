@@ -9,7 +9,8 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql+asyncpg://pprc:pprc@localhost:5432/pprc"
     pprc_cors_origins: str = "http://localhost:5173"
-    pprc_bootstrap_schema: bool = True
+    # None = create tables automatically in development only; deployed schemas are managed with sql/*.sql.
+    pprc_bootstrap_schema: bool | None = None
     pprc_environment: str = "development"
     firebase_project_id: str | None = None
     clerk_secret_key: str | None = None
@@ -22,6 +23,8 @@ class Settings(BaseSettings):
     # Per-client limits; 0 disables the write rate limit.
     pprc_rate_limit_writes_per_minute: int = 120
     pprc_max_body_bytes: int = 1_000_000
+    # Believe X-Forwarded-For only when a trusted reverse proxy sets it.
+    pprc_trust_proxy: bool = False
 
     @property
     def cors_origins(self) -> list[str]:
@@ -43,6 +46,12 @@ class Settings(BaseSettings):
         if self.auth_provider == "firebase" and not self.firebase_project_id:
             return "PPRC_AUTH_PROVIDER=firebase requires FIREBASE_PROJECT_ID"
         return None
+
+    @property
+    def bootstrap_schema(self) -> bool:
+        if self.pprc_bootstrap_schema is not None:
+            return self.pprc_bootstrap_schema
+        return self.pprc_environment == "development"
 
     @property
     def allow_development_header(self) -> bool:

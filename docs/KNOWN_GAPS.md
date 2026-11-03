@@ -7,7 +7,7 @@ Fixed items are listed in git history; this file tracks what is still open.
 - **Double round-robin:** repeat regular-season pairings are allowed on purpose; there is no per-pair limit.
 
 ## Backend
-- Schema is created by `create_all` at startup *and* by `backend/sql/*.sql`; the two can drift. Pick Alembic or the SQL files as the single source and set `PPRC_BOOTSTRAP_SCHEMA=false` in production.
+- Schema: `create_all` now runs at startup only in development (or when `PPRC_BOOTSTRAP_SCHEMA=true`); deployed schemas come from `backend/sql/*.sql`. Still missing: a migration runner that records applied files.
 
 ## Frontend
 - `apps/web/src/admin.tsx` (~2000 lines) and `player.tsx` (~1000) should be split by feature.
@@ -42,3 +42,8 @@ TRIACE 2.0, round robin, single elimination, double elimination, Swiss and ladde
 - Ladder expiry is still lazy (no background job); ladder scores still cannot be corrected after ranks move.
 - Groups + knockout round 1 can still pair two players from the same group with uneven group counts.
 - Preview sign-in uses seeded demo accounts (`VITE_AUTH_MODE=demo` + `X-PPRC-User`); production must use Firebase Auth.
+
+## Tenant isolation (reviewed)
+- `backend/sql/003_tenant_rls.sql` protects **direct Supabase client access** (JWT `sub` claim). FastAPI connects with the service role, which bypasses RLS, so API isolation is enforced in code.
+- Every by-ID lookup sampled in `main.py`, `competitions.py`, `challenges.py` and `ratings.py` authorizes against the loaded row's own `club_id` (`require_role`) or the caller's participation/ownership. Keep that rule for new endpoints: never trust a club id from the URL for an entity loaded by primary key.
+- Not yet covered: automated cross-club tests (user in club A hitting club B's ids). Add them to the e2e suite.
