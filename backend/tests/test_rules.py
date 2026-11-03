@@ -39,10 +39,10 @@ def full_set():
 
 def test_rule_defaults():
     rules = triace_rules_for({}, {})
-    assert (rules.team_min_rating, rules.team_max_rating, rules.min_singles_participation_pct, rules.playoff_size) == (12.0, 18.5, 0.4, 4)
+    assert (rules.team_min_rating, rules.team_max_rating, rules.min_singles_participation_pct, rules.playoff_size) == (12.0, 18.5, 0.4, 0)
 
 
-@pytest.mark.parametrize("event,division", [({"teamSize": 1}, {}), ({}, {"teamMinRating": 20, "teamMaxRating": 10}), ({}, {"playoffSize": 3})])
+@pytest.mark.parametrize("event,division", [({"teamSize": 1}, {}), ({}, {"teamMinRating": 20, "teamMaxRating": 10}), ({}, {"playoffSize": 5})])
 def test_invalid_rules_rejected(event, division):
     with pytest.raises(HTTPException) as exc:
         triace_rules_for(event, division)
@@ -68,11 +68,17 @@ def test_totals_must_match_rubber_wins():
         triace_rubber_detail(result(full_set(), home=2, away=3), fixture("playoff_final"), HOME, AWAY, RULES)
 
 
-def test_singles_must_use_p1_or_p2():
+def test_any_player_may_play_singles_by_default():
+    rubbers = full_set()
+    rubbers[0] = rubber("singles", ["h3"], ["a1"], 8, 5)
+    triace_rubber_detail(result(rubbers), fixture("playoff_final"), HOME, AWAY, RULES)
+
+
+def test_singles_positions_can_be_restricted():
     rubbers = full_set()
     rubbers[0] = rubber("singles", ["h3"], ["a1"], 8, 5)
     with pytest.raises(HTTPException):
-        triace_rubber_detail(result(rubbers), fixture("playoff_final"), HOME, AWAY, RULES)
+        triace_rubber_detail(result(rubbers), fixture("playoff_final"), HOME, AWAY, triace_rules_for({"singlesPositions": [1, 2]}, {}))
 
 
 def test_super_tiebreak_needs_ten():

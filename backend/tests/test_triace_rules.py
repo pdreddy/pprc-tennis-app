@@ -7,7 +7,7 @@ from app.triace_rules import TRIACE_RULE_KEYS, RuleError, TriaceRules, validate_
 def test_defaults_match_original_triace():
     rules = TriaceRules.resolve({}, {})
     assert (rules.team_size, rules.rubber_counts, rules.wins_to_clinch) == (3, {"singles": 2, "doubles": 2, "super_tiebreak": 1}, 3)
-    assert rules.team_min_rating == 12 and rules.team_max_rating == 18.5 and rules.playoff_size == 4
+    assert rules.team_min_rating == 12 and rules.team_max_rating == 18.5 and rules.playoff_size == 0
 
 
 def test_division_overrides_event():
@@ -28,7 +28,7 @@ def test_round_trip_through_dict():
     {"singlesMatches": 0, "doublesMatches": 0, "superTiebreakMatches": 0}, {"superTiebreakPoints": 3},
     {"singlesPositions": [1, 4]}, {"singlesPositions": []}, {"doublesPairs": [[1, 1]]}, {"doublesPairs": [[1, 5]]},
     {"teamMinRating": 30, "teamMaxRating": 20}, {"teamMaxRating": 61}, {"minSinglesParticipationPct": 0},
-    {"playoffSize": 3}, {"pointsPerWin": 1, "pointsPerLoss": 2}, {"teamSize": "three"},
+    {"playoffSize": 5}, {"pointsPerWin": 1, "pointsPerLoss": 2}, {"teamSize": "three"},
 ])
 def test_invalid_rules_rejected(override):
     with pytest.raises(RuleError):

@@ -80,8 +80,19 @@ Every TRIACE property is a rule stored on the event and division (`backend/app/t
 | `teamMinRating` / `teamMaxRating` | 12 / 18.5 | Combined UTR range (≤ teamSize × playerMaxRating) |
 | `playerMaxRating` | 20 | Highest UTR allowed for one player |
 | `minSinglesParticipationPct` | 0.4 | Share of match days each player must play singles to be playoff eligible, rounded down (8 match days → 3) |
+| `playoffSize` | 0 | Teams in the playoffs: 2, 3 or 4. `0` is automatic (official rule): top 4 above 7 teams, otherwise top 3 (2nd v 3rd in an eliminator, winner meets 1st in the final) |
+| `tiers` | [] | Combined-rating tiers `{id, name, minRating, maxRating, order, active}` (up to 20, order 1 is highest, both ends inclusive). Empty uses only the `teamMinRating`/`teamMaxRating` window. `GET /v1/triace/defaults` returns the Triace 2.0 preset as `officialTiers` (GOAT 17.50–22.00, Rising 11.50–17.00) |
+| `challengeEnabled` | false | Provisional challenge rule: a team in `challengeChallengerPositions` (5, 6) may challenge one in `challengeTargetPositions` (2, 3, 4) once, before the last `challengeCutoffWeeks` (3) weeks, if it has no overdue fixtures. A win swaps their table positions |
 | `playoffSize` | 4 | 2 (final only) or 4 (semifinals + final); can be overridden per bracket |
 | `pointsPerWin` / `pointsPerLoss` | 3 / 0 | Standings points |
 | `requireRubbersInRegularSeason` | false | Require match-by-match scores before regular-season results count (always required in playoffs) |
 
 Scoring rules (`singles*`, `doubles*`, `superTiebreak*`, `points*`) cannot change once results exist; `teamSize` cannot change once teams have registered. Both return 409 with the offending keys.
+
+
+### Tiers, three-team playoffs and challenges
+
+- `POST /v1/clubs/{id}/teams` accepts `selected_tier` (a tier id, `higher` — the default, highest eligible — or `both`). A team may enter its own tier or a lower one; `both` lists a top-tier team in the top two tiers. Teams outside every active band are refused. Placement is stored on the team (`selectedTier`, `assignedTier`, `listedTiers`).
+- `GET /v1/divisions/{id}/tiers` lists teams with their placement; `POST /v1/divisions/{id}/tiers/recalculate` (organizer) re-places every team after the bands or ratings change and returns `{reviewed, moved, unchanged, unassigned}`.
+- `POST /v1/divisions/{id}/playoffs/generate` without `size` follows `playoffSize`. A three-team bracket creates a `playoff_eliminator` fixture (2nd v 3rd); finalizing it creates the `playoff_final` against 1st.
+- `POST /v1/divisions/{id}/challenges` creates a `challenge` fixture. Challenge fixtures do not count in the regular-season table; when the challenger wins, the two teams' table positions are swapped in the playoff seeding (`/playoff-seeds`). Swaps are applied to the final regular-season order, oldest challenge first.

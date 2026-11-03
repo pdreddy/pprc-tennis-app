@@ -170,7 +170,7 @@ export const confirmApiFixtureResult = (fixtureId: string) => apiRequest<ApiFixt
 export const disputeApiFixtureResult = (fixtureId: string, reason: string) => apiRequest<ApiFixture>(`/v1/fixtures/${fixtureId}/dispute-result`, { method: "POST", body: JSON.stringify({ reason }) });
 export const correctApiFixtureResult = (fixtureId: string, result: { score_home: number; score_away: number; home_singles_player_ids: string[]; away_singles_player_ids: string[]; audit_reason: string }) => apiRequest<ApiFixture>(`/v1/fixtures/${fixtureId}/correct-result`, { method: "POST", body: JSON.stringify(result) });
 export const listApiStandings = (divisionId: string) => apiRequest<ApiStanding[]>(`/v1/divisions/${divisionId}/standings`);
-export const generateApiPlayoffs = (divisionId: string, input: { size: number; starts_at: string; final_starts_at?: string }) => apiRequest<ApiFixture[]>(`/v1/divisions/${divisionId}/playoffs/generate`, { method: "POST", body: JSON.stringify(input) });
+export const generateApiPlayoffs = (divisionId: string, input: { size?: number; starts_at: string; final_starts_at?: string }) => apiRequest<ApiFixture[]>(`/v1/divisions/${divisionId}/playoffs/generate`, { method: "POST", body: JSON.stringify(input) });
 export const getApiChampion = (divisionId: string) => apiRequest<{ champion_team_id: string | null; champion_team_name: string | null }>(`/v1/divisions/${divisionId}/champion`);
 export const registerForApiEvent = (eventId: string) => apiRequest(`/v1/events/${eventId}/registrations`, { method: "POST" });
 export const listMyApiRegistrations = () => apiRequest<ApiRegistration[]>("/v1/me/registrations");

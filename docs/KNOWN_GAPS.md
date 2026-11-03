@@ -55,3 +55,9 @@ TRIACE 2.0, round robin, single elimination, double elimination, Swiss and ladde
 - `main.py` (~1,300 lines) should be split into routers; not done without a running API to verify the move.
 - mypy reports ~24 mostly benign typing issues (e.g. `formats.py`); not yet enforced in CI.
 - No cross-club authorization e2e tests; Firestore rules/functions removal depends on whether Firebase is still deployed.
+
+## TRIACE vs the Triace 2.0 rules page
+- Tier bands default to the rules page (17.50–22.00 / 11.50–17.00), not the 2025 app's defaults (17.00–22.00 / 11.50–16.50). Combined ratings between 17.00 and 17.50 fit no tier and cannot register; the owner should confirm the bands.
+- Tiers are opt-in per division (`tiers` empty keeps the old combined-rating window) so existing divisions keep working.
+- The challenge rule is provisional in the rules page and off by default. Swaps are applied to the final regular-season table; if the owner means "swap at the time of the match", that needs a decision.
+- Not ported from the 2025 registration app: ace-name masking, consent/rules-accepted flags, CSV export and per-player "higher of singles/doubles rating". The web admin can edit tiers and challenge settings but has no screen to create a challenge yet (API only).

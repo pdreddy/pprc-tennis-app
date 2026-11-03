@@ -17,7 +17,7 @@ from .limits import RequestLimitMiddleware
 from .database import engine, get_session
 from .auth import Actor, current_actor
 from .common import audit, notify, require_role
-from .triace_rules import TRIACE_RULE_KEYS, RuleError, TriaceRules, validate_encounter
+from .triace_rules import OFFICIAL_TIERS, TRIACE_RULE_KEYS, RuleError, TriaceRules, apply_challenge_swaps, assign_selected_tier, challenge_problem, hundredths, listed_tiers, playoff_size_for, validate_encounter
 from .competitions import router as competitions_router, sync_entries_for_registration
 from .ratings import router as ratings_router
 from .members import router as members_router
@@ -67,6 +67,9 @@ from .schemas import (
     TeamRead,
     TeamEligibilityRead,
     PlayoffSeedRead,
+    ChallengeCreate,
+    TierRecalculationRead,
+    TierTeamRead,
     PlayoffGenerate,
     ChampionRead,
     CheckoutRead,
@@ -139,6 +142,8 @@ async def apply_fixture_result(session: AsyncSession, fixture: Fixture, payload:
         raise HTTPException(status_code=422, detail="Singles players must be active members of their assigned team")
     detail = triace_rubber_detail(payload, fixture, home_members, away_members, rules)
     detail.update({"reportedBy": actor_id, "reportedAt": datetime.now(timezone.utc).isoformat(), "dispute": None})
+    if (fixture.result_detail or {}).get("byeTeamId"):  # the top seed waiting in the final of a three-team playoff
+        detail["byeTeamId"] = fixture.result_detail["byeTeamId"]
     fixture.score_home, fixture.score_away = payload.score_home, payload.score_away
     fixture.winner_team_id = fixture.home_team_id if payload.score_home > payload.score_away else fixture.away_team_id
     fixture.result_detail = detail
@@ -153,6 +158,16 @@ async def apply_fixture_result(session: AsyncSession, fixture: Fixture, payload:
 
 
 async def create_playoff_final_if_ready(session: AsyncSession, fixture: Fixture) -> None:
+    if fixture.round_name == "playoff_eliminator":
+        bye_team_id = (fixture.result_detail or {}).get("byeTeamId")
+        final_exists = await session.scalar(select(Fixture).where(Fixture.division_id == fixture.division_id, Fixture.round_name == "playoff_final"))
+        if bye_team_id and fixture.status == FixtureStatus.finalized and fixture.winner_team_id and final_exists is None:
+            session.add(Fixture(
+                club_id=fixture.club_id, division_id=fixture.division_id,
+                home_team_id=UUID(str(bye_team_id)), away_team_id=fixture.winner_team_id,
+                starts_at=fixture.starts_at + timedelta(days=7), round_name="playoff_final", bracket_position=2,
+            ))
+        return
     if fixture.round_name != "playoff_semifinal":
         return
     semifinals = list((await session.scalars(select(Fixture).where(Fixture.division_id == fixture.division_id, Fixture.round_name == "playoff_semifinal").order_by(Fixture.bracket_position))).all())
@@ -281,7 +296,17 @@ async def ranked_playoff_teams(session: AsyncSession, division: Division) -> lis
     eligibility = await division_team_eligibility(session, division, teams)
     ranked = [(team, standings.get(str(team.id)), eligibility[team.id]) for team in teams]
     ranked.sort(key=lambda item: (not item[2].eligible, -(item[1].points if item[1] else 0), -(item[1].wins if item[1] else 0), item[0].name.lower()))
-    return ranked
+    by_team = {item[0].id: item for item in ranked}
+    swapped = apply_challenge_swaps([item[0].id for item in ranked], await won_challenges(session, division))
+    return [by_team[team_id] for team_id in swapped]
+
+
+async def won_challenges(session: AsyncSession, division: Division) -> list[tuple[UUID, UUID]]:
+    """(challenger, defender) for every finalized challenge the challenger won, oldest first."""
+    rows = (await session.scalars(select(Fixture).where(
+        Fixture.division_id == division.id, Fixture.round_name == "challenge", Fixture.status == FixtureStatus.finalized,
+    ).order_by(Fixture.starts_at))).all()
+    return [(f.home_team_id, f.away_team_id) for f in rows if f.winner_team_id == f.home_team_id]
 
 
 logger = logging.getLogger("uvicorn.error")
@@ -868,6 +893,17 @@ async def list_divisions(
     return list((await session.scalars(select(Division).where(Division.club_id == club_id).order_by(Division.name))).all())
 
 
+def tier_placement(rules: TriaceRules, combined: int, selected: str) -> dict:
+    """Tier fields stored on the team, or a 422 explaining why the team cannot enter the selected tier."""
+    choices = {t.id for t in rules.tiers if t.active} | {"higher", "both"}
+    if selected not in choices:
+        raise HTTPException(status_code=422, detail="Select an active tier or the higher-tier interest option")
+    assigned = assign_selected_tier(combined, rules.tiers, selected)
+    if assigned is None:
+        raise HTTPException(status_code=422, detail="Your team does not qualify for the selected tier. Choose an eligible tier or contact the tournament admin.")
+    return {"selectedTier": selected, "assignedTier": assigned, "listedTiers": listed_tiers(combined, rules.tiers, selected)}
+
+
 @app.post("/v1/clubs/{club_id}/teams", response_model=TeamRead, status_code=status.HTTP_201_CREATED)
 async def create_triace_team(
     club_id: UUID,
@@ -942,9 +978,12 @@ async def create_triace_team(
             )
     await session.flush()
     total_rating = round(sum(member.rating for member in payload.members), 2)
-    if total_rating < minimum:
+    placement: dict = {}
+    if rules.tiers:
+        placement = tier_placement(rules, hundredths(total_rating), payload.selected_tier)
+    elif total_rating < minimum:
         raise HTTPException(status_code=422, detail=f"Combined rating must be at least {minimum}")
-    if total_rating > maximum:
+    elif total_rating > maximum:
         raise HTTPException(status_code=422, detail=f"Combined rating cannot exceed {maximum}")
     team = Team(
         club_id=club_id,
@@ -952,7 +991,7 @@ async def create_triace_team(
         name=payload.name,
         captain_user_id=actor.user_id,
         status=TeamStatus.pending,
-        metadata_={"combinedRating": total_rating},
+        metadata_={"combinedRating": total_rating, **placement},
     )
     session.add(team)
     await session.flush()
@@ -1231,7 +1270,7 @@ async def get_team_eligibility(
 @app.get("/v1/triace/defaults")
 async def triace_defaults() -> dict:
     """Every configurable TRIACE property with its default value."""
-    return TriaceRules().as_dict()
+    return {**TriaceRules().as_dict(), "officialTiers": [t.as_dict() for t in OFFICIAL_TIERS]}
 
 
 @app.get("/v1/divisions/{division_id}/triace-rules")
@@ -1275,18 +1314,24 @@ async def generate_playoffs(
     event = await session.get(Event, division.event_id) if division.event_id else None
     if event is None or event.status != EventStatus.closed:
         raise HTTPException(status_code=409, detail="Close TRIACE registration before generating playoffs")
-    if await session.scalar(select(Fixture).where(Fixture.division_id == division.id, Fixture.round_name.in_(["playoff_semifinal", "playoff_final"]))):
+    if await session.scalar(select(Fixture).where(Fixture.division_id == division.id, Fixture.round_name.in_(["playoff_semifinal", "playoff_eliminator", "playoff_final"]))):
         raise HTTPException(status_code=409, detail="Playoff bracket already exists")
     rules = triace_rules_for(event.rules, division.rules)
-    size = payload.size or rules.playoff_size
-    if size not in {2, 4}:
-        raise HTTPException(status_code=422, detail="TRIACE playoffs support two or four teams")
-    eligible = [item for item in await ranked_playoff_teams(session, division) if item[2].eligible]
+    ranked = await ranked_playoff_teams(session, division)
+    size = payload.size or playoff_size_for(rules.playoff_size, len(ranked))
+    if size not in {2, 3, 4}:
+        raise HTTPException(status_code=422, detail="TRIACE playoffs support two, three or four teams")
+    eligible = [item for item in ranked if item[2].eligible]
     if len(eligible) < size:
         raise HTTPException(status_code=422, detail=f"Need {size} eligible teams to generate this playoff bracket")
     seeds = [item[0] for item in eligible[:size]]
     fixtures: list[Fixture] = []
-    if size == 2:
+    if size == 3:  # 2nd v 3rd in the eliminator; the winner meets 1st in the final
+        fixtures.append(Fixture(
+            club_id=division.club_id, division_id=division.id, home_team_id=seeds[1].id, away_team_id=seeds[2].id, starts_at=payload.starts_at,
+            round_name="playoff_eliminator", bracket_position=1, result_detail={"byeTeamId": str(seeds[0].id)},
+        ))
+    elif size == 2:
         fixtures.append(Fixture(club_id=division.club_id, division_id=division.id, home_team_id=seeds[0].id, away_team_id=seeds[1].id, starts_at=payload.final_starts_at or payload.starts_at, round_name="playoff_final", bracket_position=1))
     else:
         fixtures.extend(
@@ -1300,6 +1345,84 @@ async def generate_playoffs(
     await audit(session, division.club_id, actor.user_id, "triace.playoffs.generated", "division", str(division.id))
     await session.commit()
     return fixtures
+
+
+async def triace_division(session: AsyncSession, division_id: UUID, roles: set[MembershipRole], actor: Actor) -> tuple[Division, TriaceRules]:
+    division = await session.get(Division, division_id)
+    if division is None or not is_triace_division(division):
+        raise HTTPException(status_code=404, detail="TRIACE division not found")
+    await require_role(session, division.club_id, actor.user_id, roles)
+    return division, await division_triace_rules(session, division)
+
+
+STAFF = {MembershipRole.owner, MembershipRole.admin, MembershipRole.organizer}
+
+
+@app.get("/v1/divisions/{division_id}/tiers", response_model=list[TierTeamRead])
+async def list_tier_teams(division_id: UUID, session: AsyncSession = Depends(get_session), actor: Actor = Depends(current_actor)) -> list[TierTeamRead]:
+    """Teams with their tier placement; a team listed in two tiers (\"both\") appears once with both tiers."""
+    division, _ = await triace_division(session, division_id, set(MembershipRole), actor)
+    teams = (await session.scalars(select(Team).where(Team.division_id == division.id, Team.status != TeamStatus.rejected).order_by(Team.name))).all()
+    return [
+        TierTeamRead(
+            team_id=t.id, team_name=t.name, combined_rating=(t.metadata_ or {}).get("combinedRating"), selected_tier=(t.metadata_ or {}).get("selectedTier"),
+            assigned_tier=(t.metadata_ or {}).get("assignedTier"), listed_tiers=(t.metadata_ or {}).get("listedTiers") or [],
+        )
+        for t in teams
+    ]
+
+
+@app.post("/v1/divisions/{division_id}/tiers/recalculate", response_model=TierRecalculationRead)
+async def recalculate_tiers(division_id: UUID, session: AsyncSession = Depends(get_session), actor: Actor = Depends(current_actor)) -> TierRecalculationRead:
+    """Re-place every team from its players' ratings under the current tier bands (after the bands or ratings change)."""
+    division, rules = await triace_division(session, division_id, STAFF, actor)
+    if not rules.tiers:
+        raise HTTPException(status_code=409, detail="This division does not use tiers")
+    teams = (await session.scalars(select(Team).where(Team.division_id == division.id, Team.status != TeamStatus.rejected))).all()
+    summary = {"reviewed": 0, "moved": 0, "unchanged": 0, "unassigned": 0}
+    for team in teams:
+        members = (await session.scalars(select(TeamMember).where(TeamMember.team_id == team.id, TeamMember.active.is_(True)))).all()
+        combined = hundredths(round(sum(float(m.rating or 0) for m in members), 2))
+        meta = dict(team.metadata_ or {})
+        selected = meta.get("selectedTier", "higher")
+        assigned = assign_selected_tier(combined, rules.tiers, selected)
+        listed = listed_tiers(combined, rules.tiers, selected)
+        summary["reviewed"] += 1
+        summary["unchanged" if (assigned, listed) == (meta.get("assignedTier"), meta.get("listedTiers") or []) else "moved"] += 1
+        summary["unassigned"] += assigned is None
+        team.metadata_ = {**meta, "combinedRating": combined / 100, "selectedTier": selected, "assignedTier": assigned, "listedTiers": listed}
+    await audit(session, division.club_id, actor.user_id, "triace.tiers.recalculated", "division", str(division.id))
+    await session.commit()
+    return TierRecalculationRead(**summary)
+
+
+@app.post("/v1/divisions/{division_id}/challenges", response_model=FixtureRead, status_code=status.HTTP_201_CREATED)
+async def create_table_challenge(division_id: UUID, payload: ChallengeCreate, session: AsyncSession = Depends(get_session), actor: Actor = Depends(current_actor)) -> Fixture:
+    """Provisional challenge rule: a lower-table team challenges a higher one once; a win swaps their table positions."""
+    division, rules = await triace_division(session, division_id, set(MembershipRole), actor)
+    challenger, defender = await session.get(Team, payload.challenger_team_id), await session.get(Team, payload.defender_team_id)
+    if challenger is None or defender is None or challenger.division_id != division.id or defender.division_id != division.id:
+        raise HTTPException(status_code=404, detail="Both teams must belong to this division")
+    if actor.user_id != challenger.captain_user_id:
+        await require_role(session, division.club_id, actor.user_id, STAFF)
+    regular = (await session.scalars(select(Fixture).where(Fixture.division_id == division.id, Fixture.round_name == "regular"))).all()
+    now = datetime.now(timezone.utc)
+    mine = [f for f in regular if challenger.id in (f.home_team_id, f.away_team_id)]
+    overdue = sum(1 for f in mine if f.status != FixtureStatus.finalized and f.starts_at < now)
+    weeks_left = len({f.starts_at.date() for f in regular if f.status != FixtureStatus.finalized and f.starts_at >= now})
+    previous = int(await session.scalar(select(func.count()).select_from(Fixture).where(
+        Fixture.division_id == division.id, Fixture.round_name == "challenge", Fixture.home_team_id == challenger.id)) or 0)
+    order = [item[0].id for item in await ranked_playoff_teams(session, division)]
+    problem = challenge_problem(rules, order, challenger.id, defender.id, previous_challenges=previous, overdue_fixtures=overdue, weeks_left=weeks_left)
+    if problem:
+        raise HTTPException(status_code=409, detail=problem)
+    fixture = Fixture(club_id=division.club_id, division_id=division.id, home_team_id=challenger.id, away_team_id=defender.id, starts_at=payload.starts_at, round_name="challenge")
+    session.add(fixture)
+    await session.flush()
+    await audit(session, division.club_id, actor.user_id, "triace.challenge.created", "fixture", str(fixture.id))
+    await notify(session, division.club_id, defender.captain_user_id, "fixture", "Table challenge", f"{challenger.name} has challenged {defender.name}.", {"fixtureId": str(fixture.id)})
+    await session.commit()
+    return fixture
 
 
 @app.get("/v1/divisions/{division_id}/champion", response_model=ChampionRead)

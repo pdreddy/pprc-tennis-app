@@ -143,6 +143,8 @@ class TeamMemberInput(BaseModel):
 class TeamCreate(BaseModel):
     division_id: UUID
     name: str = Field(min_length=2, max_length=160)
+    # Tier preference when the division uses tiers: a tier id, "higher" (highest eligible) or "both".
+    selected_tier: str = Field(default="higher", max_length=40)
     members: list[TeamMemberInput] = Field(min_length=2, max_length=6)
 
 
@@ -230,6 +232,28 @@ class PlayoffSeedRead(BaseModel):
     team_name: str
     points: int
     eligible: bool
+
+
+class ChallengeCreate(BaseModel):
+    challenger_team_id: UUID
+    defender_team_id: UUID
+    starts_at: datetime
+
+
+class TierTeamRead(BaseModel):
+    team_id: UUID
+    team_name: str
+    combined_rating: float | None
+    selected_tier: str | None
+    assigned_tier: str | None
+    listed_tiers: list[str]
+
+
+class TierRecalculationRead(BaseModel):
+    reviewed: int
+    moved: int
+    unchanged: int
+    unassigned: int
 
 
 class PlayoffGenerate(BaseModel):
