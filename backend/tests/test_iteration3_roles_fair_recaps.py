@@ -1,5 +1,4 @@
 """Iteration 3 (hosted preview): member roles admin, fair match finder, recap permissions, milestone notifications."""
-import os
 
 import pytest
 import requests

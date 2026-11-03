@@ -467,7 +467,7 @@ def double_elimination_matches(division: Division, size: int, when) -> list[Comp
         offset = 0 if bracket in {"W", "L"} else size.bit_length() + (0 if bracket == "GF" else 1)
         name = names.get(bracket) or f"{'winners' if bracket == 'W' else 'losers'}_round_{number}"
         built.append(new_match(division, round_number=number + offset, round_name=name, position=node["position"], status="pending", starts_at=when(number - 1)))
-    for node, match in zip(graph, built):
+    for node, match in zip(graph, built, strict=True):
         if node["winner_to"]:
             match.next_match_id, match.next_slot = built[node["winner_to"][0]].id, node["winner_to"][1]
         if node["loser_to"]:

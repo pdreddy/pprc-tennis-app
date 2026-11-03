@@ -88,7 +88,7 @@ async def recalculate_club(session: AsyncSession, club_id: UUID) -> int:
         await session.execute(delete(RatingHistory).where(RatingHistory.club_id == club_id))
         await session.execute(delete(PlayerRating).where(PlayerRating.club_id == club_id))
         await session.flush()
-        for key, rating in start.items():
+        for key in start:
             result.states.setdefault(key, None)
         for (user_id, kind), state in result.states.items():
             session.add(PlayerRating(

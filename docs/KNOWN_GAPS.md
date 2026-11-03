@@ -7,7 +7,7 @@ Fixed items are listed in git history; this file tracks what is still open.
 - **Double round-robin:** repeat regular-season pairings are allowed on purpose; there is no per-pair limit.
 
 ## Backend
-- Schema: `create_all` now runs at startup only in development (or when `PPRC_BOOTSTRAP_SCHEMA=true`); deployed schemas come from `backend/sql/*.sql`. Still missing: a migration runner that records applied files.
+- Schema: `create_all` now runs at startup only in development (or when `PPRC_BOOTSTRAP_SCHEMA=true`); deployed schemas come from `backend/sql/*.sql`. Apply them with `python backend/scripts/migrate.py` (`--baseline` for an existing database, `--status` to inspect); applied files are recorded in `schema_migrations`.
 
 ## Frontend
 - `apps/web/src/admin.tsx` (~2000 lines) and `player.tsx` (~1000) should be split by feature.
@@ -47,3 +47,11 @@ TRIACE 2.0, round robin, single elimination, double elimination, Swiss and ladde
 - `backend/sql/003_tenant_rls.sql` protects **direct Supabase client access** (JWT `sub` claim). FastAPI connects with the service role, which bypasses RLS, so API isolation is enforced in code.
 - Every by-ID lookup sampled in `main.py`, `competitions.py`, `challenges.py` and `ratings.py` authorizes against the loaded row's own `club_id` (`require_role`) or the caller's participation/ownership. Keep that rule for new endpoints: never trust a club id from the URL for an entity loaded by primary key.
 - Not yet covered: automated cross-club tests (user in club A hitting club B's ids). Add them to the e2e suite.
+
+## Deliberately left open
+- `meetings_between` / `rivalries` still filter in Python (match players live in JSON columns, so a portable SQL filter needs a join table). Fine for club-sized history; revisit when a club passes a few thousand matches.
+- Ladder-warning emails are marked sent before sending so a restart never double-sends; a failed send is logged and not retried.
+- Stripe: a full refund marks the payment `refunded` (payments created before this change carry no charge metadata, so their refunds are not matched). The registration is left for an organizer to withdraw.
+- `main.py` (~1,300 lines) should be split into routers; not done without a running API to verify the move.
+- mypy reports ~24 mostly benign typing issues (e.g. `formats.py`); not yet enforced in CI.
+- No cross-club authorization e2e tests; Firestore rules/functions removal depends on whether Firebase is still deployed.

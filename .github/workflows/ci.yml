@@ -12,10 +12,10 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
       - run: pip install ./backend[dev]
-      - run: ruff check backend/app backend/tests --select F,E9
+      - run: ruff check backend/app backend/tests backend/scripts --select F,E9,B --ignore B008
       - name: Unit tests (no database)
         working-directory: backend
-        run: pytest -q tests/test_rules.py tests/test_auth_config.py tests/test_limits.py
+        run: pytest -q tests/test_rules.py tests/test_auth_config.py tests/test_limits.py tests/test_migrate.py
       - name: End-to-end API tests
         run: docker compose --profile test up --build --abort-on-container-exit --exit-code-from api-tests api-tests
 

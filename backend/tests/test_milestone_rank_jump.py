@@ -14,7 +14,7 @@ def test_jump_to_no1_awards_no1_milestone():
         request("PUT", f"/v1/clubs/{cid}/players/me", p, json={"display_name": f"P{i}", "city": "Prosper", "visibility": "club",
                                                                   "starting_singles": 9.0 if i == 0 else 6.0})
     star, others = players[0], players[1:]
-    for a, b in zip(others[0::2], others[1::2]):  # 12 others -> 6 matches -> field of 12
+    for a, b in zip(others[0::2], others[1::2], strict=False):  # 12 others -> 6 matches -> field of 12
         r = request("POST", f"/v1/clubs/{cid}/match-results", a, json={"opponent_ids": [b], "score_text": "6-3 6-4"})
         request("POST", f"/v1/match-results/{r['id']}/confirm", b)
     r = request("POST", f"/v1/clubs/{cid}/match-results", star, json={"opponent_ids": [others[1]], "score_text": "6-0 6-0"})

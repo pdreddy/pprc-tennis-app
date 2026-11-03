@@ -135,7 +135,7 @@ def replay(start: dict[tuple[str, str], float], matches: list[RatedInput], as_of
         perf_one = WIN_SHARE * win_one + (1 - WIN_SHARE) * share_one
         weight = FORMAT_WEIGHTS.get(match.match_format, 1.0) * recency_weight(match.played_at, as_of)
         for users, states, perf, exp, won in ((match.side_one, ones, perf_one, exp_one, win_one == 1), (match.side_two, twos, 1 - perf_one, 1 - exp_one, win_one == 0)):
-            for user, player in zip(users, states):
+            for user, player in zip(users, states, strict=True):
                 k = BASE_K * weight * (1 + 1.5 * (1 - player.reliability / 100))
                 before = player.rating
                 delta = k * (perf - exp)

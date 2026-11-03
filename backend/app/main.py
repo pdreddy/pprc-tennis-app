@@ -759,6 +759,8 @@ async def start_checkout(
             success_url=f"{settings.pprc_app_origin}/my-events?payment=success",
             cancel_url=f"{settings.pprc_app_origin}/my-events?payment=cancelled",
             metadata={"payment_id": str(payment.id), "registration_id": str(registration.id), "user_id": actor.user_id},
+            # Copied onto the charge so later refund events can be traced back to this payment.
+            payment_intent_data={"metadata": {"payment_id": str(payment.id)}},
         )
         payment.provider_reference = checkout.id
         await session.commit()
@@ -792,6 +794,7 @@ async def confirm_development_payment(
 STRIPE_OUTCOMES = {
     "checkout.session.completed": "paid", "checkout.session.async_payment_succeeded": "paid",
     "checkout.session.async_payment_failed": "failed", "checkout.session.expired": "failed",
+    "charge.refunded": "refunded",
 }
 
 
@@ -820,9 +823,12 @@ async def stripe_webhook(request: Request, session: AsyncSession = Depends(get_s
         return  # not one of ours; a 4xx would only make Stripe retry forever
     # Lock the row so two concurrent deliveries of the same event cannot both apply it.
     payment = await session.scalar(select(Payment).where(Payment.id == payment_id).with_for_update())
-    if payment is None or payment.provider_reference != checkout["id"]:
+    if payment is None or (outcome != "refunded" and payment.provider_reference != checkout["id"]):
         raise HTTPException(status_code=400, detail="Payment reconciliation failed")
-    if payment.status != "pending":
+    if outcome == "refunded":
+        if not checkout.get("refunded") or payment.status != "paid":
+            return  # partial refunds keep the payment paid; only a full refund of a paid payment is recorded
+    elif payment.status != "pending":
         return  # already settled: replays and out-of-order events are no-ops (a paid payment is never downgraded)
     payment.status = outcome
     if outcome == "paid":

@@ -148,7 +148,7 @@ async def create_challenge(club_id: UUID, payload: ChallengeInput, session: Asyn
         raise HTTPException(status_code=404, detail="Player not found")
     pair = or_((Challenge.challenger_id == actor.user_id) & (Challenge.opponent_id == payload.opponent_id), (Challenge.challenger_id == payload.opponent_id) & (Challenge.opponent_id == actor.user_id))
     if await session.scalar(select(Challenge.id).where(Challenge.club_id == club_id, pair, Challenge.status.in_(OPEN)).limit(1)):
-        raise HTTPException(status_code=409, detail="You already have an open challenge with this player")
+        raise HTTPException(status_code=409, detail="You already have an open challenge with this player") from None
     open_sent = (await session.scalars(select(Challenge.id).where(Challenge.club_id == club_id, Challenge.challenger_id == actor.user_id, Challenge.status == "pending"))).all()
     if len(open_sent) >= MAX_OPEN_SENT:
         raise HTTPException(status_code=429, detail="Wait for replies before sending more challenges")
@@ -161,7 +161,7 @@ async def create_challenge(club_id: UUID, payload: ChallengeInput, session: Asyn
         await session.flush()
     except IntegrityError:
         await session.rollback()
-        raise HTTPException(status_code=409, detail="You already have an open challenge with this player")
+        raise HTTPException(status_code=409, detail="You already have an open challenge with this player") from None
     names = await names_for(session, club_id)
     me = names.get(actor.user_id, "A club member")
     await notify(session, club_id, payload.opponent_id, "challenge", f"{me} challenged you", "Accept or decline the singles match challenge.", {"challengeId": str(c.id), "link": f"/me/matches?challenge={c.id}"})

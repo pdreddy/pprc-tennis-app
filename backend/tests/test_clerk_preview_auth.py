@@ -1,5 +1,4 @@
 """Iteration 2: hosted preview Clerk auth, join, photo upload/serve, milestones (runs against REACT_APP_BACKEND_URL)."""
-import io
 import json
 import os
 import struct
