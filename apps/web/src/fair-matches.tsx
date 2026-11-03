@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { listFairMatches, photoUrl, type RatingKind } from "./api";
+import { listChallenges, listFairMatches, photoUrl, type RatingKind } from "./api";
 import { Tabs } from "./components";
 import { ChallengeButton } from "./challenges";
 import { useSession } from "./context";
@@ -18,6 +18,8 @@ export function FairMatches({ onPick }: { onPick?: (opponent: { id: string; name
   const [kind, setKind] = useState<RatingKind>("singles");
   const [spread, setSpread] = useState("0.5");
   const { user } = useSession();
+  const challenges = useQuery({ queryKey: ["challenges"], queryFn: listChallenges, enabled: !!onPick });
+  const openWith = (id: string) => challenges.data?.find((c) => c.opponent.user_id === id && (c.status === "pending" || c.status === "accepted"))?.id;
   const q = useQuery({ queryKey: ["fair-matches", kind, spread], queryFn: () => listFairMatches(kind, Number(spread)) });
   return (
     <Panel title="Fair match finder" action={<Tabs label="Rating kind" value={kind} onChange={setKind} options={[{ value: "singles", label: "Singles" }, { value: "doubles", label: "Doubles" }]} />}>
@@ -42,7 +44,7 @@ export function FairMatches({ onPick }: { onPick?: (opponent: { id: string; name
               </span>
               {onPick && kind === "singles" && (
                 <span className="pr-fair-actions">
-                  <ChallengeButton opponent={{ id: o.user_id, name: o.display_name }} />
+                  <ChallengeButton opponent={{ id: o.user_id, name: o.display_name }} openChallenge={openWith(o.user_id)} />
                   <button className="button secondary small" onClick={() => onPick({ id: o.user_id, name: o.display_name })} data-testid={`fair-match-report-${o.user_id}`}>Report match</button>
                 </span>
               )}

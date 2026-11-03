@@ -1,6 +1,7 @@
 """Match challenges (from the fair match finder) and head-to-head rivalry pages."""
 import logging
 import os
+import re
 from datetime import datetime, timezone
 from html import escape
 from typing import Literal
@@ -9,6 +10,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .auth import Actor, current_actor
@@ -22,6 +24,12 @@ logger = logging.getLogger("uvicorn.error")
 router = APIRouter()
 OPEN = ("pending", "accepted")
 MAX_OPEN_SENT = 10
+SET = re.compile(r"(\d+)-(\d+)(\(\d+\))?")
+
+
+def flip_score(text: str | None) -> str | None:
+    """Scores are stored side-one first; flip each set to show the other side first."""
+    return SET.sub(lambda m: f"{m.group(2)}-{m.group(1)}{m.group(3) or ''}", text) if text else text
 
 
 class ChallengeInput(BaseModel):
@@ -57,8 +65,8 @@ def challenge_email(challenger: str, rating: float | None, when: datetime | None
     """Fixed template; the free-text note is never emailed (it stays in-app)."""
     rating_line = f" (PPRC singles {rating:.2f})" if rating is not None else ""
     when_line = f'<p style="margin:0 0 12px;color:#26394a">Suggested time: {escape(when.strftime("%a %b %d, %I:%M %p UTC"))}</p>' if when else ""
-    return (f'<table role="presentation" width="100%" style="background:#f4f7f9"><tr><td align="center" style="padding:24px">'
-            f'<table role="presentation" width="560" style="max-width:560px;background:#ffffff;border-radius:14px"><tr><td style="padding:28px;font-family:Arial,sans-serif;color:#26394a">'
+    return (f'<table role="presentation" width="100%" style="background:#f4f7f9"><tr><td align="center" style="padding:16px 8px">'
+            f'<table role="presentation" width="100%" style="max-width:560px;background:#ffffff;border-radius:14px"><tr><td style="padding:28px;font-family:Arial,sans-serif;color:#26394a">'
             f'<p style="margin:0;font-size:12px;letter-spacing:2px;color:#087f80">PPRC MATCH CHALLENGE</p>'
             f'<h1 style="margin:8px 0 12px;font-size:24px;color:#102c43">{escape(challenger)}{escape(rating_line)} challenged you to a singles match</h1>'
             f'{when_line}<p style="margin:0 0 20px;color:#26394a">You were matched as a fair opponent. Accept or decline in the PPRC app; once accepted, either of you can report the score.</p>'
@@ -114,7 +122,11 @@ async def create_challenge(club_id: UUID, payload: ChallengeInput, session: Asyn
         proposed = proposed.replace(tzinfo=timezone.utc)
     c = Challenge(club_id=club_id, challenger_id=actor.user_id, opponent_id=payload.opponent_id, kind=payload.kind, proposed_at=proposed, message=(payload.message or "").strip() or None, status="pending")
     session.add(c)
-    await session.flush()
+    try:
+        await session.flush()
+    except IntegrityError:
+        await session.rollback()
+        raise HTTPException(status_code=409, detail="You already have an open challenge with this player")
     names = await names_for(session, club_id)
     me = names.get(actor.user_id, "A club member")
     await notify(session, club_id, payload.opponent_id, "challenge", f"{me} challenged you", "Accept or decline the singles match challenge.", {"challengeId": str(c.id), "link": f"/me/matches?challenge={c.id}"})
@@ -168,8 +180,9 @@ async def cancel_challenge(challenge_id: UUID, session: AsyncSession = Depends(g
 async def report_challenge_result(challenge_id: UUID, payload: ChallengeResult, session: AsyncSession = Depends(get_session), actor: Actor = Depends(current_actor)) -> dict:
     """Report the score of an accepted challenge; it goes through the normal confirm-then-rate flow."""
     c = await load_challenge(session, challenge_id, actor)
-    if c.status != "accepted":
-        raise HTTPException(status_code=409, detail="Only an accepted challenge can be reported")
+    previous = await session.get(RatedMatch, c.result_id) if c.result_id else None
+    if not (c.status == "accepted" or (c.status == "completed" and previous is not None and previous.status == "cancelled")):
+        raise HTTPException(status_code=409, detail="Only an accepted challenge (or one whose result was voided) can be reported")
     other = c.opponent_id if c.challenger_id == actor.user_id else c.challenger_id
     winner = None if payload.i_won is None else (1 if payload.i_won else 2)
     result = await report_result(c.club_id, ResultInput(kind=c.kind, opponent_ids=[other], score_text=payload.score_text, outcome=payload.outcome, match_format=payload.match_format, winner_side=winner, played_at=payload.played_at), session, actor)
@@ -192,7 +205,7 @@ async def head_to_head(club_id: UUID, player_a: str, player_b: str, session: Asy
         if u not in names or not visible(profiles.get(u), actor.user_id, staff):
             raise HTTPException(status_code=404, detail="Player not available")
     hidden = await hidden_for(session, club_id, actor.user_id, staff)
-    rows = (await session.scalars(select(RatedMatch).where(RatedMatch.club_id == club_id, RatedMatch.status == "finalized").order_by(RatedMatch.played_at.desc()))).all()
+    rows = (await session.scalars(select(RatedMatch).where(RatedMatch.club_id == club_id, RatedMatch.status == "finalized").order_by(RatedMatch.played_at.desc()).limit(5000))).all()
     meetings = [m for m in rows if (player_a in m.side_one and player_b in m.side_two) or (player_a in m.side_two and player_b in m.side_one)]
     history = {(h.rated_match_id, h.user_id): h for h in (await session.scalars(select(RatingHistory).where(RatingHistory.club_id == club_id, RatingHistory.rated_match_id.in_([m.id for m in meetings]), RatingHistory.user_id.in_([player_a, player_b])))).all()} if meetings else {}
 
@@ -211,16 +224,17 @@ async def head_to_head(club_id: UUID, player_a: str, player_b: str, session: Asy
             summary[m.kind]["a_wins" if a_won else "b_wins"] += 1
         a_team, b_team = (m.side_one, m.side_two) if a_side == 1 else (m.side_two, m.side_one)
         matches.append({
-            "id": str(m.id), "kind": m.kind, "played_at": m.played_at, "score_text": m.score_text, "outcome": m.outcome, "rated": m.rated, "a_won": a_won,
+            "id": str(m.id), "kind": m.kind, "played_at": m.played_at, "score_text": m.score_text if a_side == 1 else flip_score(m.score_text), "outcome": m.outcome, "rated": m.rated, "a_won": a_won,
             "a_partners": [person(u) for u in a_team if u != player_a], "b_partners": [person(u) for u in b_team if u != player_b],
             "a_change": change(m, player_a), "b_change": change(m, player_b),
         })
 
+    ordered_by_kind = {kind: await club_ratings(session, club_id, kind) for kind in ("singles", "doubles")}
+
     async def player(u: str) -> dict:
         p = profiles.get(u)
         ratings = {}
-        for kind in ("singles", "doubles"):
-            ordered = await club_ratings(session, club_id, kind)
+        for kind, ordered in ordered_by_kind.items():
             row = next((r for r in ordered if r.user_id == u), None)
             ratings[kind] = rating_view(row, ordered.index(row) + 1 if row and row.verified_matches else None)
         return {"user_id": u, "display_name": p.display_name if p else names[u], "image_url": p.image_url if p else None, "city": p.city if p else None, "ratings": ratings}

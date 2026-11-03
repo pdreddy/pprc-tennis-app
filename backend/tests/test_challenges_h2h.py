@@ -62,3 +62,20 @@ def test_email_previews_admin_only():
     assert request_error("POST", f"/v1/clubs/{club_id}/emails/test", owner, json={"type": "monthly"}).status_code == 409
     saved = request("PUT", f"/v1/clubs/{club_id}/players/me", a, json={"display_name": "Player A", "monthly_digest": True})
     assert saved["preferences"]["monthly_digest"] is True
+
+
+def test_h2h_score_from_player_a_and_voided_result_can_be_reported_again():
+    owner, club_id, (a, b, *_rest) = club_with_players()
+    ch = request("POST", f"/v1/clubs/{club_id}/challenges", a, json={"opponent_id": b})
+    request("POST", f"/v1/challenges/{ch['id']}/respond", b, json={"action": "accept"})
+    done = request("POST", f"/v1/challenges/{ch['id']}/result", b, json={"score_text": "6-3 7-6(4)"})
+    request("POST", f"/v1/match-results/{done['result_id']}/void", owner, json={"reason": "Wrong score entered"})
+    assert request("GET", f"/v1/clubs/{club_id}/challenges", a)[0]["result_status"] == "cancelled"
+    again = request("POST", f"/v1/challenges/{ch['id']}/result", a, json={"score_text": "3-6 6-7(4)"})
+    request("POST", f"/v1/match-results/{again['result_id']}/confirm", b)
+    m = request("GET", f"/v1/clubs/{club_id}/head-to-head/{a}/{b}", a)["matches"][0]
+    assert m["score_text"] == "3-6 6-7(4)" and m["a_won"] is False
+    flipped = request("GET", f"/v1/clubs/{club_id}/head-to-head/{b}/{a}", a)["matches"][0]
+    assert flipped["score_text"] == "6-3 7-6(4)" and flipped["a_won"] is True
+    assert request_error("POST", f"/v1/challenges/{ch['id']}/result", a, json={"score_text": "6-0 6-0"}).status_code == 409
+    request("POST", f"/v1/clubs/{club_id}/challenges", b, json={"opponent_id": a})  # completed one no longer blocks a new challenge

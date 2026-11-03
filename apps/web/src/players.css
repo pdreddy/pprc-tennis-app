@@ -133,3 +133,11 @@
 }
 .pr-fair li:has(.pr-challenge-form) .pr-fair-actions { grid-column: 1 / -1; justify-content: flex-start; }
 .pr-fair-actions .pr-challenge-form { flex-basis: 100%; }
+
+.pr-inline { display: contents; }
+.pr-challenge-open { font-size: 13px; font-weight: 600; color: var(--teal); padding: 6px 10px; border-radius: 999px; background: #e6f4f3; }
+.pr-challenge-status { flex-shrink: 0; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; background: #eef3f6; color: #26394a; }
+.pr-challenge-status.pending { background: #fff4d6; color: #7a5300; }
+.pr-challenge-status.accepted { background: #e6f4f3; color: #065f60; }
+.pr-challenge-status.completed { background: #e7f6ee; color: #0b6b4b; }
+.pr-challenge-status.declined, .pr-challenge-status.cancelled { background: #f6e9e9; color: #8a2a2a; }

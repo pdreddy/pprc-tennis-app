@@ -313,8 +313,8 @@ function ResultActions({ result, staff }: { result: ApiResult; staff: boolean })
     <div className="pp-match-actions">
       {result.status === "reported" && opponent && (
         <>
-          <Action variant="primary" onClick={async () => { await confirmResult(result.id); await refresh(); }}>Confirm result</Action>
-          <PromptAction label="Dispute" title="Dispute this result" promptLabel="What is wrong with this result?" submitLabel="Send dispute" onSubmit={async (reason) => { await disputeResult(result.id, reason); await refresh(); }} />
+          <Action variant="primary" onClick={async () => { await confirmResult(result.id); await refresh(); }}><span data-testid={`confirm-result-${result.id}`}>Confirm result</span></Action>
+          <span data-testid={`dispute-result-${result.id}`} className="pr-inline"><PromptAction label="Dispute" title="Dispute this result" promptLabel="What is wrong with this result?" submitLabel="Send dispute" onSubmit={async (reason) => { await disputeResult(result.id, reason); await refresh(); }} /></span>
         </>
       )}
       {staff && result.status !== "cancelled" && (

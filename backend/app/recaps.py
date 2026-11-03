@@ -75,8 +75,8 @@ def recap_html(name: str, data: dict, app_url: str) -> str:
     opponents = "".join(f'<li style="margin:4px 0">{escape(o["display_name"])} · {o["rating"]:.2f} ({"+" if o["gap"] >= 0 else ""}{o["gap"]:.2f})</li>' for o in data["opponents"])
     opp_block = f'<p style="margin:18px 0 6px;font-weight:700;color:#102c43">Fair matches for you this week</p><ul style="margin:0;padding-left:18px;color:#26394a">{opponents}</ul>' if opponents else ""
     link = escape(f"{app_url}/me/rating")
-    return (f'<table role="presentation" width="100%" style="background:#f4f7f9"><tr><td align="center" style="padding:24px">'
-            f'<table role="presentation" width="560" style="max-width:560px;background:#ffffff;border-radius:14px"><tr><td style="padding:28px;font-family:Arial,sans-serif;color:#26394a">'
+    return (f'<table role="presentation" width="100%" style="background:#f4f7f9"><tr><td align="center" style="padding:16px 8px">'
+            f'<table role="presentation" width="100%" style="max-width:560px;background:#ffffff;border-radius:14px"><tr><td style="padding:28px;font-family:Arial,sans-serif;color:#26394a">'
             f'<p style="margin:0;font-size:12px;letter-spacing:2px;color:#087f80">PPRC WEEKLY RATING RECAP</p>'
             f'<h1 style="margin:8px 0 4px;font-size:24px;color:#102c43">Hi {escape(name)}, here is your week</h1>'
             f'<table role="presentation" width="100%">{rows}</table>{opp_block}'

@@ -19,7 +19,8 @@ export function EmailPreview() {
   const members = useQuery({ queryKey: ["members"], queryFn: listMembers });
   const q = useQuery({ queryKey: ["email-preview", type, userId], queryFn: () => previewEmail(type, type === "weekly" ? userId || undefined : undefined) });
   return (
-    <Panel title="Email preview" action={<Tabs label="Email type" value={type} onChange={(t) => { setType(t); setState({ busy: false, message: "" }); }} options={types} />}>
+    <Panel title="Email preview">
+      <Tabs label="Email type" value={type} onChange={(t) => { setType(t); setState({ busy: false, message: "" }); }} options={types} />
       <p className="hint">{timing[type]}</p>
       <div className="pr-preview-bar">
         {type === "weekly" && (

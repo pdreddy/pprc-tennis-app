@@ -65,8 +65,8 @@ def digest_html(name: str, data: dict, app_url: str, so_far: bool = False) -> st
     empty = '<p style="color:#637586">A quiet month. Report a match to get on next month\'s list.</p>'
     title = f"{data['label']} so far" if so_far else data["label"]
     link = escape(f"{app_url}/rankings")
-    return (f'<table role="presentation" width="100%" style="background:#f4f7f9"><tr><td align="center" style="padding:24px">'
-            f'<table role="presentation" width="560" style="max-width:560px;background:#ffffff;border-radius:14px"><tr><td style="padding:28px;font-family:Arial,sans-serif;color:#26394a">'
+    return (f'<table role="presentation" width="100%" style="background:#f4f7f9"><tr><td align="center" style="padding:16px 8px">'
+            f'<table role="presentation" width="100%" style="max-width:560px;background:#ffffff;border-radius:14px"><tr><td style="padding:28px;font-family:Arial,sans-serif;color:#26394a">'
             f'<p style="margin:0;font-size:12px;letter-spacing:2px;color:#087f80">PPRC MONTHLY LEADERBOARD</p>'
             f'<h1 style="margin:8px 0 4px;font-size:24px;color:#102c43">{escape(title)} at the club</h1>'
             f'<p style="margin:0;color:#637586">Hi {escape(name)}, {data["matches"]} rated matches were played.</p>'

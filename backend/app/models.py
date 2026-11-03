@@ -4,7 +4,7 @@ from datetime import datetime
 
 from datetime import timezone
 
-from sqlalchemy import JSON, Boolean, Date, DateTime, Enum, ForeignKey, Integer, Numeric, String, Text, TypeDecorator, UniqueConstraint, Uuid, func
+from sqlalchemy import JSON, Boolean, Date, DateTime, Enum, ForeignKey, Index, Integer, Numeric, String, Text, TypeDecorator, UniqueConstraint, Uuid, func, text
 from sqlalchemy.dialects import postgresql
 
 # Portable column types: native JSONB/UUID on PostgreSQL, JSON/CHAR on SQLite (preview).
@@ -398,6 +398,8 @@ class PlayerPreference(Base):
 class Challenge(Timestamped, Base):
     """A player invites a fair-match opponent; once accepted, either side reports the score."""
     __tablename__ = "challenges"
+    # At most one open challenge per pair (either direction); the API turns a race into a 409.
+    __table_args__ = (Index("uq_challenge_open_pair", "club_id", "pair_key", unique=True, sqlite_where=text("status IN ('pending', 'accepted')"), postgresql_where=text("status IN ('pending', 'accepted')")),)
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     club_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("clubs.id", ondelete="CASCADE"), index=True)
     challenger_id: Mapped[str] = mapped_column(String(128), index=True)
@@ -408,3 +410,4 @@ class Challenge(Timestamped, Base):
     status: Mapped[str] = mapped_column(String(16), default="pending", index=True)  # pending | accepted | declined | cancelled | completed
     responded_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     result_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("rated_matches.id", ondelete="SET NULL"), nullable=True)
+    pair_key: Mapped[str] = mapped_column(String(260), default=lambda ctx: "|".join(sorted([ctx.get_current_parameters()["challenger_id"], ctx.get_current_parameters()["opponent_id"]])))

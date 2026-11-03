@@ -1,0 +1,43 @@
+{
+  "summary": "Iteration 4 tested on the hosted preview with real Clerk ticket sign-ins for Alex (player) and Blair (admin). Covered: email preview, test email, challenges, rivalry (H2H) pages and the monthly digest preference. Backend: the new preview suite test_iteration4_challenges_emails_preview.py passes 16/16. The dev-header suite has 119 passed, 2 skipped. UI: every requested flow works end to end. Email preview iframe and meta work, and the member select changes the preview. Test email shows 'Test sent to blair+clerk_test@example.com.' and a second click shows 'Wait a minute before sending another test'. The Monthly tab shows the 'November 2026' subject, 0 opted-in recipients and hides the member select. The Challenges panel sits above the Fair match finder. Challenging player7 with a time and note shows 'Challenge sent · alerted in-app'; a duplicate shows 'You already have an open challenge with this player'; the challenger can cancel. Blair's notification 'Alex Tester challenged you' Open link goes to /me/matches?challenge=<id>, which gets the highlight class, and opponent Cancel is hidden while pending. Accept leads to the score form; Send score leads to 'Score Reported'. Alex then confirms in My results and the badge shows 'Rated'. The rivalry page is reachable from player-h2h-link, fair-match-h2h-player7 and challenge-h2h; it shows the score, 18 singles matches with deltas, and Doubles(0) is empty. The monthly-digest checkbox persists after a reload. At 390px there is no page-level overflow on /admin/members, /me/matches or the rivalry page. One real defect: the rivalry page score orientation is wrong.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/v1/clubs/{club}/head-to-head/{a}/{b}", "issue": "score_text is returned in side_one orientation even when player A is on side two. A match Blair reported as 6-4 6-3 (Blair won) comes back with a_won=false and score '6-4 6-3', so the rivalry row reads 'Alex Tester 6-4 6-3 Blair Tester' with Blair as winner. Flip the score sets when a_side==2, either in the backend or in rivalry.tsx."},
+      {"endpoint": "POST /api/v1/challenges/{id}/result", "issue": "The challenge moves to 'completed' as soon as a score is reported. If the opponent then disputes or the result is voided, the challenge stays 'Score reported' with no way to report again or cancel."},
+      {"endpoint": "GET head-to-head", "issue": "Loads every finalized club match into memory and filters in Python, and calls club_ratings() 4 times per request. Filter in SQL and compute ratings once per kind."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "RivalryPage h2h-match row", "issue": "Score is not flipped to player A's perspective (see backend minor #1), so the scoreline contradicts the bold winner", "selector": "[data-testid^=h2h-match-] .pr-h2h-scoreline", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Admin > Email preview (390px)", "issues": ["Email HTML uses a fixed width=560 table, so in the 308px iframe the content is cut off and scrolls inside the frame. Use width=100% with max-width:560 for mobile email clients.", "The Weekly recap / Monthly leaderboard tabs stack vertically and stretch full width on mobile"]},
+      {"screen": "Challenges / status badges", "issues": ["StatusBadge title-cases the text: 'Waiting For Reply', 'Accepted · Play And Report'"]},
+      {"screen": "Fair match finder", "issues": ["A player you already have an open challenge with still shows the Challenge button; the user only finds out from the 409 after submitting"]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iteration4_challenges_emails_preview.py", "/app/test_reports/pytest/pytest_iter4.xml"],
+  "action_items": [
+    "Head-to-head: present score_text from player A's perspective (reverse each set when A is on side two) so the scoreline matches the winner",
+    "Handle a disputed or voided challenge result: let the challenge be reported again or cancelled",
+    "Make the email templates responsive (width=100%, max-width 560) so the mobile preview and mobile mail clients are not cut off",
+    "Optional: add data-testid to the 'Confirm result' and 'Dispute' buttons in ResultActions; mark an open challenge on fair-match rows"
+  ],
+  "critical_code_review_comments": [
+    "challenges.py create_challenge: the duplicate-open check is not atomic (race can create two open challenges). Add a partial unique index or lock.",
+    "challenges.py head_to_head: full-table scan of finalized matches plus 4 club_ratings calls per request",
+    "rivalry.tsx tab labels count only rated wins ('Singles (N)'), not total meetings; unrated meetings are listed but not counted",
+    "email-preview.tsx sends user_id '' for 'Preview as me'; the backend treats it as falsy, which works but is fragile"
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration4_challenges_emails_preview.py"],
+  "success_rate": {"backend": "100% (16/16 preview + 119 dev suite)", "frontend": "95% (all flows pass; 1 display defect in rivalry score orientation)"},
+  "test_credentials": "From /app/memory/test_credentials.md: alex+clerk_test@example.com (player), blair+clerk_test@example.com (admin), signed in with tickets from tests/_mint_tickets.py",
+  "seed_data_creation": "Created preview challenges. Alex->Blair challenges: 1 declined, 1 cancelled, 1 completed and finalized as a real rated match (Blair won 6-4 6-3; Alex 7.92->7.72, Blair 6.08->6.28). Alex->player7: cancelled. No open challenges remain. Alex's monthly_digest was restored to false.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Tickets are single-use and the browser session does not carry over between browser_automation runs, so re-run _mint_tickets.py before each run. Alex (7.72) and Blair (6.28) are NOT within each other's fair match range (max spread 1.0), so create an Alex->Blair challenge via POST /api/v1/clubs/{club}/challenges and then test Blair's side in the UI. The challenge form submit button is named 'Send challenge to <name>' (no type=submit). Accept/Decline/Cancel data-testids are on a span inside the button. The test email rate limit is 1 minute, stored in the DB (last_test_email_at). PUT /players/me is a full replace: send the existing profile fields along with any preference change.",
+  "rca of the issue": "Rivalry score orientation: in head_to_head(), score_text is copied from RatedMatch as-is (side_one perspective) while a_side can be 2. rivalry.tsx renders A on the left with that raw score. Repro: open /players/<alex>/vs/<blair>; the top row shows 'Alex Tester 6-4 6-3 Blair Tester' with Blair bold. Fix: when a_side==2, reverse each set token (e.g. '6-4 6-3' -> '4-6 3-6', handling tiebreak notation) before returning, or flip it in the frontend."
+}

@@ -19,6 +19,8 @@
 
 - 2026-06 round 4: admin member roles (members.py + Admin > Members & roles); fair match finder; milestone in-app notifications + "New milestone" banner; weekly recap email via Emergent managed email (opt-in, Monday 8am Central scheduler + admin send + self-send once/hour stored in DB). 146 backend tests pass; testing agent iteration 3 verified UI; its minor findings fixed.
 
+- 2026-06 round 5: admin email preview (weekly recap as any member, monthly leaderboard month-so-far) + "Email me a test" (admin's own address, once a minute); challenges from the fair match finder (in-app alert + email to opponent, accept/decline/cancel, accepted challenge -> score report -> normal confirm/rating flow, voided result can be re-reported, one open challenge per pair enforced by unique index); head-to-head rivalry pages `/players/:a/vs/:b` with per-match rating deltas; monthly club leaderboard email (opt-in, 1st of month 8am Central, climbers/milestones/top 5, private players excluded). Migration 011. Files: challenges.py, digest.py, recaps.py, challenges.tsx, rivalry.tsx, email-preview.tsx. 120 dev-header tests + 33 hosted-preview tests pass; testing agent iteration 4 verified UI, its findings fixed.
+
 ## Backlog
 - P1: background worker for recalculation; admin UI to promote members; Playwright flows for Emergent sign-in (ticket based).
 - P2: ladder expiry background job; groups+knockout same-group R1 avoidance; split admin.tsx/player.tsx; Stripe live payments.

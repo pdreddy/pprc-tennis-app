@@ -10,6 +10,7 @@ create table if not exists challenges (
   status varchar(16) not null default 'pending',
   responded_at timestamptz,
   result_id uuid references rated_matches(id) on delete set null,
+  pair_key varchar(260) not null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -17,6 +18,7 @@ create index if not exists ix_challenges_club on challenges (club_id);
 create index if not exists ix_challenges_challenger on challenges (challenger_id);
 create index if not exists ix_challenges_opponent on challenges (opponent_id);
 create index if not exists ix_challenges_status on challenges (status);
+create unique index if not exists uq_challenge_open_pair on challenges (club_id, pair_key) where status in ('pending', 'accepted');
 alter table challenges enable row level security;
 
 alter table player_preferences add column if not exists monthly_digest boolean not null default false;

@@ -4,14 +4,14 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Swords } from "lucide-react";
 import { cancelChallenge, listChallenges, reportChallenge, respondChallenge, sendChallenge, type ApiChallenge } from "./api";
 import { useSession } from "./context";
-import { StatusBadge } from "./components";
 import { Action, Empty, Field, Form, Panel, date, text } from "./ui";
 
 /** Inline invite from a fair-match row: optional time and note, then the opponent is alerted in-app and by email. */
-export function ChallengeButton({ opponent }: { opponent: { id: string; name: string } }) {
+export function ChallengeButton({ opponent, openChallenge }: { opponent: { id: string; name: string }; openChallenge?: string }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [sent, setSent] = useState("");
+  if (openChallenge && !sent) return <Link className="pr-challenge-open" to={`/me/matches?challenge=${openChallenge}`} data-testid={`challenge-open-${opponent.id}`}>Challenge open</Link>;
   if (sent) return <small className="pr-challenge-sent" role="status" data-testid={`challenge-sent-${opponent.id}`}>{sent}</small>;
   return (
     <>
@@ -49,6 +49,8 @@ function ReportChallenge({ id }: { id: string }) {
 }
 
 const statusText: Record<ApiChallenge["status"], string> = { pending: "Waiting for reply", accepted: "Accepted · play and report", declined: "Declined", cancelled: "Cancelled", completed: "Score reported" };
+const resultText: Record<string, string> = { finalized: "Rated", disputed: "Score disputed", cancelled: "Result voided" };
+const label = (c: ApiChallenge) => (c.status === "completed" && c.result_status && resultText[c.result_status]) || statusText[c.status];
 
 function ChallengeRow({ c, highlight, me }: { c: ApiChallenge; highlight: boolean; me?: string }) {
   const qc = useQueryClient();
@@ -61,7 +63,7 @@ function ChallengeRow({ c, highlight, me }: { c: ApiChallenge; highlight: boolea
           <Link to={`/players/${c.opponent.user_id}`}><strong>{c.opponent.display_name}</strong></Link>
           {c.proposed_at && <small>Suggested {date(c.proposed_at, "America/Chicago", true)}</small>}
         </span>
-        <StatusBadge status={c.status === "completed" && c.result_status === "finalized" ? "Rated" : statusText[c.status]} />
+        <span className={`pr-challenge-status ${c.status}`} data-testid={`challenge-status-${c.id}`}>{label(c)}</span>
       </div>
       {c.message && <p className="pr-challenge-note">“{c.message}”</p>}
       <div className="row">
@@ -76,8 +78,9 @@ function ChallengeRow({ c, highlight, me }: { c: ApiChallenge; highlight: boolea
         )}
         {me && <Link className="text-link" to={`/players/${me}/vs/${c.opponent.user_id}`} data-testid={`challenge-h2h-${c.id}`}>Head to head</Link>}
       </div>
-      {c.status === "accepted" && <ReportChallenge id={c.id} />}
+      {(c.status === "accepted" || (c.status === "completed" && c.result_status === "cancelled")) && <ReportChallenge id={c.id} />}
       {c.status === "completed" && c.result_status === "reported" && <small className="muted">Waiting for the other player to confirm the score.</small>}
+      {c.status === "completed" && c.result_status === "disputed" && <small className="muted">An organizer will review the disputed score. If it is voided you can report it again here.</small>}
     </li>
   );
 }

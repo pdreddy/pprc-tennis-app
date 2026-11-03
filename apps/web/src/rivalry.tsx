@@ -45,7 +45,7 @@ export function RivalryPage() {
         <div className="pr-h2h-score" data-testid="h2h-score"><strong>{s.a_wins}</strong><span>–</span><strong>{s.b_wins}</strong><small>{kind} wins</small></div>
         <Side p={q.data.b} kind={kind} align="right" />
       </section>
-      <Panel title="Every meeting" action={<Tabs label="Rating kind" value={kind} onChange={setKind} options={[{ value: "singles", label: `Singles (${summary.singles.a_wins + summary.singles.b_wins})` }, { value: "doubles", label: `Doubles (${summary.doubles.a_wins + summary.doubles.b_wins})` }]} />}>
+      <Panel title="Every meeting" action={<Tabs label="Rating kind" value={kind} onChange={setKind} options={[{ value: "singles", label: `Singles (${matches.filter((m) => m.kind === "singles").length})` }, { value: "doubles", label: `Doubles (${matches.filter((m) => m.kind === "doubles").length})` }]} />}>
         {!list.length ? (
           <div data-testid="h2h-empty"><Empty title="They have not met yet">{user?.uid === a ? "Send a challenge from My matches to start this rivalry." : "No finalized results between these players."}</Empty></div>
         ) : (
