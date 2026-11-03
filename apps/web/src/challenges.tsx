@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Swords } from "lucide-react";
+import { CalendarPlus, MapPin, Swords } from "lucide-react";
 import { cancelChallenge, listChallenges, proposeChallengeTime, reportChallenge, respondChallenge, sendChallenge, type ApiChallenge } from "./api";
 import { useSession } from "./context";
 import { Action, Empty, Field, Form, Panel, date, text } from "./ui";
@@ -20,11 +20,12 @@ export function ChallengeButton({ opponent, openChallenge }: { opponent: { id: s
         <div className="pr-challenge-form" data-testid={`challenge-form-${opponent.id}`}>
           <Form label={`Send challenge to ${opponent.name}`} onSubmit={async (form) => {
             const when = text(form, "when");
-            const r = await sendChallenge({ opponent_id: opponent.id, proposed_at: when ? new Date(when).toISOString() : undefined, message: text(form, "note") || undefined });
+            const r = await sendChallenge({ opponent_id: opponent.id, proposed_at: when ? new Date(when).toISOString() : undefined, court: text(form, "court") || undefined, message: text(form, "note") || undefined });
             await qc.invalidateQueries({ queryKey: ["challenges"] });
             setSent(r.emailed ? "Challenge sent · alerted in-app and by email" : "Challenge sent · alerted in-app");
           }}>
             <Field label="Suggested time (optional)"><input name="when" type="datetime-local" data-testid="challenge-when" /></Field>
+            <Field label="Court (optional)"><input name="court" maxLength={80} placeholder="PPRC Court 3" data-testid="challenge-court" /></Field>
             <Field label="Note (optional)" hint="Shown in the app only"><input name="note" maxLength={280} placeholder="Court 3 on Saturday?" data-testid="challenge-note" /></Field>
           </Form>
         </div>
@@ -48,18 +49,33 @@ function ReportChallenge({ id }: { id: string }) {
   );
 }
 
-function SuggestTime({ id }: { id: string }) {
+/** Google Calendar "add event" link for an agreed match (90 minutes). */
+function calendarLink(c: ApiChallenge, myName?: string) {
+  const start = new Date(c.proposed_at!);
+  const stamp = (d: Date) => d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+  const params = new URLSearchParams({
+    action: "TEMPLATE",
+    text: `PPRC singles: ${myName ? `${myName} vs ` : "vs "}${c.opponent.display_name}`,
+    dates: `${stamp(start)}/${stamp(new Date(start.getTime() + 90 * 60000))}`,
+    details: `PPRC challenge match. Report the score in the PPRC app afterwards: ${window.location.origin}/me/matches?challenge=${c.id}`,
+    ...(c.court ? { location: c.court } : {}),
+  });
+  return `https://calendar.google.com/calendar/render?${params}`;
+}
+
+function SuggestTime({ id, court }: { id: string; court?: string | null }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   if (!open) return <button className="button secondary" onClick={() => setOpen(true)} data-testid={`challenge-suggest-${id}`}>Suggest another time</button>;
   return (
     <div className="pr-challenge-form" data-testid={`challenge-suggest-form-${id}`}>
       <Form label="Send new time" onSubmit={async (form) => {
-        await proposeChallengeTime(id, new Date(text(form, "when")).toISOString(), text(form, "note") || undefined);
+        await proposeChallengeTime(id, new Date(text(form, "when")).toISOString(), text(form, "note") || undefined, text(form, "court"));
         setOpen(false);
         await qc.invalidateQueries({ queryKey: ["challenges"] });
       }}>
         <Field label="New time"><input name="when" type="datetime-local" required data-testid={`challenge-suggest-when-${id}`} /></Field>
+        <Field label="Court"><input name="court" maxLength={80} defaultValue={court ?? ""} placeholder="PPRC Court 3" data-testid={`challenge-suggest-court-${id}`} /></Field>
         <Field label="Note (optional)" hint="Shown in the app only"><input name="note" maxLength={280} placeholder="Sunday works better" /></Field>
       </Form>
     </div>
@@ -70,7 +86,7 @@ const statusText: Record<ApiChallenge["status"], string> = { expired: "Expired",
 const resultText: Record<string, string> = { finalized: "Rated", disputed: "Score disputed", cancelled: "Result voided" };
 const label = (c: ApiChallenge) => (c.status === "completed" && c.result_status && resultText[c.result_status]) || (c.awaiting_you ? "Your turn" : statusText[c.status]);
 
-function ChallengeRow({ c, highlight, me }: { c: ApiChallenge; highlight: boolean; me?: string }) {
+function ChallengeRow({ c, highlight, me, myName }: { c: ApiChallenge; highlight: boolean; me?: string; myName?: string }) {
   const qc = useQueryClient();
   const refresh = () => qc.invalidateQueries();
   return (
@@ -80,6 +96,7 @@ function ChallengeRow({ c, highlight, me }: { c: ApiChallenge; highlight: boolea
           <small>{c.direction === "sent" ? "You challenged" : "Challenged by"}</small>
           <Link to={`/players/${c.opponent.user_id}`}><strong>{c.opponent.display_name}</strong></Link>
           {c.proposed_at && <small data-testid={`challenge-time-${c.id}`}>Suggested {date(c.proposed_at, "America/Chicago", true)}</small>}
+          {c.court && <small className="pr-challenge-court" data-testid={`challenge-court-${c.id}`}><MapPin size={12} /> {c.court}</small>}
           {c.expires_at && <small>Expires {date(c.expires_at, "America/Chicago", true)} if unanswered</small>}
         </span>
         <span className={`pr-challenge-status ${c.status}`} data-testid={`challenge-status-${c.id}`}>{label(c)}</span>
@@ -95,9 +112,12 @@ function ChallengeRow({ c, highlight, me }: { c: ApiChallenge; highlight: boolea
         {(c.status === "accepted" || (c.status === "pending" && c.direction === "sent")) && (
           <Action onClick={async () => { await cancelChallenge(c.id); await refresh(); }}><span data-testid={`challenge-cancel-${c.id}`}>Cancel</span></Action>
         )}
+        {c.status === "accepted" && c.proposed_at && (
+          <a className="button secondary small" href={calendarLink(c, myName)} target="_blank" rel="noopener noreferrer" data-testid={`challenge-calendar-${c.id}`}><CalendarPlus size={14} /> Add to Google Calendar</a>
+        )}
         {me && <Link className="text-link" to={`/players/${me}/vs/${c.opponent.user_id}`} data-testid={`challenge-h2h-${c.id}`}>Head to head</Link>}
       </div>
-      {c.awaiting_you && <SuggestTime id={c.id} />}
+      {c.awaiting_you && <SuggestTime id={c.id} court={c.court} />}
       {(c.status === "accepted" || (c.status === "completed" && c.result_status === "cancelled")) && <ReportChallenge id={c.id} />}
       {c.status === "completed" && c.result_status === "reported" && <small className="muted">Waiting for the other player to confirm the score.</small>}
       {c.status === "completed" && c.result_status === "disputed" && <small className="muted">An organizer will review the disputed score. If it is voided you can report it again here.</small>}
@@ -120,7 +140,7 @@ export function Challenges() {
       {q.isLoading ? <p role="status">Loading challenges…</p> : !rows.length ? (
         <div data-testid="challenges-empty"><Empty title="No challenges yet" icon={<Swords size={28} />}>Pick a fair match below and send a challenge.</Empty></div>
       ) : (
-        <ul className="pr-challenges" data-testid="challenges-list">{rows.map((c) => <ChallengeRow key={c.id} c={c} highlight={c.id === focus} me={user?.uid} />)}</ul>
+        <ul className="pr-challenges" data-testid="challenges-list">{rows.map((c) => <ChallengeRow key={c.id} c={c} highlight={c.id === focus} me={user?.uid} myName={user?.displayName ?? undefined} />)}</ul>
       )}
     </Panel>
   );

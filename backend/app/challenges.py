@@ -7,7 +7,7 @@ from html import escape
 from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
@@ -39,6 +39,7 @@ class ChallengeInput(BaseModel):
     kind: Literal["singles"] = "singles"
     proposed_at: datetime | None = None
     message: str | None = Field(default=None, max_length=280)
+    court: str | None = Field(default=None, max_length=80)
 
 
 class RespondInput(BaseModel):
@@ -48,6 +49,7 @@ class RespondInput(BaseModel):
 class ProposeInput(BaseModel):
     proposed_at: datetime
     message: str | None = Field(default=None, max_length=280)
+    court: str | None = Field(default=None, max_length=80)
 
 
 class SettingsInput(BaseModel):
@@ -79,7 +81,7 @@ def challenge_view(c: Challenge, me: str, names: dict[str, str], result_status: 
         "expires_at": started + timedelta(days=expiry_days) if c.status == "pending" and started else None,
         "id": str(c.id), "kind": c.kind, "status": c.status, "direction": "sent" if c.challenger_id == me else "received",
         "opponent": {"user_id": other, "display_name": names.get(other, other)},
-        "proposed_at": c.proposed_at, "message": c.message, "created_at": c.created_at, "responded_at": c.responded_at,
+        "proposed_at": c.proposed_at, "court": c.court, "message": c.message, "created_at": c.created_at, "responded_at": c.responded_at,
         "result_id": str(c.result_id) if c.result_id else None, "result_status": result_status,
     }
 
@@ -152,7 +154,7 @@ async def create_challenge(club_id: UUID, payload: ChallengeInput, session: Asyn
     proposed = payload.proposed_at
     if proposed and proposed.tzinfo is None:
         proposed = proposed.replace(tzinfo=timezone.utc)
-    c = Challenge(club_id=club_id, challenger_id=actor.user_id, opponent_id=payload.opponent_id, kind=payload.kind, proposed_at=proposed, message=(payload.message or "").strip() or None, status="pending", awaiting_id=payload.opponent_id, last_action_at=datetime.now(timezone.utc))
+    c = Challenge(club_id=club_id, challenger_id=actor.user_id, opponent_id=payload.opponent_id, kind=payload.kind, proposed_at=proposed, message=(payload.message or "").strip() or None, court=(payload.court or "").strip() or None, status="pending", awaiting_id=payload.opponent_id, last_action_at=datetime.now(timezone.utc))
     session.add(c)
     try:
         await session.flush()
@@ -212,6 +214,8 @@ async def propose_time(challenge_id: UUID, payload: ProposeInput, session: Async
     c.proposed_at, c.awaiting_id, c.last_action_at, c.reminded_at = when, other, datetime.now(timezone.utc), None
     if payload.message and payload.message.strip():
         c.message = payload.message.strip()
+    if payload.court is not None:
+        c.court = payload.court.strip() or None
     me = (await names_for(session, c.club_id)).get(actor.user_id, "Your opponent")
     await notify(session, c.club_id, other, "challenge", f"{me} suggested another time", "Accept the new time, decline, or suggest a different one.", {"challengeId": str(c.id), "link": f"/me/matches?challenge={c.id}"})
     await audit(session, c.club_id, actor.user_id, "challenge.time_proposed", "challenge", str(c.id))
@@ -302,6 +306,39 @@ async def run_challenge_maintenance(club_id: UUID, session: AsyncSession = Depen
     """Admin trigger for the same reminder/expiry pass the scheduler runs every 15 minutes."""
     await require_club_admin(session, club_id, actor)
     return await challenge_maintenance(session, club_id)
+
+
+@router.get("/v1/clubs/{club_id}/rivalries")
+async def rivalries(club_id: UUID, kind: Literal["singles", "doubles"] = "singles", limit: int = Query(5, ge=1, le=20), session: AsyncSession = Depends(get_session), actor: Actor = Depends(current_actor)) -> dict:
+    """Most-played, closest and one-sided player pairs (2+ rated meetings); private players are left out."""
+    viewer = await require_member(session, club_id, actor.user_id)
+    hidden = await hidden_for(session, club_id, actor.user_id, is_staff(viewer))
+    names = await names_for(session, club_id)
+    tally: dict[tuple[str, str], list[int]] = {}
+    last: dict[tuple[str, str], datetime] = {}
+    rows = (await session.scalars(select(RatedMatch).where(RatedMatch.club_id == club_id, RatedMatch.status == "finalized", RatedMatch.rated.is_(True), RatedMatch.kind == kind))).all()
+    for m in rows:
+        for one in m.side_one:
+            for two in m.side_two:
+                if one in hidden or two in hidden or one not in names or two not in names:
+                    continue
+                a, b = sorted((one, two))
+                wins = tally.setdefault((a, b), [0, 0])
+                wins[0 if (m.winner_side == 1) == (a in m.side_one) else 1] += 1
+                last[(a, b)] = max(last.get((a, b), m.played_at), m.played_at)
+    pairs = []
+    for (a, b), (a_wins, b_wins) in tally.items():
+        if a_wins + b_wins < 2:
+            continue
+        lead, trail = ((a, a_wins), (b, b_wins)) if a_wins >= b_wins else ((b, b_wins), (a, a_wins))
+        pairs.append({"a": {"user_id": lead[0], "display_name": names[lead[0]]}, "b": {"user_id": trail[0], "display_name": names[trail[0]]}, "a_wins": lead[1], "b_wins": trail[1], "meetings": a_wins + b_wins, "last_played_at": last[(a, b)]})
+    recent = lambda p: -p["last_played_at"].timestamp()  # noqa: E731
+    return {
+        "kind": kind,
+        "most_played": sorted(pairs, key=lambda p: (-p["meetings"], recent(p)))[:limit],
+        "closest": sorted([p for p in pairs if p["b_wins"] > 0], key=lambda p: (p["a_wins"] - p["b_wins"], -p["meetings"], recent(p)))[:limit],
+        "one_sided": sorted([p for p in pairs if p["b_wins"] == 0], key=lambda p: (-p["meetings"], recent(p)))[:limit],
+    }
 
 
 @router.get("/v1/clubs/{club_id}/head-to-head/{player_a}/{player_b}")

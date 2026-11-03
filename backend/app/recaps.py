@@ -218,8 +218,11 @@ async def weekly_scheduler(stop: asyncio.Event) -> None:
             logger.exception("challenge reminders failed")
         try:
             from .competitions import expire_all_ladders
+            from .ladder_alerts import warn_all_ladders
 
             async with SessionLocal() as session:
+                if warned := await warn_all_ladders(session):
+                    logger.info("ladder deadline warnings sent for %s match(es)", warned)
                 expired = await expire_all_ladders(session)
                 if expired:
                     logger.info("ladder deadlines applied in %s division(s)", expired)

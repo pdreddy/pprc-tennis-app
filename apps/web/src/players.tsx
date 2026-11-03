@@ -14,6 +14,7 @@ import { Action, Empty, Field, Form, Panel, text } from "./ui";
 import { Milestones, NewMilestone, PhotoUpload, RecapNow } from "./milestones";
 import { FairMatches } from "./fair-matches";
 import { Challenges } from "./challenges";
+import { RivalryBoard } from "./rivalries";
 import "./players.css";
 
 const kinds = [{ value: "singles", label: "Singles" }, { value: "doubles", label: "Doubles" }] as const;
@@ -238,6 +239,7 @@ export function RankingsPage() {
           <p className="hint">P = provisional (fewer than 5 verified matches). PPRC Rating is PPRC's own rating, formula pprc-rating-1.0.</p>
         </>
       )}
+      {member && scope === "club" && <RivalryBoard kind={kind} />}
     </div>
   );
 }

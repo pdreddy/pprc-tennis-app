@@ -147,3 +147,17 @@
 .pr-challenge-status.expired { background: #f6e9e9; color: #8a2a2a; }
 .pr-challenge .row { justify-content: flex-start; flex-wrap: wrap; gap: 8px; }
 .empty > svg { margin-inline: auto; display: block; }
+
+.pr-challenge-court { display: inline-flex; align-items: center; gap: 4px; }
+.pr-rivalries { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.pr-rivalries li { display: grid; grid-template-columns: 28px 1fr auto auto; align-items: center; gap: 12px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 14px; background: #fff; transition: border-color 0.2s; }
+.pr-rivalries li:hover { border-color: #9fb5c8; }
+.pr-riv-rank { font: 700 14px "DM Mono", monospace; color: var(--muted); }
+.pr-riv-names { min-width: 0; overflow-wrap: anywhere; }
+.pr-riv-names span { color: var(--muted); font-size: 13px; margin: 0 4px; }
+.pr-riv-record { font: 700 20px/1 "Space Grotesk", sans-serif; color: var(--navy); font-variant-numeric: tabular-nums; }
+.pr-rivalries small { color: var(--muted); font-size: 12px; }
+@media (max-width: 600px) {
+  .pr-rivalries li { grid-template-columns: 24px 1fr auto; }
+  .pr-rivalries small { grid-column: 2 / -1; }
+}
