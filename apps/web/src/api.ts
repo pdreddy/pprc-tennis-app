@@ -241,7 +241,7 @@ export const setMemberRole = (userId: string, role: string) => apiRequest<ApiMem
 export const listFairMatches = (kind: RatingKind, spread: number) => apiRequest<ApiFairMatch[]>(`/v1/clubs/${apiClubId}/players/me/opponents?kind=${kind}&spread=${spread}`);
 export const sendRecapsNow = () => apiRequest<{ week: string; sent: number; failed: number; opted_in: number }>(`/v1/clubs/${apiClubId}/recaps/send`, { method: "POST" });
 export const sendMyRecap = () => apiRequest<{ sent_to: string }>(`/v1/clubs/${apiClubId}/recaps/me`, { method: "POST" });
-export type ApiChallenge = { id: string; kind: RatingKind; status: "pending" | "accepted" | "declined" | "cancelled" | "completed"; direction: "sent" | "received"; opponent: ApiSidePlayer; proposed_at: string | null; message: string | null; created_at: string; responded_at: string | null; result_id: string | null; result_status: string | null; emailed?: boolean };
+export type ApiChallenge = { id: string; kind: RatingKind; status: "pending" | "accepted" | "declined" | "cancelled" | "completed" | "expired"; awaiting_you: boolean; expires_at: string | null; direction: "sent" | "received"; opponent: ApiSidePlayer; proposed_at: string | null; message: string | null; created_at: string; responded_at: string | null; result_id: string | null; result_status: string | null; emailed?: boolean };
 export type ApiH2HChange = { before: number; after: number; delta: number } | null;
 export type ApiH2HMatch = { id: string; kind: RatingKind; played_at: string; score_text: string | null; outcome: string; rated: boolean; a_won: boolean | null; a_partners: ApiSidePlayer[]; b_partners: ApiSidePlayer[]; a_change: ApiH2HChange; b_change: ApiH2HChange };
 export type ApiH2HPlayer = { user_id: string; display_name: string; image_url: string | null; city: string | null; ratings: Record<RatingKind, ApiRating | null> };
@@ -253,6 +253,11 @@ export const sendChallenge = (input: { opponent_id: string; proposed_at?: string
 export const respondChallenge = (id: string, action: "accept" | "decline") => apiRequest<ApiChallenge>(`/v1/challenges/${id}/respond`, { method: "POST", body: JSON.stringify({ action }) });
 export const cancelChallenge = (id: string) => apiRequest<ApiChallenge>(`/v1/challenges/${id}/cancel`, { method: "POST" });
 export const reportChallenge = (id: string, input: { score_text?: string; outcome: string; match_format: string; i_won?: boolean; played_at?: string }) => apiRequest<ApiChallenge>(`/v1/challenges/${id}/result`, { method: "POST", body: JSON.stringify(input) });
+export const proposeChallengeTime = (id: string, proposed_at: string, message?: string) => apiRequest<ApiChallenge>(`/v1/challenges/${id}/propose`, { method: "POST", body: JSON.stringify({ proposed_at, message }) });
+export type ApiChallengeSettings = { challenge_expiry_days: number; reminder_after_days: number };
+export const getChallengeSettings = () => apiRequest<ApiChallengeSettings>(`/v1/clubs/${apiClubId}/challenge-settings`);
+export const saveChallengeSettings = (days: number) => apiRequest<ApiChallengeSettings>(`/v1/clubs/${apiClubId}/challenge-settings`, { method: "PUT", body: JSON.stringify({ challenge_expiry_days: days }) });
+export const getPublicHeadToHead = (a: string, b: string) => publicApiRequest<ApiHeadToHead>(`/v1/public/clubs/${apiClubSlug}/head-to-head/${encodeURIComponent(a)}/${encodeURIComponent(b)}`);
 export const getHeadToHead = (a: string, b: string) => apiRequest<ApiHeadToHead>(`/v1/clubs/${apiClubId}/head-to-head/${encodeURIComponent(a)}/${encodeURIComponent(b)}`);
 export const previewEmail = (type: EmailType, userId?: string) => apiRequest<ApiEmailPreview>(`/v1/clubs/${apiClubId}/emails/preview${query({ type, user_id: userId })}`);
 export const sendTestEmail = (type: EmailType, userId?: string) => apiRequest<{ sent_to: string; type: EmailType }>(`/v1/clubs/${apiClubId}/emails/test`, { method: "POST", body: JSON.stringify({ type, user_id: userId || undefined }) });

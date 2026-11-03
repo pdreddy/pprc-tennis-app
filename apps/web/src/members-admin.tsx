@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Mail } from "lucide-react";
-import { listMembers, sendRecapsNow, setMemberRole } from "./api";
+import { getChallengeSettings, listMembers, saveChallengeSettings, sendRecapsNow, setMemberRole } from "./api";
 import { Callout, DataTable } from "./components";
 import { Empty, Panel } from "./ui";
 import { EmailPreview } from "./email-preview";
@@ -63,6 +63,35 @@ function RecapSender() {
   );
 }
 
+function ChallengeSettings() {
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ["challenge-settings"], queryFn: getChallengeSettings });
+  const [message, setMessage] = useState("");
+  if (!q.data) return null;
+  return (
+    <Panel title="Challenge settings">
+      <p className="hint">Players get one friendly reminder (in-app and email) after {q.data.reminder_after_days} quiet days. Unanswered challenges then close automatically.</p>
+      <form className="pr-preview-bar" onSubmit={async (e) => {
+        e.preventDefault();
+        setMessage("");
+        try {
+          const days = Number(new FormData(e.currentTarget).get("days"));
+          await saveChallengeSettings(days);
+          await qc.invalidateQueries({ queryKey: ["challenge-settings"] });
+          setMessage(`Saved · challenges expire after ${days} days`);
+        } catch (error) {
+          setMessage((error as Error).message);
+        }
+      }}>
+        <label htmlFor="expiry-days">Expire after</label>
+        <input id="expiry-days" name="days" type="number" min={3} max={30} defaultValue={q.data.challenge_expiry_days} key={q.data.challenge_expiry_days} className="pr-days-input" data-testid="challenge-expiry-input" /> days
+        <button className="button secondary" data-testid="challenge-expiry-save">Save</button>
+      </form>
+      {message && <p role="status" data-testid="challenge-expiry-status">{message}</p>}
+    </Panel>
+  );
+}
+
 export function MembersRoles() {
   const [q, setQ] = useState("");
   const members = useQuery({ queryKey: ["members"], queryFn: listMembers });
@@ -73,6 +102,7 @@ export function MembersRoles() {
       <Callout>Organizers run events and verify results. Club admins can also change roles and send recaps.</Callout>
       <RecapSender />
       <EmailPreview />
+      <ChallengeSettings />
       <Panel title="Members">
         <input className="pr-member-search" placeholder="Search members" aria-label="Search members" value={q} onChange={(e) => setQ(e.target.value)} data-testid="members-search" />
         {members.isLoading ? <p role="status">Loading members…</p> : members.error ? <p role="alert" className="error">{(members.error as Error).message}</p> : (

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Swords } from "lucide-react";
-import { cancelChallenge, listChallenges, reportChallenge, respondChallenge, sendChallenge, type ApiChallenge } from "./api";
+import { cancelChallenge, listChallenges, proposeChallengeTime, reportChallenge, respondChallenge, sendChallenge, type ApiChallenge } from "./api";
 import { useSession } from "./context";
 import { Action, Empty, Field, Form, Panel, date, text } from "./ui";
 
@@ -48,9 +48,27 @@ function ReportChallenge({ id }: { id: string }) {
   );
 }
 
-const statusText: Record<ApiChallenge["status"], string> = { pending: "Waiting for reply", accepted: "Accepted · play and report", declined: "Declined", cancelled: "Cancelled", completed: "Score reported" };
+function SuggestTime({ id }: { id: string }) {
+  const qc = useQueryClient();
+  const [open, setOpen] = useState(false);
+  if (!open) return <button className="button secondary" onClick={() => setOpen(true)} data-testid={`challenge-suggest-${id}`}>Suggest another time</button>;
+  return (
+    <div className="pr-challenge-form" data-testid={`challenge-suggest-form-${id}`}>
+      <Form label="Send new time" onSubmit={async (form) => {
+        await proposeChallengeTime(id, new Date(text(form, "when")).toISOString(), text(form, "note") || undefined);
+        setOpen(false);
+        await qc.invalidateQueries({ queryKey: ["challenges"] });
+      }}>
+        <Field label="New time"><input name="when" type="datetime-local" required data-testid={`challenge-suggest-when-${id}`} /></Field>
+        <Field label="Note (optional)" hint="Shown in the app only"><input name="note" maxLength={280} placeholder="Sunday works better" /></Field>
+      </Form>
+    </div>
+  );
+}
+
+const statusText: Record<ApiChallenge["status"], string> = { expired: "Expired", pending: "Waiting for reply", accepted: "Accepted · play and report", declined: "Declined", cancelled: "Cancelled", completed: "Score reported" };
 const resultText: Record<string, string> = { finalized: "Rated", disputed: "Score disputed", cancelled: "Result voided" };
-const label = (c: ApiChallenge) => (c.status === "completed" && c.result_status && resultText[c.result_status]) || statusText[c.status];
+const label = (c: ApiChallenge) => (c.status === "completed" && c.result_status && resultText[c.result_status]) || (c.awaiting_you ? "Your turn" : statusText[c.status]);
 
 function ChallengeRow({ c, highlight, me }: { c: ApiChallenge; highlight: boolean; me?: string }) {
   const qc = useQueryClient();
@@ -61,15 +79,16 @@ function ChallengeRow({ c, highlight, me }: { c: ApiChallenge; highlight: boolea
         <span>
           <small>{c.direction === "sent" ? "You challenged" : "Challenged by"}</small>
           <Link to={`/players/${c.opponent.user_id}`}><strong>{c.opponent.display_name}</strong></Link>
-          {c.proposed_at && <small>Suggested {date(c.proposed_at, "America/Chicago", true)}</small>}
+          {c.proposed_at && <small data-testid={`challenge-time-${c.id}`}>Suggested {date(c.proposed_at, "America/Chicago", true)}</small>}
+          {c.expires_at && <small>Expires {date(c.expires_at, "America/Chicago", true)} if unanswered</small>}
         </span>
         <span className={`pr-challenge-status ${c.status}`} data-testid={`challenge-status-${c.id}`}>{label(c)}</span>
       </div>
       {c.message && <p className="pr-challenge-note">“{c.message}”</p>}
       <div className="row">
-        {c.status === "pending" && c.direction === "received" && (
+        {c.awaiting_you && (
           <>
-            <Action variant="primary" onClick={async () => { await respondChallenge(c.id, "accept"); await refresh(); }}><span data-testid={`challenge-accept-${c.id}`}>Accept</span></Action>
+            <Action variant="primary" onClick={async () => { await respondChallenge(c.id, "accept"); await refresh(); }}><span data-testid={`challenge-accept-${c.id}`}>{c.direction === "sent" ? "Accept new time" : "Accept"}</span></Action>
             <Action onClick={async () => { await respondChallenge(c.id, "decline"); await refresh(); }}><span data-testid={`challenge-decline-${c.id}`}>Decline</span></Action>
           </>
         )}
@@ -78,6 +97,7 @@ function ChallengeRow({ c, highlight, me }: { c: ApiChallenge; highlight: boolea
         )}
         {me && <Link className="text-link" to={`/players/${me}/vs/${c.opponent.user_id}`} data-testid={`challenge-h2h-${c.id}`}>Head to head</Link>}
       </div>
+      {c.awaiting_you && <SuggestTime id={c.id} />}
       {(c.status === "accepted" || (c.status === "completed" && c.result_status === "cancelled")) && <ReportChallenge id={c.id} />}
       {c.status === "completed" && c.result_status === "reported" && <small className="muted">Waiting for the other player to confirm the score.</small>}
       {c.status === "completed" && c.result_status === "disputed" && <small className="muted">An organizer will review the disputed score. If it is voided you can report it again here.</small>}

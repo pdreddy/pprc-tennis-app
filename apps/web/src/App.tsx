@@ -154,7 +154,7 @@ function Layout() {
             <Route path="/events" element={<Discover />} />
             <Route path="/players" element={<RequireUser><PlayersDirectory /></RequireUser>} />
             <Route path="/players/:userId" element={<PlayerPage />} />
-            <Route path="/players/:a/vs/:b" element={<RequireUser><RivalryPage /></RequireUser>} />
+            <Route path="/players/:a/vs/:b" element={<RivalryPage />} />
             <Route path="/rankings" element={<RankingsPage />} />
             <Route path="/ladder" element={<LadderPage />} />
             <Route path="/me/rating" element={<RequireUser><MyRating /></RequireUser>} />

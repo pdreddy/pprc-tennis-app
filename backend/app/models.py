@@ -80,6 +80,7 @@ class Club(Timestamped, Base):
     slug: Mapped[str] = mapped_column(String(80), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(160))
     sport: Mapped[str] = mapped_column(String(40), default="tennis")
+    challenge_expiry_days: Mapped[int] = mapped_column(Integer, default=7, server_default="7")
 
 
 class Membership(Timestamped, Base):
@@ -407,7 +408,10 @@ class Challenge(Timestamped, Base):
     kind: Mapped[str] = mapped_column(String(16), default="singles")
     proposed_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     message: Mapped[str | None] = mapped_column(String(280), nullable=True)
-    status: Mapped[str] = mapped_column(String(16), default="pending", index=True)  # pending | accepted | declined | cancelled | completed
+    status: Mapped[str] = mapped_column(String(16), default="pending", index=True)  # pending | accepted | declined | cancelled | completed | expired
+    awaiting_id: Mapped[str | None] = mapped_column(String(128), nullable=True)  # whose turn it is while pending (time can go back and forth)
+    last_action_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    reminded_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     responded_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     result_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("rated_matches.id", ondelete="SET NULL"), nullable=True)
     pair_key: Mapped[str] = mapped_column(String(260), default=lambda ctx: "|".join(sorted([ctx.get_current_parameters()["challenger_id"], ctx.get_current_parameters()["opponent_id"]])))

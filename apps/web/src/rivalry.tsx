@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { getHeadToHead, photoUrl, type ApiH2HChange, type ApiH2HPlayer, type RatingKind } from "./api";
+import { getHeadToHead, getPublicHeadToHead, photoUrl, type ApiH2HChange, type ApiH2HPlayer, type RatingKind } from "./api";
+import { RivalryShare } from "./rivalry-share";
 import { useSession } from "./context";
 import { Tabs } from "./components";
 import { Empty, Panel, date } from "./ui";
@@ -29,11 +30,11 @@ function Delta({ change, testId }: { change: ApiH2HChange; testId: string }) {
 /** Every result between two players and how each match moved both ratings. */
 export function RivalryPage() {
   const { a = "", b = "" } = useParams();
-  const { user } = useSession();
+  const { user, loading } = useSession();
   const [kind, setKind] = useState<RatingKind>("singles");
-  const q = useQuery({ queryKey: ["h2h", a, b], queryFn: () => getHeadToHead(a, b) });
-  if (q.isLoading) return <div className="page" role="status">Loading head to head…</div>;
-  if (q.error || !q.data) return <div className="page"><Empty title="Head to head not available">One of these players is private or not in the club.</Empty></div>;
+  const q = useQuery({ queryKey: ["h2h", a, b, user?.uid], queryFn: () => (user ? getHeadToHead(a, b) : getPublicHeadToHead(a, b)), enabled: !loading });
+  if (loading || q.isLoading) return <div className="page" role="status">Loading head to head…</div>;
+  if (q.error || !q.data) return <div className="page"><Empty title="Head to head not available">{user ? "One of these players is private or not in the club." : "Both players need a public profile for this link to work. Sign in to see it as a club member."}</Empty></div>;
   const { summary, matches } = q.data;
   const list = matches.filter((m) => m.kind === kind);
   const s = summary[kind];
@@ -45,6 +46,7 @@ export function RivalryPage() {
         <div className="pr-h2h-score" data-testid="h2h-score"><strong>{s.a_wins}</strong><span>–</span><strong>{s.b_wins}</strong><small>{kind} wins</small></div>
         <Side p={q.data.b} kind={kind} align="right" />
       </section>
+      <RivalryShare data={q.data} kind={kind} />
       <Panel title="Every meeting" action={<Tabs label="Rating kind" value={kind} onChange={setKind} options={[{ value: "singles", label: `Singles (${matches.filter((m) => m.kind === "singles").length})` }, { value: "doubles", label: `Doubles (${matches.filter((m) => m.kind === "doubles").length})` }]} />}>
         {!list.length ? (
           <div data-testid="h2h-empty"><Empty title="They have not met yet">{user?.uid === a ? "Send a challenge from My matches to start this rivalry." : "No finalized results between these players."}</Empty></div>

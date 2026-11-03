@@ -40,7 +40,7 @@ export function PhotoUpload() {
   );
 }
 
-function wrap(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, width: number, lineHeight: number) {
+export function wrap(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, width: number, lineHeight: number) {
   const words = text.split(" ");
   let line = "";
   for (const word of words) {

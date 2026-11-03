@@ -141,3 +141,7 @@
 .pr-challenge-status.accepted { background: #e6f4f3; color: #065f60; }
 .pr-challenge-status.completed { background: #e7f6ee; color: #0b6b4b; }
 .pr-challenge-status.declined, .pr-challenge-status.cancelled { background: #f6e9e9; color: #8a2a2a; }
+.pr-h2h-share { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: -6px 0 18px; }
+.pr-h2h-share small { color: var(--muted); flex-basis: 100%; }
+.pr-days-input { width: 80px; min-height: 40px; border-radius: 10px; border: 1px solid var(--line); padding: 0 10px; }
+.pr-challenge-status.expired { background: #f6e9e9; color: #8a2a2a; }

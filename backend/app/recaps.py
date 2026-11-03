@@ -206,6 +206,16 @@ async def weekly_scheduler(stop: asyncio.Event) -> None:
     """Every 15 minutes: Monday from 8:00 Chicago sends weekly recaps; the 1st from 8:00 sends last month's leaderboard."""
     while not stop.is_set():
         now = datetime.now(CLUB_TZ)
+        try:
+            from .challenges import challenge_maintenance
+
+            async with SessionLocal() as session:
+                for club_id in (await session.scalars(select(Club.id))).all():
+                    done = await challenge_maintenance(session, club_id)
+                    if done["reminded"] or done["expired"]:
+                        logger.info("challenges %s: %s", club_id, done)
+        except Exception:
+            logger.exception("challenge reminders failed")
         if (now.weekday() == 0 or now.day == 1) and now.hour >= 8:
             try:
                 async with SessionLocal() as session:

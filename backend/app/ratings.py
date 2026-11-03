@@ -296,7 +296,9 @@ async def join_club(club_id: UUID, session: AsyncSession = Depends(get_session),
         member = Membership(club_id=club_id, user_id=actor.user_id, display_name=actor.name or actor.email or actor.user_id, role=MembershipRole.admin if admin else MembershipRole.player)
         session.add(member)
         await session.flush()
-        await my_preferences(session, club_id, actor)
+        prefs = await my_preferences(session, club_id, actor)
+        if admin:  # club admins start opted in to both emails (inbox check); they can switch off in Edit profile
+            prefs.weekly_recap = prefs.monthly_digest = True
         await audit(session, club_id, actor.user_id, "membership.self_joined", "membership", str(member.id), member.role.value)
         await session.commit()
     return {"id": str(member.id), "club_id": str(club_id), "user_id": member.user_id, "role": member.role.value, "display_name": member.display_name}
