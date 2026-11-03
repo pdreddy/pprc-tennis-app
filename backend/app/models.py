@@ -390,3 +390,21 @@ class PlayerPreference(Base):
     recap_sent_week: Mapped[str | None] = mapped_column(String(10), nullable=True)
     milestones_notified: Mapped[list] = mapped_column(JSONB, default=list)
     last_self_recap_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    monthly_digest: Mapped[bool] = mapped_column(Boolean, default=False)
+    digest_sent_month: Mapped[str | None] = mapped_column(String(7), nullable=True)
+    last_test_email_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+
+
+class Challenge(Timestamped, Base):
+    """A player invites a fair-match opponent; once accepted, either side reports the score."""
+    __tablename__ = "challenges"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    club_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("clubs.id", ondelete="CASCADE"), index=True)
+    challenger_id: Mapped[str] = mapped_column(String(128), index=True)
+    opponent_id: Mapped[str] = mapped_column(String(128), index=True)
+    kind: Mapped[str] = mapped_column(String(16), default="singles")
+    proposed_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    message: Mapped[str | None] = mapped_column(String(280), nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default="pending", index=True)  # pending | accepted | declined | cancelled | completed
+    responded_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    result_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("rated_matches.id", ondelete="SET NULL"), nullable=True)

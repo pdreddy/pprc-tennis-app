@@ -36,6 +36,7 @@ class ProfileInput(BaseModel):
     starting_singles: float | None = Field(default=None, ge=MIN_RATING, le=MAX_RATING)
     starting_doubles: float | None = Field(default=None, ge=MIN_RATING, le=MAX_RATING)
     weekly_recap: bool | None = None
+    monthly_digest: bool | None = None
 
 
 class ResultInput(BaseModel):
@@ -169,7 +170,7 @@ async def my_player(club_id: UUID, session: AsyncSession = Depends(get_session),
     prefs = await my_preferences(session, club_id, actor)
     await session.commit()
     detail = await player_detail(session, club_id, actor.user_id, full=True, hidden=await hidden_for(session, club_id, actor.user_id, False))
-    return {**detail, "preferences": {"weekly_recap": prefs.weekly_recap, "email": prefs.email}}
+    return {**detail, "preferences": {"weekly_recap": prefs.weekly_recap, "monthly_digest": bool(prefs.monthly_digest), "email": prefs.email}}
 
 
 async def my_preferences(session: AsyncSession, club_id: UUID, actor: Actor) -> PlayerPreference:
@@ -190,7 +191,7 @@ async def save_my_player(club_id: UUID, payload: ProfileInput, session: AsyncSes
     member = await require_member(session, club_id, actor.user_id)
     profile = await session.scalar(select(PlayerProfile).where(PlayerProfile.club_id == club_id, PlayerProfile.user_id == actor.user_id))
     rated = await session.scalar(select(PlayerRating.id).where(PlayerRating.club_id == club_id, PlayerRating.user_id == actor.user_id, PlayerRating.verified_matches > 0).limit(1))
-    values = payload.model_dump(exclude={"starting_singles", "starting_doubles", "weekly_recap"})
+    values = payload.model_dump(exclude={"starting_singles", "starting_doubles", "weekly_recap", "monthly_digest"})
     if "image_url" not in payload.model_fields_set:
         values.pop("image_url")  # omitted means keep the current photo
     if profile is None:
@@ -209,12 +210,14 @@ async def save_my_player(club_id: UUID, payload: ProfileInput, session: AsyncSes
     prefs = await my_preferences(session, club_id, actor)
     if payload.weekly_recap is not None:
         prefs.weekly_recap = payload.weekly_recap
+    if payload.monthly_digest is not None:
+        prefs.monthly_digest = payload.monthly_digest
     await session.flush()
     await recalculate_club(session, club_id)
     await audit(session, club_id, actor.user_id, "profile.saved", "player", actor.user_id)
     await session.commit()
     detail = await player_detail(session, club_id, actor.user_id, full=True)
-    return {**detail, "preferences": {"weekly_recap": prefs.weekly_recap, "email": prefs.email}}
+    return {**detail, "preferences": {"weekly_recap": prefs.weekly_recap, "monthly_digest": bool(prefs.monthly_digest), "email": prefs.email}}
 
 
 @router.get("/v1/clubs/{club_id}/players")

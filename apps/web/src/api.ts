@@ -219,11 +219,11 @@ export type ApiProfile = { user_id: string; display_name: string; city?: string 
 export type ApiSidePlayer = { user_id: string; display_name: string };
 export type ApiResult = { id: string; source: "reported" | "competition"; kind: RatingKind; status: "reported" | "finalized" | "disputed" | "cancelled"; outcome: string; rated: boolean; score_text: string | null; winner_side: 1 | 2 | null; match_format: string; played_at: string; reported_by: string | null; dispute_reason: string | null; correction_reason: string | null; side_one: ApiSidePlayer[]; side_two: ApiSidePlayer[] };
 export type ApiMilestone = { id: string; kind: RatingKind; type: "established" | "rank"; title: string; detail: string; date: string; rating: number; rank: number; field: number };
-export type ApiPlayerDetail = { profile: ApiProfile; ratings: Record<RatingKind, ApiRating | null>; recent_form: ("W" | "L")[]; record: { wins: number; losses: number }; history: { kind: RatingKind; played_at: string; rating: number }[]; recent_matches?: ApiResult[]; doubles_partners?: ApiSidePlayer[]; milestones?: ApiMilestone[]; preferences?: { weekly_recap: boolean; email: string | null } };
+export type ApiPlayerDetail = { profile: ApiProfile; ratings: Record<RatingKind, ApiRating | null>; recent_form: ("W" | "L")[]; record: { wins: number; losses: number }; history: { kind: RatingKind; played_at: string; rating: number }[]; recent_matches?: ApiResult[]; doubles_partners?: ApiSidePlayer[]; milestones?: ApiMilestone[]; preferences?: { weekly_recap: boolean; monthly_digest?: boolean; email: string | null } };
 export type ApiPage<T> = { items: T[]; total: number; page: number; page_size: number };
 export type ApiDirectoryRow = ApiProfile & { rating: ApiRating | null };
 export type ApiRankingRow = ApiProfile & ApiRating & { rank: number; movement?: number; club_name?: string };
-export type ProfileInput = Omit<ApiProfile, "user_id" | "has_profile"> & { weekly_recap?: boolean };
+export type ProfileInput = Omit<ApiProfile, "user_id" | "has_profile"> & { weekly_recap?: boolean; monthly_digest?: boolean };
 export type ResultInput = { kind: RatingKind; partner_id?: string; opponent_ids: string[]; score_text?: string; outcome: string; match_format: string; winner_side?: 1 | 2; played_at?: string };
 
 const query = (params: Record<string, unknown>) => {
@@ -241,6 +241,21 @@ export const setMemberRole = (userId: string, role: string) => apiRequest<ApiMem
 export const listFairMatches = (kind: RatingKind, spread: number) => apiRequest<ApiFairMatch[]>(`/v1/clubs/${apiClubId}/players/me/opponents?kind=${kind}&spread=${spread}`);
 export const sendRecapsNow = () => apiRequest<{ week: string; sent: number; failed: number; opted_in: number }>(`/v1/clubs/${apiClubId}/recaps/send`, { method: "POST" });
 export const sendMyRecap = () => apiRequest<{ sent_to: string }>(`/v1/clubs/${apiClubId}/recaps/me`, { method: "POST" });
+export type ApiChallenge = { id: string; kind: RatingKind; status: "pending" | "accepted" | "declined" | "cancelled" | "completed"; direction: "sent" | "received"; opponent: ApiSidePlayer; proposed_at: string | null; message: string | null; created_at: string; responded_at: string | null; result_id: string | null; result_status: string | null; emailed?: boolean };
+export type ApiH2HChange = { before: number; after: number; delta: number } | null;
+export type ApiH2HMatch = { id: string; kind: RatingKind; played_at: string; score_text: string | null; outcome: string; rated: boolean; a_won: boolean | null; a_partners: ApiSidePlayer[]; b_partners: ApiSidePlayer[]; a_change: ApiH2HChange; b_change: ApiH2HChange };
+export type ApiH2HPlayer = { user_id: string; display_name: string; image_url: string | null; city: string | null; ratings: Record<RatingKind, ApiRating | null> };
+export type ApiHeadToHead = { a: ApiH2HPlayer; b: ApiH2HPlayer; summary: Record<RatingKind, { a_wins: number; b_wins: number }>; matches: ApiH2HMatch[] };
+export type EmailType = "weekly" | "monthly";
+export type ApiEmailPreview = { type: EmailType; subject: string; html: string; recipients: number };
+export const listChallenges = () => apiRequest<ApiChallenge[]>(`/v1/clubs/${apiClubId}/challenges`);
+export const sendChallenge = (input: { opponent_id: string; proposed_at?: string; message?: string }) => apiRequest<ApiChallenge>(`/v1/clubs/${apiClubId}/challenges`, { method: "POST", body: JSON.stringify(input) });
+export const respondChallenge = (id: string, action: "accept" | "decline") => apiRequest<ApiChallenge>(`/v1/challenges/${id}/respond`, { method: "POST", body: JSON.stringify({ action }) });
+export const cancelChallenge = (id: string) => apiRequest<ApiChallenge>(`/v1/challenges/${id}/cancel`, { method: "POST" });
+export const reportChallenge = (id: string, input: { score_text?: string; outcome: string; match_format: string; i_won?: boolean; played_at?: string }) => apiRequest<ApiChallenge>(`/v1/challenges/${id}/result`, { method: "POST", body: JSON.stringify(input) });
+export const getHeadToHead = (a: string, b: string) => apiRequest<ApiHeadToHead>(`/v1/clubs/${apiClubId}/head-to-head/${encodeURIComponent(a)}/${encodeURIComponent(b)}`);
+export const previewEmail = (type: EmailType, userId?: string) => apiRequest<ApiEmailPreview>(`/v1/clubs/${apiClubId}/emails/preview${query({ type, user_id: userId })}`);
+export const sendTestEmail = (type: EmailType, userId?: string) => apiRequest<{ sent_to: string; type: EmailType }>(`/v1/clubs/${apiClubId}/emails/test`, { method: "POST", body: JSON.stringify({ type, user_id: userId || undefined }) });
 export const uploadMyPhoto = (photo: Blob) => {
   const body = new FormData();
   body.append("file", photo, "photo.jpg");

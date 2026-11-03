@@ -7,13 +7,17 @@ from html import escape
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Literal
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .auth import Actor, current_actor
 from .common import audit
 from .database import SessionLocal, get_session
+from .digest import digest_data, digest_html, digest_subject, month_window, send_club_digests
 from .emailer import send_email
 from .members import fair_matches, require_club_admin
 from .models import Club, PlayerPreference, PlayerProfile, RatedMatch, RatingHistory
@@ -81,11 +85,17 @@ def recap_html(name: str, data: dict, app_url: str) -> str:
             f'We never ask for your password or payment details by email.</p></td></tr></table></td></tr></table>')
 
 
-async def send_recap(session: AsyncSession, club_id: UUID, prefs: PlayerPreference) -> None:
-    profile = await session.scalar(select(PlayerProfile).where(PlayerProfile.club_id == club_id, PlayerProfile.user_id == prefs.user_id))
+RECAP_SUBJECT = "Your PPRC weekly rating recap"
+
+
+async def recap_for(session: AsyncSession, club_id: UUID, user_id: str) -> str:
+    profile = await session.scalar(select(PlayerProfile).where(PlayerProfile.club_id == club_id, PlayerProfile.user_id == user_id))
     name = profile.display_name if profile else "there"
-    html = recap_html(name, await recap_data(session, club_id, prefs.user_id), os.environ["PPRC_APP_ORIGIN"].rstrip("/"))
-    await send_email(to=prefs.email, subject="Your PPRC weekly rating recap", html=html)
+    return recap_html(name, await recap_data(session, club_id, user_id), os.environ["PPRC_APP_ORIGIN"].rstrip("/"))
+
+
+async def send_recap(session: AsyncSession, club_id: UUID, prefs: PlayerPreference) -> None:
+    await send_email(to=prefs.email, subject=RECAP_SUBJECT, html=await recap_for(session, club_id, prefs.user_id))
 
 
 async def send_club_recaps(session: AsyncSession, club_id: UUID) -> dict:
@@ -140,17 +150,72 @@ async def send_my_recap(club_id: UUID, session: AsyncSession = Depends(get_sessi
     return {"sent_to": prefs.email}
 
 
+class PreviewInput(BaseModel):
+    type: Literal["weekly", "monthly"] = "weekly"
+    user_id: str | None = None
+
+
+async def render_preview(session: AsyncSession, club_id: UUID, actor: Actor, kind: str, user_id: str | None) -> dict:
+    """Weekly: the chosen member's recap as it would go out now. Monthly: this month so far (sent on the 1st)."""
+    if kind == "weekly":
+        target = user_id or actor.user_id
+        await require_member(session, club_id, target)
+        opted = PlayerPreference.weekly_recap
+        subject, html = RECAP_SUBJECT, await recap_for(session, club_id, target)
+    else:
+        start, end, _ = month_window(previous=False)
+        data = await digest_data(session, club_id, start, end)
+        me = await session.scalar(select(PlayerProfile.display_name).where(PlayerProfile.club_id == club_id, PlayerProfile.user_id == actor.user_id))
+        opted = PlayerPreference.monthly_digest
+        subject, html = await digest_subject(session, club_id, data["label"]), digest_html(me or "there", data, os.environ["PPRC_APP_ORIGIN"].rstrip("/"), so_far=True)
+    recipients = (await session.scalars(select(PlayerPreference.id).where(PlayerPreference.club_id == club_id, opted.is_(True), PlayerPreference.email.is_not(None)))).all()
+    return {"type": kind, "subject": subject, "html": html, "recipients": len(recipients)}
+
+
+@router.get("/v1/clubs/{club_id}/emails/preview")
+async def preview_email(club_id: UUID, type: Literal["weekly", "monthly"] = "weekly", user_id: str | None = Query(None, max_length=128), session: AsyncSession = Depends(get_session), actor: Actor = Depends(current_actor)) -> dict:
+    await require_club_admin(session, club_id, actor)
+    return await render_preview(session, club_id, actor, type, user_id)
+
+
+@router.post("/v1/clubs/{club_id}/emails/test")
+async def send_test_email(club_id: UUID, payload: PreviewInput, session: AsyncSession = Depends(get_session), actor: Actor = Depends(current_actor)) -> dict:
+    """Email the previewed recap or digest to the admin's own verified address only. Once a minute."""
+    await require_club_admin(session, club_id, actor)
+    prefs = await session.scalar(select(PlayerPreference).where(PlayerPreference.club_id == club_id, PlayerPreference.user_id == actor.user_id))
+    if prefs is None or not prefs.email:
+        raise HTTPException(status_code=409, detail="Sign in with a verified email to receive test emails")
+    last = prefs.last_test_email_at
+    if last and datetime.now(timezone.utc) - last < timedelta(minutes=1):
+        raise HTTPException(status_code=429, detail="Wait a minute before sending another test")
+    preview = await render_preview(session, club_id, actor, payload.type, payload.user_id)
+    prefs.last_test_email_at = datetime.now(timezone.utc)
+    await session.commit()
+    try:
+        await send_email(to=prefs.email, subject=f"Test: {preview['subject']}", html=preview["html"])
+    except Exception:
+        prefs.last_test_email_at = last
+        await session.commit()
+        raise
+    await audit(session, club_id, actor.user_id, "email.test_sent", "club", str(club_id), payload.type)
+    await session.commit()
+    return {"sent_to": prefs.email, "type": payload.type}
+
+
 async def weekly_scheduler(stop: asyncio.Event) -> None:
-    """Every 15 minutes: on Monday from 8:00 Chicago time, send any recaps not yet sent this week."""
+    """Every 15 minutes: Monday from 8:00 Chicago sends weekly recaps; the 1st from 8:00 sends last month's leaderboard."""
     while not stop.is_set():
         now = datetime.now(CLUB_TZ)
-        if now.weekday() == 0 and now.hour >= 8:
+        if (now.weekday() == 0 or now.day == 1) and now.hour >= 8:
             try:
                 async with SessionLocal() as session:
                     for club_id in (await session.scalars(select(Club.id))).all():
-                        logger.info("weekly recap %s: %s", club_id, await send_club_recaps(session, club_id))
+                        if now.weekday() == 0:
+                            logger.info("weekly recap %s: %s", club_id, await send_club_recaps(session, club_id))
+                        if now.day == 1:
+                            logger.info("monthly digest %s: %s", club_id, await send_club_digests(session, club_id))
             except Exception:
-                logger.exception("weekly recap run failed")
+                logger.exception("scheduled email run failed")
         try:
             await asyncio.wait_for(stop.wait(), timeout=900)
         except asyncio.TimeoutError:

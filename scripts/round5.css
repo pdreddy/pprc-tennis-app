@@ -1,0 +1,45 @@
+
+.pr-fair-actions { display: inline-flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.pr-challenge-form { grid-column: 1 / -1; padding: 12px; border-radius: 12px; background: #f4f8fa; animation: lp-rise 0.3s both; }
+.pr-challenge-form .form { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; align-items: end; }
+.pr-challenge-sent { color: #0b6b4b; font-weight: 600; }
+.pr-challenges { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.pr-challenge { display: grid; gap: 8px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 16px; background: #fff; transition: border-color 0.2s, box-shadow 0.2s; }
+.pr-challenge.highlight { border-color: var(--teal); box-shadow: 0 0 0 3px rgba(8, 127, 128, 0.15); }
+.pr-challenge-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.pr-challenge-head > span { display: flex; flex-direction: column; min-width: 0; }
+.pr-challenge-head small { color: var(--muted); font-size: 12px; }
+.pr-challenge-note { margin: 0; font-style: italic; color: #26394a; }
+.pr-challenge-report { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; align-items: end; }
+.pr-h2h-hero { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 16px; padding: 28px 24px; margin-bottom: 18px; border-radius: 22px; background: linear-gradient(100deg, #0b1f30, #14395a); color: #fff; animation: lp-rise 0.5s both; }
+.pr-h2h-side { display: flex; flex-direction: column; align-items: center; gap: 6px; color: #fff; text-align: center; min-width: 0; }
+.pr-h2h-side strong { font: 700 18px "Space Grotesk", sans-serif; overflow-wrap: anywhere; }
+.pr-h2h-side small { color: #b9c9d6; font-variant-numeric: tabular-nums; }
+.pr-h2h-score { display: grid; grid-template-columns: auto auto auto; align-items: baseline; gap: 8px; text-align: center; }
+.pr-h2h-score strong { font: 700 52px/1 "Space Grotesk", sans-serif; color: #d7f25c; }
+.pr-h2h-score span { font-size: 30px; color: #b9c9d6; }
+.pr-h2h-score small { grid-column: 1 / -1; color: #b9c9d6; text-transform: uppercase; letter-spacing: 2px; font-size: 11px; }
+.pr-h2h-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.pr-h2h-list li { display: grid; grid-template-columns: 110px 1fr auto; gap: 12px; align-items: center; padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px; background: #fff; }
+.pr-h2h-when { font-size: 13px; color: var(--muted); }
+.pr-h2h-result { display: grid; grid-template-columns: 1fr auto 1fr; gap: 10px; align-items: center; min-width: 0; }
+.pr-h2h-result strong { font-weight: 500; color: var(--muted); overflow-wrap: anywhere; }
+.pr-h2h-result strong:last-child { text-align: right; }
+.pr-h2h-result strong.win { font-weight: 700; color: var(--navy); }
+.pr-h2h-scoreline { font: 600 14px "DM Mono", monospace; color: var(--navy); white-space: nowrap; }
+.pr-h2h-deltas { display: flex; flex-direction: column; align-items: flex-end; font: 500 12px "DM Mono", monospace; }
+.pr-h2h-deltas .up { color: #0b6b4b; } .pr-h2h-deltas .down { color: #a32727; }
+.pr-preview-bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 10px; }
+.pr-preview-bar select { min-height: 40px; border-radius: 10px; border: 1px solid var(--line); padding: 0 10px; }
+.pr-preview-meta { font-size: 14px; color: #26394a; }
+.pr-preview-frame { width: 100%; height: 560px; border: 1px solid var(--line); border-radius: 14px; background: #f4f7f9; }
+@media (max-width: 600px) {
+  .pr-fair-actions { grid-column: 1 / -1; justify-content: flex-start; }
+  .pr-h2h-hero { padding: 20px 12px; gap: 8px; }
+  .pr-h2h-score strong { font-size: 38px; }
+  .pr-h2h-list li { grid-template-columns: 1fr; }
+  .pr-h2h-deltas { flex-direction: row; justify-content: space-between; }
+  .pr-preview-frame { height: 480px; }
+}
+.pr-fair li:has(.pr-challenge-form) .pr-fair-actions { grid-column: 1 / -1; justify-content: flex-start; }
+.pr-fair-actions .pr-challenge-form { flex-basis: 100%; }

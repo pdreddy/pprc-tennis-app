@@ -59,6 +59,7 @@ const PlayerPage = lazy(() => import("./players").then((m) => ({ default: m.Play
 const RankingsPage = lazy(() => import("./players").then((m) => ({ default: m.RankingsPage })));
 const MyRating = lazy(() => import("./players").then((m) => ({ default: m.MyRating })));
 const MyMatches = lazy(() => import("./players").then((m) => ({ default: m.MyMatches })));
+const RivalryPage = lazy(() => import("./rivalry").then((m) => ({ default: m.RivalryPage })));
 const LadderPage = lazy(() => import("./players").then((m) => ({ default: m.LadderPage })));
 const EventWizard = lazy(() =>
   import("./admin").then((m) => ({ default: m.EventWizard })),
@@ -153,6 +154,7 @@ function Layout() {
             <Route path="/events" element={<Discover />} />
             <Route path="/players" element={<RequireUser><PlayersDirectory /></RequireUser>} />
             <Route path="/players/:userId" element={<PlayerPage />} />
+            <Route path="/players/:a/vs/:b" element={<RequireUser><RivalryPage /></RequireUser>} />
             <Route path="/rankings" element={<RankingsPage />} />
             <Route path="/ladder" element={<LadderPage />} />
             <Route path="/me/rating" element={<RequireUser><MyRating /></RequireUser>} />

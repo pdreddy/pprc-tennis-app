@@ -21,6 +21,7 @@ from .competitions import router as competitions_router, sync_entries_for_regist
 from .ratings import router as ratings_router
 from .members import router as members_router
 from .recaps import router as recaps_router
+from .challenges import router as challenges_router
 from .rating_service import sync_triace_fixture
 from .models import (
     AuditLog,
@@ -311,6 +312,7 @@ app.include_router(competitions_router)
 app.include_router(ratings_router)
 app.include_router(members_router)
 app.include_router(recaps_router)
+app.include_router(challenges_router)
 
 
 @app.get("/health")

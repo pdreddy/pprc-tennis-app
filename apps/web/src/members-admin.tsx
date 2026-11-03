@@ -4,6 +4,7 @@ import { Mail } from "lucide-react";
 import { listMembers, sendRecapsNow, setMemberRole } from "./api";
 import { Callout, DataTable } from "./components";
 import { Empty, Panel } from "./ui";
+import { EmailPreview } from "./email-preview";
 import "./players.css";
 
 const roles = [
@@ -71,6 +72,7 @@ export function MembersRoles() {
       <h1>Members & roles</h1>
       <Callout>Organizers run events and verify results. Club admins can also change roles and send recaps.</Callout>
       <RecapSender />
+      <EmailPreview />
       <Panel title="Members">
         <input className="pr-member-search" placeholder="Search members" aria-label="Search members" value={q} onChange={(e) => setQ(e.target.value)} data-testid="members-search" />
         {members.isLoading ? <p role="status">Loading members…</p> : members.error ? <p role="alert" className="error">{(members.error as Error).message}</p> : (

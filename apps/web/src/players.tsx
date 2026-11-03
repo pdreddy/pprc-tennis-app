@@ -13,6 +13,7 @@ import { Callout, DataTable, FieldGrid, PromptAction, StatGrid, StatusBadge, Tab
 import { Action, Empty, Field, Form, Panel, text } from "./ui";
 import { Milestones, NewMilestone, PhotoUpload, RecapNow } from "./milestones";
 import { FairMatches } from "./fair-matches";
+import { Challenges } from "./challenges";
 import "./players.css";
 
 const kinds = [{ value: "singles", label: "Singles" }, { value: "doubles", label: "Doubles" }] as const;
@@ -122,7 +123,13 @@ export function PlayerPage() {
   const q = useQuery({ queryKey: ["player", userId, user?.uid], queryFn: () => (user ? getPlayer(userId) : getPublicPlayer(userId)) });
   if (q.isLoading) return <div className="page" role="status">Loading player…</div>;
   if (q.error || !q.data) return <div className="page"><Empty title="Player not available">This profile is private or does not exist.</Empty></div>;
-  return <div className="page"><PlayerDetailView detail={q.data} /></div>;
+  return (
+    <div className="page">
+      <PlayerDetailView detail={q.data}>
+        {user && user.uid !== userId && <Link className="button secondary small" to={`/players/${user.uid}/vs/${userId}`} data-testid="player-h2h-link">Head to head with you</Link>}
+      </PlayerDetailView>
+    </div>
+  );
 }
 
 export function PlayersDirectory() {
@@ -256,6 +263,7 @@ export function MyRating() {
               age_group: text(form, "ageGroup") || null, gender_category: text(form, "gender") || null,
               visibility: text(form, "visibility") as "public" | "club" | "private",
               weekly_recap: form.get("weeklyRecap") === "on",
+              monthly_digest: form.get("monthlyDigest") === "on",
               ...(locked ? {} : { starting_singles: Number(text(form, "startSingles")), starting_doubles: Number(text(form, "startDoubles")) }),
             });
             setEditing(false);
@@ -271,6 +279,7 @@ export function MyRating() {
               <Field label="Category"><select name="gender" defaultValue={detail.profile.gender_category ?? ""}><option value="">Prefer not to say</option>{["Open", "Men", "Women"].map((a) => <option key={a}>{a}</option>)}</select></Field>
               <Field label="Who can see my profile"><select name="visibility" defaultValue={detail.profile.visibility ?? "club"} data-testid="profile-visibility-select"><option value="public">Everyone (public)</option><option value="club">Club members</option><option value="private">Only me and club staff</option></select></Field>
               <label className="check"><input name="weeklyRecap" type="checkbox" defaultChecked={onboarding || !!detail.preferences?.weekly_recap} data-testid="weekly-recap-checkbox" /> Email me a weekly rating recap (Mondays){detail.preferences?.email ? ` to ${detail.preferences.email}` : ""}</label>
+              <label className="check"><input name="monthlyDigest" type="checkbox" defaultChecked={onboarding || !!detail.preferences?.monthly_digest} data-testid="monthly-digest-checkbox" /> Email me the monthly club leaderboard (1st of each month)</label>
               {!locked && <Field label="Starting singles level" hint="1.00 beginner – 16.50 elite"><input name="startSingles" type="number" step="0.25" min="1" max="16.5" defaultValue={detail.profile.starting_singles ?? 5} required data-testid="start-singles-input" /></Field>}
               {!locked && <Field label="Starting doubles level"><input name="startDoubles" type="number" step="0.25" min="1" max="16.5" defaultValue={detail.profile.starting_doubles ?? 5} required /></Field>}
             </FieldGrid>
@@ -396,6 +405,7 @@ export function MyMatches() {
       <p className="eyebrow">RESULTS</p>
       <h1>My matches</h1>
       {pending.length > 0 && <Callout tone="warn">{pending.length} result{pending.length > 1 ? "s" : ""} waiting for confirmation.</Callout>}
+      <Challenges />
       <FairMatches onPick={(picked) => { setOpponent(picked); document.getElementById("report-match")?.scrollIntoView({ behavior: "smooth" }); }} />
       <div id="report-match"><ReportForm opponent={opponent} /></div>
       {mine.isLoading ? <p role="status">Loading…</p> : <ResultList title="My results" results={mine.data ?? []} />}
