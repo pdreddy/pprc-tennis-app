@@ -104,6 +104,9 @@ async def send_email(*, to: str, subject: str, html: str) -> str | None:
             code = e.response.json().get("code", "")
         except ValueError:
             code = ""
+        if e.response.status_code == 429:
+            logger.warning("Email rate limited by provider")
+            raise HTTPException(status_code=429, detail="Email is busy right now, try again in a minute")
         if code in ("insufficient_credits", "integration_disabled", "daily_limit_reached"):
             logger.warning(f"Email paused: {code} ({e.response.status_code}): {e.response.json().get('message', '')}")
             raise HTTPException(status_code=503, detail="Email is temporarily unavailable")

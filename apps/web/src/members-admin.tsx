@@ -84,7 +84,7 @@ function ChallengeSettings() {
         }
       }}>
         <label htmlFor="expiry-days">Expire after</label>
-        <input id="expiry-days" name="days" type="number" min={3} max={30} defaultValue={q.data.challenge_expiry_days} key={q.data.challenge_expiry_days} className="pr-days-input" data-testid="challenge-expiry-input" /> days
+        <input id="expiry-days" name="days" type="number" min={3} max={30} defaultValue={q.data.challenge_expiry_days} key={q.data.challenge_expiry_days} className="pr-days-input" onChange={() => setMessage("")} data-testid="challenge-expiry-input" /> days
         <button className="button secondary" data-testid="challenge-expiry-save">Save</button>
       </form>
       {message && <p role="status" data-testid="challenge-expiry-status">{message}</p>}

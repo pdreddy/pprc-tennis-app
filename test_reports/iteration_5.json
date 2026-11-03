@@ -1,0 +1,44 @@
+{
+  "summary": "Iteration 5 was tested on the hosted preview with real Clerk ticket sign-ins for Alex (player) and Blair (admin). Covered: challenge settings, the maintenance trigger, the suggest-another-time back and forth, the rivalry share card and share link, the signed-out public head to head, admin email opt-in, and mobile layout at 390px. Backend: the new preview suite passes 10 of 11. The one failure is a real bug: the create-challenge response ignores the club's expiry setting. The iteration 4 regression suite passes 15 of 16. Its one failure is the test email returning 502, because the upstream email provider rate-limited us (429) after many challenge emails. UI: all requested flows work end to end. Expiry settings: saving 10 shows 'Saved · challenges expire after 10 days', and the native min=3 validation blocks a value of 1. Blair sees 'Your turn', 'Expires ... if unanswered', Accept, Decline and Suggest. After Blair suggests a time she sees 'Waiting for reply' and no Accept button. Alex gets the notification 'Blair Tester suggested another time' and sees 'Accept new time', Decline, Suggest and the new time. Alex suggests again, Blair accepts, and the row shows 'Accepted · play and report' with the score form. The share card downloaded pprc-h2h-singles.png (a correct 1080x1350 card) and showed 'Card downloaded'. Share link copied the correct URL and showed its status message. Signed out, the page shows 'Head to head not available' plus the public-profile hint when Blair's profile is club-only, and loads the full page through /api/v1/public/... when both are public. The public endpoint returns 404 for a non-public player or an unknown club and 422 for the same player twice. Blair's weekly and monthly checkboxes are both checked, and unchecking them persists after a reload. Maintenance returns {reminded, expired} to an admin and 403 to a player. At 390px there is no horizontal overflow on /admin/members, /me/matches with the suggest form open, or the rivalry page.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/v1/clubs/{club}/challenges", "issue": "The create response's expires_at always uses 7 days. At line 160 of challenges.py, challenge_view(c, actor.user_id, names, None) is called without the club's expiry_days. With the club set to 10, create returned +7 days while the list returned +10. Fix: pass await expiry_days(session, club_id)."},
+      {"endpoint": "POST /api/v1/clubs/{club}/emails/test", "issue": "When the upstream email provider rate-limits us (429 'email rate limit exceeded'), the API returns a generic 502 'Failed to send email'. This happened after the volume of challenge and suggest emails during testing. Consider mapping the provider's 429 to a 429 or 503 with a friendly 'try again later' message. Also note that challenge, suggest and reminder emails fail silently in this case (in-app alerts still go out, and reminded_at is already stored)."},
+      {"endpoint": "POST /api/v1/challenges/{id}/respond", "issue": "When the opponent accepts the challenger's counter-time, the challenger is told '<name> accepted your challenge' instead of '... the new time'. The wording is chosen by the user's role, not by who suggested the time last."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "rivalry-share.tsx card", "issue": "The 'Last:' line always shows the score from player A's side, so the card reads 'Last: Blair Tester won 4-6 3-6'. It should show the winner's games first (6-4 6-3).", "selector": "[data-testid='h2h-share-card']", "priority": "LOW"},
+      {"component": "rivalry-share.tsx card", "issue": "The card date uses the browser's local timezone ('November 3, 2026') while the page list uses America/Chicago ('Nov 2'), so the same match shows different dates.", "selector": "[data-testid='h2h-share-card']", "priority": "LOW"},
+      {"component": "members-admin ChallengeSettings", "issue": "After a successful save, typing an invalid value (1) and pressing Save shows the browser tooltip, but the old 'Saved · challenges expire after 10 days' status stays on screen.", "selector": "[data-testid='challenge-expiry-status']", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/me/matches challenge row (desktop)", "issues": ["Accept, Decline and Head to head are spread across the full row width, which leaves Decline floating in the middle. Grouping the actions on the left would read better."]},
+      {"screen": "Rivalry 'not available' empty state", "issues": ["The calendar icon is left-aligned while the text is centred, and the icon has nothing to do with head to head."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iteration5_reminders_suggest_share_preview.py", "/app/test_reports/pytest/iteration5_preview.xml"],
+  "action_items": [
+    "In challenges.py create_challenge, pass the club's expiry_days to challenge_view so expires_at matches the club setting.",
+    "Map the email provider's 429 to a friendly 429 or 503 on the test-email endpoint instead of a 502.",
+    "Rivalry card: show the 'Last' score from the winner's side, and format the date in America/Chicago to match the page.",
+    "Optional: clear the challenge-expiry-status message when the input changes; fix the respond notification wording for counter-times."
+  ],
+  "critical_code_review_comments": [
+    "challenges.py line 160: expiry_days is missing from the create response (confirmed by a test).",
+    "rivalry-share.tsx: URL.revokeObjectURL is called right after link.click(). Some browsers (Firefox, Safari) can cancel the download. Revoke it inside a setTimeout instead.",
+    "rivalry-share.tsx shareLink: if navigator.clipboard is undefined (insecure context) or writeText rejects, the 'Link copied' status still shows, or an unhandled rejection is thrown. Add a try/catch and show the URL as a fallback.",
+    "Expiry counts from last_action_at, so each suggest resets the clock and the 2-day reminder. Two players could keep a challenge open forever by trading suggestions. This is probably intended, but worth confirming."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration5_reminders_suggest_share_preview.py"],
+  "success_rate": {"backend": "91% (10/11 new; 15/16 iteration 4 regression, the failure is upstream email rate limiting)", "frontend": "100% of requested flows (minor cosmetic issues only)"},
+  "test_credentials": "As in /app/memory/test_credentials.md (Alex player, Blair admin). Tickets minted via tests/_mint_tickets.py.",
+  "seed_data_creation": "Several Alex->Blair challenges were created during testing; all are now cancelled. The club expiry setting was restored to 7. Alex and Blair were both public before testing and are public again. Blair's weekly and monthly emails were restored to on.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Alex and Blair are outside each other's fair match range, so create the Alex->Blair challenge via the API, then drive the UI. Pass a full profile body to PUT /players/me: use me['profile'] fields plus the change. Notifications live at /api/v1/notifications (not club-scoped). The email provider rate-limits after many challenge emails, so test_send_test_email in the iteration 4 suite can 502 for a while. The suggest form submit button is named 'Send new time'.",
+  "rca of the issue": "expires_at mismatch: create_challenge returns challenge_view(c, actor.user_id, names, None), whose expiry_days parameter defaults to 7. list_challenges and respond_view pass the club value, which is why only the create response is wrong. Reproduce: PUT challenge-settings 10, POST a challenge, compare expires_at - created_at (7d) with GET /challenges (10d)."
+}

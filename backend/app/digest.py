@@ -101,7 +101,7 @@ async def send_club_digests(session: AsyncSession, club_id: UUID, now: datetime 
             await session.commit()
         except HTTPException as exc:
             failed += 1
-            if exc.status_code == 503:
+            if exc.status_code in (429, 503):
                 break
         except Exception:
             failed += 1

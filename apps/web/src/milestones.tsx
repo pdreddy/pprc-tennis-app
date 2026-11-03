@@ -109,7 +109,7 @@ function MilestoneCard({ milestone, name }: { milestone: ApiMilestone; name: str
     }
     const link = Object.assign(document.createElement("a"), { href: URL.createObjectURL(blob), download: file.name });
     link.click();
-    URL.revokeObjectURL(link.href);
+    setTimeout(() => URL.revokeObjectURL(link.href), 4000);
     setStatus("Card downloaded");
   };
   return (

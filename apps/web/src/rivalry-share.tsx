@@ -37,10 +37,11 @@ async function renderRivalry(d: ApiHeadToHead, kind: RatingKind): Promise<Blob> 
   ctx.textAlign = "left";
   ctx.fillStyle = "#ffffff";
   ctx.font = '700 46px "Space Grotesk", sans-serif';
-  ctx.fillText(last ? `Last: ${last.a_won ? d.a.display_name : d.b.display_name} won ${last.score_text ?? ""}`.trim() : "First meeting coming soon", 90, 1110, 900);
+  const winnerScore = last?.score_text && !last.a_won ? last.score_text.replace(/(\d+)-(\d+)/g, "$2-$1") : last?.score_text ?? "";
+  ctx.fillText(last ? `Last: ${last.a_won ? d.a.display_name : d.b.display_name} won ${winnerScore}`.trim() : "First meeting coming soon", 90, 1110, 900);
   ctx.fillStyle = "#93a8ba";
   ctx.font = '500 32px "DM Mono", monospace';
-  if (last) ctx.fillText(new Date(last.played_at).toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" }), 90, 1170);
+  if (last) ctx.fillText(new Date(last.played_at).toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric", timeZone: "America/Chicago" }), 90, 1170);
   ctx.fillText("PROSPER PREMIER RACQUET CLUB", 90, 1270);
   return new Promise((resolve) => canvas.toBlob((b) => resolve(b!), "image/png"));
 }
@@ -64,7 +65,7 @@ export function RivalryShare({ data, kind }: { data: ApiHeadToHead; kind: Rating
     }
     const link = Object.assign(document.createElement("a"), { href: URL.createObjectURL(blob), download: file.name });
     link.click();
-    URL.revokeObjectURL(link.href);
+    setTimeout(() => URL.revokeObjectURL(link.href), 4000);
     setStatus("Card downloaded");
   };
   const shareLink = async () => {
@@ -77,8 +78,12 @@ export function RivalryShare({ data, kind }: { data: ApiHeadToHead; kind: Rating
         if ((error as Error).name === "AbortError") return;
       }
     }
-    await navigator.clipboard?.writeText(url);
-    setStatus("Link copied · it opens for anyone when both players have public profiles");
+    try {
+      await navigator.clipboard.writeText(url);
+      setStatus("Link copied · it opens for anyone when both players have public profiles");
+    } catch {
+      setStatus(`Copy this link: ${url}`);
+    }
   };
   return (
     <div className="pr-h2h-share">

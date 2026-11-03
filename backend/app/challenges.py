@@ -157,7 +157,7 @@ async def create_challenge(club_id: UUID, payload: ChallengeInput, session: Asyn
     await audit(session, club_id, actor.user_id, "challenge.sent", "challenge", str(c.id))
     await session.commit()
     emailed = await email_opponent(session, c, me)
-    return {**challenge_view(c, actor.user_id, names, None), "emailed": emailed}
+    return {**challenge_view(c, actor.user_id, names, None, await expiry_days(session, club_id)), "emailed": emailed}
 
 
 @router.get("/v1/clubs/{club_id}/challenges")
@@ -177,12 +177,13 @@ async def respond_challenge(challenge_id: UUID, payload: RespondInput, session: 
         raise HTTPException(status_code=409, detail="This challenge has already been answered")
     if (c.awaiting_id or c.opponent_id) != actor.user_id:
         raise HTTPException(status_code=403, detail="Waiting for the other player to answer")
+    countered = actor.user_id == c.challenger_id or (c.last_action_at and c.created_at and c.last_action_at - c.created_at > timedelta(seconds=5))
     c.status, c.responded_at = ("accepted" if payload.action == "accept" else "declined"), datetime.now(timezone.utc)
     c.awaiting_id = None
     me = (await names_for(session, c.club_id)).get(actor.user_id, "Your opponent")
     other = c.challenger_id if actor.user_id == c.opponent_id else c.opponent_id
     body = "Play the match, then either of you reports the score." if c.status == "accepted" else "Find another fair match in My matches."
-    await notify(session, c.club_id, other, "challenge", f"{me} {c.status} {'your challenge' if other == c.challenger_id else 'the new time'}", body, {"challengeId": str(c.id), "link": f"/me/matches?challenge={c.id}"})
+    await notify(session, c.club_id, other, "challenge", f"{me} {c.status} {'the new time' if countered else 'your challenge'}", body, {"challengeId": str(c.id), "link": f"/me/matches?challenge={c.id}"})
     await audit(session, c.club_id, actor.user_id, f"challenge.{c.status}", "challenge", str(c.id))
     await session.commit()
     return await respond_view(session, c, actor.user_id)

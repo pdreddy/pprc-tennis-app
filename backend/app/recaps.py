@@ -112,7 +112,7 @@ async def send_club_recaps(session: AsyncSession, club_id: UUID) -> dict:
             await session.commit()
         except HTTPException as exc:
             failed += 1
-            if exc.status_code == 503:
+            if exc.status_code in (429, 503):
                 break  # owner billing state: stop for now, the next run resumes
         except Exception:
             failed += 1  # one bad recipient never stops the batch

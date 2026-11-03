@@ -5,6 +5,7 @@ import { getHeadToHead, getPublicHeadToHead, photoUrl, type ApiH2HChange, type A
 import { RivalryShare } from "./rivalry-share";
 import { useSession } from "./context";
 import { Tabs } from "./components";
+import { Swords } from "lucide-react";
 import { Empty, Panel, date } from "./ui";
 import "./players.css";
 
@@ -34,7 +35,7 @@ export function RivalryPage() {
   const [kind, setKind] = useState<RatingKind>("singles");
   const q = useQuery({ queryKey: ["h2h", a, b, user?.uid], queryFn: () => (user ? getHeadToHead(a, b) : getPublicHeadToHead(a, b)), enabled: !loading });
   if (loading || q.isLoading) return <div className="page" role="status">Loading head to head…</div>;
-  if (q.error || !q.data) return <div className="page"><Empty title="Head to head not available">{user ? "One of these players is private or not in the club." : "Both players need a public profile for this link to work. Sign in to see it as a club member."}</Empty></div>;
+  if (q.error || !q.data) return <div className="page"><Empty title="Head to head not available" icon={<Swords size={32} />}>{user ? "One of these players is private or not in the club." : "Both players need a public profile for this link to work. Sign in to see it as a club member."}</Empty></div>;
   const { summary, matches } = q.data;
   const list = matches.filter((m) => m.kind === kind);
   const s = summary[kind];
@@ -49,7 +50,7 @@ export function RivalryPage() {
       <RivalryShare data={q.data} kind={kind} />
       <Panel title="Every meeting" action={<Tabs label="Rating kind" value={kind} onChange={setKind} options={[{ value: "singles", label: `Singles (${matches.filter((m) => m.kind === "singles").length})` }, { value: "doubles", label: `Doubles (${matches.filter((m) => m.kind === "doubles").length})` }]} />}>
         {!list.length ? (
-          <div data-testid="h2h-empty"><Empty title="They have not met yet">{user?.uid === a ? "Send a challenge from My matches to start this rivalry." : "No finalized results between these players."}</Empty></div>
+          <div data-testid="h2h-empty"><Empty title="They have not met yet" icon={<Swords size={32} />}>{user?.uid === a ? "Send a challenge from My matches to start this rivalry." : "No finalized results between these players."}</Empty></div>
         ) : (
           <ul className="pr-h2h-list" data-testid="h2h-matches">
             {list.map((m) => (

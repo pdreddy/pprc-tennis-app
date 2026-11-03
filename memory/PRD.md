@@ -21,6 +21,8 @@
 
 - 2026-06 round 5: admin email preview (weekly recap as any member, monthly leaderboard month-so-far) + "Email me a test" (admin's own address, once a minute); challenges from the fair match finder (in-app alert + email to opponent, accept/decline/cancel, accepted challenge -> score report -> normal confirm/rating flow, voided result can be re-reported, one open challenge per pair enforced by unique index); head-to-head rivalry pages `/players/:a/vs/:b` with per-match rating deltas; monthly club leaderboard email (opt-in, 1st of month 8am Central, climbers/milestones/top 5, private players excluded). Migration 011. Files: challenges.py, digest.py, recaps.py, challenges.tsx, rivalry.tsx, email-preview.tsx. 120 dev-header tests + 33 hosted-preview tests pass; testing agent iteration 4 verified UI, its findings fixed.
 
+- 2026-06 round 6: challenge reminders (one nudge in-app + email after 2 quiet days) and auto-expiry after a club-configurable 3–30 days (Admin > Members & roles > Challenge settings; scheduler every 15 min + admin trigger); back-and-forth "Suggest another time"; rivalry share card (PNG/share sheet) + public head-to-head link (both players public, others anonymised); club admins auto opted in to weekly+monthly emails (ADMIN_EMAIL on join; existing admins updated); provider 429 mapped to friendly 429. Migration 012. One delivery-check email accepted by the provider for the owner address. 124 dev tests + iteration 5 preview suite (11/11) pass.
+
 ## Backlog
 - P1: background worker for recalculation; admin UI to promote members; Playwright flows for Emergent sign-in (ticket based).
 - P2: ladder expiry background job; groups+knockout same-group R1 avoidance; split admin.tsx/player.tsx; Stripe live payments.
