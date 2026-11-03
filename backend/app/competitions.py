@@ -515,7 +515,10 @@ async def generate_draw(division_id: UUID, payload: DrawGenerate, session: Async
     def when(offset: int) -> datetime | None:
         return payload.starts_at + timedelta(days=7 * offset) if payload.starts_at else None
 
-    matches = await DRAW_BUILDERS.get(division.format, draw_double_elimination)(session, division, entries, when)
+    builder = DRAW_BUILDERS.get(division.format)
+    if builder is None:
+        raise HTTPException(status_code=422, detail=f"Unsupported division format: {division.format}")
+    matches = await builder(session, division, entries, when)
     await audit(session, division.club_id, actor.user_id, "draw.generated", "division", str(division.id), division.format)
     await session.commit()
     return [match for match in matches if match.status != "dead"]
