@@ -186,3 +186,56 @@ def test_photo_upload_validates_type_and_profile():
     stranger = CLIENT.post(f"{BASE_URL}/v1/clubs/{club_id}/players/me/photo", headers={"X-PPRC-User": "nobody"}, files={"file": ("x.jpg", b"\xff\xd8", "image/jpeg")})
     assert stranger.status_code == 403
     assert CLIENT.get(f"{BASE_URL}/v1/player-photos/pprc/player-photos/unknown.jpg").status_code == 404
+
+
+def test_admin_assigns_roles_with_guards():
+    owner, club_id, (a, b, *_rest) = club_with_players()
+    request_error("GET", f"/v1/clubs/{club_id}/members", a)  # players cannot manage roles
+    assert {m["user_id"] for m in request("GET", f"/v1/clubs/{club_id}/members", owner)} >= {a, b}
+    assert request("PATCH", f"/v1/clubs/{club_id}/members/{a}", owner, json={"role": "admin"})["role"] == "admin"
+    assert request("PATCH", f"/v1/clubs/{club_id}/members/{b}", a, json={"role": "organizer"})["role"] == "organizer"  # new admin can assign
+    request_error("PATCH", f"/v1/clubs/{club_id}/members/{b}", b, json={"role": "admin"})  # organizers cannot
+    assert request_error("PATCH", f"/v1/clubs/{club_id}/members/{owner}", a, json={"role": "player"}).status_code == 409  # owner protected
+    assert request_error("PATCH", f"/v1/clubs/{club_id}/members/{a}", a, json={"role": "player"}).status_code == 409  # not yourself
+    assert request_error("PATCH", f"/v1/clubs/{club_id}/members/{b}", owner, json={"role": "owner"}).status_code == 422
+    assert any(n["kind"] == "role" for n in request("GET", "/v1/notifications", b))
+
+
+def test_fair_match_finder_orders_by_closeness_and_respects_privacy():
+    _, club_id, (a, b, c, d) = club_with_players()
+    for user, level in ((b, 6.2), (c, 7.5), (d, 5.9)):
+        request("PUT", f"/v1/clubs/{club_id}/players/me", user, json={"display_name": f"P {user[-1]}", "starting_singles": level})
+    request("PUT", f"/v1/clubs/{club_id}/players/me", d, json={"display_name": "P d", "visibility": "private"})
+    rows = request("GET", f"/v1/clubs/{club_id}/players/me/opponents?spread=0.5", a)
+    assert [r["user_id"] for r in rows] == [b]  # c is too far, d is private
+    assert rows[0]["gap"] == 0.2 and rows[0]["head_to_head"] == {"wins": 0, "losses": 0}
+
+
+def test_milestone_creates_one_in_app_notification():
+    _, club_id, players = club_with_players(count=6)
+    star = players[0]
+    for opponent in players[1:6]:
+        result = report(club_id, star, [opponent], score="6-1 6-1")
+        request("POST", f"/v1/match-results/{result['id']}/confirm", opponent)
+    alerts = [n for n in request("GET", "/v1/notifications", star) if n["kind"] == "milestone"]
+    titles = [n["title"] for n in alerts]
+    assert "New milestone: PPRC singles rating established" in titles
+    assert len(titles) == len(set(titles))  # never duplicated across recalculations
+
+
+def test_recap_send_requires_admin_and_skips_unverified_emails():
+    owner, club_id, (a, *_rest) = club_with_players(count=1)
+    request("PUT", f"/v1/clubs/{club_id}/players/me", a, json={"display_name": "Player a", "weekly_recap": True})
+    request_error("POST", f"/v1/clubs/{club_id}/recaps/send", a)
+    result = request("POST", f"/v1/clubs/{club_id}/recaps/send", owner)
+    assert result["sent"] == 0  # dev-header users have no verified email
+    assert request("GET", f"/v1/clubs/{club_id}/players/me", a)["preferences"]["weekly_recap"] is True
+
+
+def test_recap_template_passes_email_guardrails():
+    from app.emailer import _assert_safe_email
+    from app.recaps import recap_html
+
+    html = recap_html("<b>Al</b>", {"kinds": [], "opponents": [{"display_name": "<script>", "rating": 6.0, "gap": 0.1}]}, "https://pprc.example.com")
+    _assert_safe_email("Your PPRC weekly rating recap", html)
+    assert "<script>" not in html and "&lt;b&gt;" in html

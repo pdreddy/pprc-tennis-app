@@ -1,14 +1,16 @@
 """PPRC Rating persistence: deterministic club-wide replay and competition result sync."""
 import asyncio
 from collections import defaultdict
+from itertools import groupby
 from datetime import datetime, timezone
 from uuid import UUID
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .models import PlayerProfile, PlayerRating, RatedMatch, RatingHistory
-from .pprc_rating import DEFAULT_START, FORMULA_VERSION, RatedInput, clamp, is_rateable, parse_score, replay
+from .common import notify
+from .models import PlayerPreference, PlayerProfile, PlayerRating, RatedMatch, RatingHistory
+from .pprc_rating import DEFAULT_START, FORMULA_VERSION, PROVISIONAL_MATCHES, RatedInput, clamp, is_rateable, parse_score, replay
 
 _locks: dict[UUID, asyncio.Lock] = defaultdict(asyncio.Lock)
 
@@ -55,6 +57,7 @@ async def recalculate_club(session: AsyncSession, club_id: UUID) -> int:
         for change in result.changes:
             session.add(RatingHistory(club_id=club_id, user_id=change.user_id, kind=change.kind, rated_match_id=UUID(change.match_id), rating_before=change.before, rating_after=change.after, played_at=change.played_at, formula_version=FORMULA_VERSION))
         await session.flush()
+        await notify_new_milestones(session, club_id, [p.user_id for p in profiles])
         return len(inputs)
 
 
@@ -121,3 +124,56 @@ async def sync_competition_result(session: AsyncSession, club_id: UUID, division
         setattr(record, key, value)
     await session.flush()
     await recalculate_club(session, club_id)
+
+
+RANK_THRESHOLDS = (10, 5, 3, 1)
+
+
+async def milestones_for(session: AsyncSession, club_id: UUID, user_id: str) -> list[dict]:
+    """Shareable moments, replayed from rating history: leaving Provisional and reaching the club top 10/5/3/1."""
+    history = list((await session.scalars(select(RatingHistory).where(RatingHistory.club_id == club_id).order_by(RatingHistory.played_at, RatingHistory.rated_match_id))).all())
+    found: list[dict] = []
+    for kind in ("singles", "doubles"):
+        ratings: dict[str, float] = {}
+        played = 0
+        best_rank: int | None = None
+        for _, match_rows in groupby((row for row in history if row.kind == kind), key=lambda row: row.rated_match_id):
+            match_rows = list(match_rows)
+            for row in match_rows:
+                ratings[row.user_id] = float(row.rating_after)
+            mine = next((row for row in match_rows if row.user_id == user_id), None)
+            if mine is None:
+                continue
+            played += 1
+            rating = round(float(mine.rating_after), 2)
+            rank = 1 + sum(1 for other, value in ratings.items() if other != user_id and value > ratings[user_id])
+            base = {"kind": kind, "date": mine.played_at, "rating": rating, "rank": rank, "field": len(ratings)}
+            if played == PROVISIONAL_MATCHES:
+                found.append({**base, "id": f"{kind}-established", "type": "established", "title": f"PPRC {kind} rating established", "detail": f"{rating:.2f} after {played} verified matches"})
+            # Strictest threshold first, so jumping straight to No. 1 is celebrated as No. 1.
+            for threshold in sorted(RANK_THRESHOLDS):
+                if rank <= threshold and len(ratings) > threshold and (best_rank is None or best_rank > threshold):
+                    label = "No. 1 in the club" if threshold == 1 else f"Club top {threshold}"
+                    found.append({**base, "id": f"{kind}-top{threshold}", "type": "rank", "title": f"{label} · {kind}", "detail": f"Ranked #{rank} of {len(ratings)} at {rating:.2f}"})
+                    break
+            best_rank = rank if best_rank is None else min(best_rank, rank)
+    return sorted(found, key=lambda m: m["date"], reverse=True)
+
+
+async def notify_new_milestones(session: AsyncSession, club_id: UUID, user_ids: list[str]) -> None:
+    """In-app alert the first time each milestone is reached (a later correction never re-sends it)."""
+    for user_id in user_ids:
+        milestones = await milestones_for(session, club_id, user_id)
+        if not milestones:
+            continue
+        prefs = await session.scalar(select(PlayerPreference).where(PlayerPreference.club_id == club_id, PlayerPreference.user_id == user_id))
+        if prefs is None:
+            prefs = PlayerPreference(club_id=club_id, user_id=user_id, milestones_notified=[])
+            session.add(prefs)
+        seen = set(prefs.milestones_notified or [])
+        fresh = [m for m in milestones if m["id"] not in seen]
+        for m in fresh:
+            await notify(session, club_id, user_id, "milestone", f"New milestone: {m['title']}", f"{m['detail']}. Open My rating to share your card.", {"milestoneId": m["id"], "link": "/me/rating"})
+        if fresh:
+            prefs.milestones_notified = sorted(seen | {m["id"] for m in fresh})
+    await session.flush()

@@ -1,6 +1,5 @@
 """Player profiles, PPRC Rating, rankings and player-reported results (club-scoped)."""
 import os
-from itertools import groupby
 from datetime import datetime, timedelta, timezone
 from typing import Literal
 from uuid import UUID, uuid4
@@ -14,9 +13,9 @@ from starlette.concurrency import run_in_threadpool
 from .auth import Actor, current_actor
 from .common import STAFF_ROLES, audit, notify
 from .database import get_session
-from .models import Club, DivisionEntry, Membership, MembershipRole, PlayerProfile, PlayerRating, RatedMatch, RatingHistory
+from .models import Club, DivisionEntry, Membership, MembershipRole, PlayerPreference, PlayerProfile, PlayerRating, RatedMatch, RatingHistory
 from .pprc_rating import FORMULA_VERSION, MAX_RATING, MIN_RATING, OUTCOMES, FORMAT_WEIGHTS, PROVISIONAL_MATCHES
-from .rating_service import recalculate_club, score_fields
+from .rating_service import milestones_for, recalculate_club, score_fields
 from .storage import get_object, put_object
 
 router = APIRouter()
@@ -36,6 +35,7 @@ class ProfileInput(BaseModel):
     visibility: Visibility = "club"
     starting_singles: float | None = Field(default=None, ge=MIN_RATING, le=MAX_RATING)
     starting_doubles: float | None = Field(default=None, ge=MIN_RATING, le=MAX_RATING)
+    weekly_recap: bool | None = None
 
 
 class ResultInput(BaseModel):
@@ -166,7 +166,22 @@ async def rating_formula() -> dict:
 @router.get("/v1/clubs/{club_id}/players/me")
 async def my_player(club_id: UUID, session: AsyncSession = Depends(get_session), actor: Actor = Depends(current_actor)) -> dict:
     await require_member(session, club_id, actor.user_id)
-    return await player_detail(session, club_id, actor.user_id, full=True, hidden=await hidden_for(session, club_id, actor.user_id, False))
+    prefs = await my_preferences(session, club_id, actor)
+    await session.commit()
+    detail = await player_detail(session, club_id, actor.user_id, full=True, hidden=await hidden_for(session, club_id, actor.user_id, False))
+    return {**detail, "preferences": {"weekly_recap": prefs.weekly_recap, "email": prefs.email}}
+
+
+async def my_preferences(session: AsyncSession, club_id: UUID, actor: Actor) -> PlayerPreference:
+    """Load (or create) the caller's preferences and remember their verified sign-in email for recaps."""
+    prefs = await session.scalar(select(PlayerPreference).where(PlayerPreference.club_id == club_id, PlayerPreference.user_id == actor.user_id))
+    if prefs is None:
+        prefs = PlayerPreference(club_id=club_id, user_id=actor.user_id, milestones_notified=[])
+        session.add(prefs)
+    if actor.email_verified and actor.email:
+        prefs.email = actor.email
+    await session.flush()
+    return prefs
 
 
 @router.put("/v1/clubs/{club_id}/players/me")
@@ -175,7 +190,7 @@ async def save_my_player(club_id: UUID, payload: ProfileInput, session: AsyncSes
     member = await require_member(session, club_id, actor.user_id)
     profile = await session.scalar(select(PlayerProfile).where(PlayerProfile.club_id == club_id, PlayerProfile.user_id == actor.user_id))
     rated = await session.scalar(select(PlayerRating.id).where(PlayerRating.club_id == club_id, PlayerRating.user_id == actor.user_id, PlayerRating.verified_matches > 0).limit(1))
-    values = payload.model_dump(exclude={"starting_singles", "starting_doubles"})
+    values = payload.model_dump(exclude={"starting_singles", "starting_doubles", "weekly_recap"})
     if "image_url" not in payload.model_fields_set:
         values.pop("image_url")  # omitted means keep the current photo
     if profile is None:
@@ -191,11 +206,15 @@ async def save_my_player(club_id: UUID, payload: ProfileInput, session: AsyncSes
                     raise HTTPException(status_code=409, detail="Starting ratings are locked after your first verified match")
                 setattr(profile, key, value)
     member.display_name = payload.display_name
+    prefs = await my_preferences(session, club_id, actor)
+    if payload.weekly_recap is not None:
+        prefs.weekly_recap = payload.weekly_recap
     await session.flush()
     await recalculate_club(session, club_id)
     await audit(session, club_id, actor.user_id, "profile.saved", "player", actor.user_id)
     await session.commit()
-    return await player_detail(session, club_id, actor.user_id, full=True)
+    detail = await player_detail(session, club_id, actor.user_id, full=True)
+    return {**detail, "preferences": {"weekly_recap": prefs.weekly_recap, "email": prefs.email}}
 
 
 @router.get("/v1/clubs/{club_id}/players")
@@ -261,40 +280,6 @@ async def get_public_player(slug: str, user_id: str, session: AsyncSession = Dep
     return detail
 
 
-RANK_THRESHOLDS = (10, 5, 3, 1)
-
-
-async def milestones_for(session: AsyncSession, club_id: UUID, user_id: str) -> list[dict]:
-    """Shareable moments, replayed from rating history: leaving Provisional and reaching the club top 10/5/3/1."""
-    history = list((await session.scalars(select(RatingHistory).where(RatingHistory.club_id == club_id).order_by(RatingHistory.played_at, RatingHistory.rated_match_id))).all())
-    found: list[dict] = []
-    for kind in ("singles", "doubles"):
-        ratings: dict[str, float] = {}
-        played = 0
-        best_rank: int | None = None
-        for _, match_rows in groupby((row for row in history if row.kind == kind), key=lambda row: row.rated_match_id):
-            match_rows = list(match_rows)
-            for row in match_rows:
-                ratings[row.user_id] = float(row.rating_after)
-            mine = next((row for row in match_rows if row.user_id == user_id), None)
-            if mine is None:
-                continue
-            played += 1
-            rating = round(float(mine.rating_after), 2)
-            rank = 1 + sum(1 for other, value in ratings.items() if other != user_id and value > ratings[user_id])
-            base = {"kind": kind, "date": mine.played_at, "rating": rating, "rank": rank, "field": len(ratings)}
-            if played == PROVISIONAL_MATCHES:
-                found.append({**base, "id": f"{kind}-established", "type": "established", "title": f"PPRC {kind} rating established", "detail": f"{rating:.2f} after {played} verified matches"})
-            # Strictest threshold first, so jumping straight to No. 1 is celebrated as No. 1.
-            for threshold in sorted(RANK_THRESHOLDS):
-                if rank <= threshold and len(ratings) > threshold and (best_rank is None or best_rank > threshold):
-                    label = "No. 1 in the club" if threshold == 1 else f"Club top {threshold}"
-                    found.append({**base, "id": f"{kind}-top{threshold}", "type": "rank", "title": f"{label} · {kind}", "detail": f"Ranked #{rank} of {len(ratings)} at {rating:.2f}"})
-                    break
-            best_rank = rank if best_rank is None else min(best_rank, rank)
-    return sorted(found, key=lambda m: m["date"], reverse=True)
-
-
 @router.post("/v1/clubs/{club_id}/join")
 async def join_club(club_id: UUID, session: AsyncSession = Depends(get_session), actor: Actor = Depends(current_actor)) -> dict:
     """Self-service club membership. Emails listed in ADMIN_EMAIL (verified only) join as club admin."""
@@ -308,6 +293,7 @@ async def join_club(club_id: UUID, session: AsyncSession = Depends(get_session),
         member = Membership(club_id=club_id, user_id=actor.user_id, display_name=actor.name or actor.email or actor.user_id, role=MembershipRole.admin if admin else MembershipRole.player)
         session.add(member)
         await session.flush()
+        await my_preferences(session, club_id, actor)
         await audit(session, club_id, actor.user_id, "membership.self_joined", "membership", str(member.id), member.role.value)
         await session.commit()
     return {"id": str(member.id), "club_id": str(club_id), "user_id": member.user_id, "role": member.role.value, "display_name": member.display_name}

@@ -160,6 +160,8 @@ function toUiNotification(notification: ApiNotification): Entity {
     title: notification.title,
     body: notification.body,
     eventId: String(notification.data.eventId ?? ""),
+    link: notification.data.link ? String(notification.data.link) : notification.data.eventId ? `/events/${notification.data.eventId}` : "",
+    kind: notification.kind,
     read: Boolean(notification.read_at),
     createdAt: notification.created_at,
   };

@@ -376,3 +376,16 @@ class RatingHistory(Base):
     rating_after: Mapped[float] = mapped_column(Numeric(6, 4))
     played_at: Mapped[datetime] = mapped_column(UTCDateTime(), index=True)
     formula_version: Mapped[str] = mapped_column(String(32))
+
+
+class PlayerPreference(Base):
+    """Per-player notification settings and delivery bookkeeping (kept apart from the public profile)."""
+    __tablename__ = "player_preferences"
+    __table_args__ = (UniqueConstraint("club_id", "user_id", name="uq_player_preference"),)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    club_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("clubs.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[str] = mapped_column(String(128), index=True)
+    email: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    weekly_recap: Mapped[bool] = mapped_column(Boolean, default=False)
+    recap_sent_week: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    milestones_notified: Mapped[list] = mapped_column(JSONB, default=list)

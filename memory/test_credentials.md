@@ -6,11 +6,11 @@ The hosted preview now uses Emergent-managed auth. `+clerk_test` emails always r
 | Account | Email | Notes |
 | --- | --- | --- |
 | Alex Tester | alex+clerk_test@example.com | PPRC player, 5 verified singles wins, has milestones |
-| Blair Tester | blair+clerk_test@example.com | PPRC player, Alex's opponent |
+| Blair Tester | blair+clerk_test@example.com | PPRC club ADMIN in preview DB (promoted for testing), Alex's opponent |
 | Club admin | damu.palavali@gmail.com | ADMIN_EMAIL: joins PPRC as club admin on first verified sign-in (owner's real account) |
 
 Password for the two test users (if password sign-in is ever enabled): Test-pass-12345!
-Automation (bot protection blocks headless sign-up): run `cd /app/backend && /root/.venv/bin/python scripts/clerk_preview_testers.py > /app/data/testers.json`; it prints a one-time sign-in ticket for Alex. Open `<preview>/sign-in?__clerk_ticket=<ticket>` (or run `Clerk.client.signIn.create({strategy:'ticket', ticket})` then `Clerk.setActive`).
+Automation (bot protection blocks headless sign-up): run `cd /app/backend && /root/.venv/bin/python scripts/clerk_preview_testers.py > /app/data/testers.json`; it prints one-time sign-in tickets for Alex (["alex"]["ticket"]) and Blair (["blair"]["ticket"]). Open `<preview>/sign-in?__clerk_ticket=<ticket>` (or run `Clerk.client.signIn.create({strategy:'ticket', ticket})` then `Clerk.setActive`).
 API calls: Clerk session token as `Authorization: Bearer <jwt>` (the script shows how to mint one with the dev secret key).
 
 ## Seeded demo data

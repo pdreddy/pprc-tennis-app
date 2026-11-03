@@ -1,3 +1,4 @@
+import asyncio
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
@@ -18,6 +19,8 @@ from .common import audit, notify, require_role
 from .triace_rules import TRIACE_RULE_KEYS, RuleError, TriaceRules, validate_encounter
 from .competitions import router as competitions_router, sync_entries_for_registration
 from .ratings import router as ratings_router
+from .members import router as members_router
+from .recaps import router as recaps_router
 from .rating_service import sync_triace_fixture
 from .models import (
     AuditLog,
@@ -287,7 +290,15 @@ async def lifespan(_: FastAPI):
     if settings.pprc_bootstrap_schema:
         async with engine.begin() as connection:
             await connection.run_sync(Base.metadata.create_all)
+    stop, scheduler = asyncio.Event(), None
+    if os.environ.get("PPRC_WEEKLY_RECAP") == "true":
+        from .recaps import weekly_scheduler
+
+        scheduler = asyncio.create_task(weekly_scheduler(stop))
     yield
+    stop.set()
+    if scheduler:
+        await scheduler
     await engine.dispose()
 
 
@@ -298,6 +309,8 @@ app.add_middleware(RequestLimitMiddleware, writes_per_minute=get_settings().pprc
 
 app.include_router(competitions_router)
 app.include_router(ratings_router)
+app.include_router(members_router)
+app.include_router(recaps_router)
 
 
 @app.get("/health")

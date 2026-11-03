@@ -63,3 +63,26 @@
   .pr-card .pr-rating strong { font-size: 32px; }
 }
 .pr-hero-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; }
+.pr-avatar.sm { width: 40px; height: 40px; border-radius: 12px; font-size: 14px; }
+.pr-fair-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 10px; }
+.pr-fair-head .hint { margin: 0; }
+.pr-fair { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.pr-fair li { display: grid; grid-template-columns: auto 1fr auto auto; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 14px; background: #fff; transition: border-color 0.2s; }
+.pr-fair li:hover { border-color: #9fb5c8; }
+.pr-fair-name { display: flex; flex-direction: column; min-width: 0; }
+.pr-fair-name strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+.pr-fair-name small, .pr-fair-rating small { color: var(--muted); font-size: 12px; }
+.pr-fair-rating { display: flex; flex-direction: column; align-items: flex-end; font-variant-numeric: tabular-nums; }
+.pr-fair-rating strong { font: 700 20px/1 "Space Grotesk", sans-serif; color: var(--navy); }
+.pr-fair-rating .up { color: #0b6b4b; } .pr-fair-rating .down { color: #a32727; }
+.pr-new-milestone { display: flex; align-items: center; gap: 12px; padding: 14px 18px; margin-bottom: 14px; border-radius: 16px; background: #d7f25c; color: #0b1f30; animation: lp-rise 0.5s both; }
+.pr-new-milestone:hover { color: #0b1f30; }
+.pr-recap-now { display: inline-flex; flex-direction: column; gap: 4px; }
+.pr-recap-now small { color: #d4e0ea; font-size: 12px; }
+.pr-role { display: inline-flex; flex-direction: column; gap: 4px; }
+.pr-role select, .pr-member-search { padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+.pr-member-search { width: 100%; max-width: 320px; margin-bottom: 12px; }
+@media (max-width: 600px) {
+  .pr-fair li { grid-template-columns: auto 1fr auto; }
+  .pr-fair li .button { grid-column: 1 / -1; justify-self: start; }
+}

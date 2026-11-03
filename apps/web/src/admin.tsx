@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { ref, uploadBytes, getBlob } from "firebase/storage";
 import { storage } from "./firebase";
+import { MembersRoles } from "./members-admin";
 import { CompetitionBoard } from "./competition";
 import { OptionCards, FieldGrid, Callout, StatusBadge } from "./components";
 import { TriaceConfigSummary, TriaceRulesFields, describeEncounter, readTriaceConfig, triaceRulesFromForm } from "./triace-config";
@@ -88,7 +89,7 @@ export function Admin() {
           ["", "Overview", Activity],
           ["events", "Events", CalendarDays],
           // Courts and the member directory are Firebase-only; API mode uses /players instead.
-          ...(apiEnabled ? [] : [["courts", "Courts & venues", MapPin], ["members", "Members & roles", Users]]),
+          ...(apiEnabled ? [["members", "Members & roles", Users]] : [["courts", "Courts & venues", MapPin], ["members", "Members & roles", Users]]),
           ["audit", "Audit history", Shield],
         ].map(([path, label, Icon]) => {
           const I = Icon as typeof CalendarDays;
@@ -124,7 +125,7 @@ export function Admin() {
         ) : section === "courts" ? (
           <Courts />
         ) : section === "members" ? (
-          <Members />
+          apiEnabled ? <MembersRoles /> : <Members />
         ) : section === "audit" ? (
           <Audits />
         ) : section === "events" ? (

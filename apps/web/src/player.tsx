@@ -989,7 +989,13 @@ export function Notifications() {
             <Panel key={n.id} title={n.title}>
               <p>{n.body}</p>
               <div className="row">
-                <Link to={`/events/${n.eventId}`}>View event</Link>
+                {n.kind === "milestone" ? (
+                  <Link to={String(n.link)} data-testid={`notification-share-${n.id}`}>View and share card</Link>
+                ) : n.link ? (
+                  <Link to={String(n.link)}>{n.eventId ? "View event" : "Open"}</Link>
+                ) : n.eventId ? (
+                  <Link to={`/events/${n.eventId}`}>View event</Link>
+                ) : null}
                 {!n.read && (
                   <Action
                     onClick={async () => {

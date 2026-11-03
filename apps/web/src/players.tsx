@@ -11,7 +11,8 @@ import { useSession, toUiEvent } from "./context";
 import { CompetitionBoard } from "./competition";
 import { Callout, DataTable, FieldGrid, PromptAction, StatGrid, StatusBadge, Tabs } from "./components";
 import { Action, Empty, Field, Form, Panel, text } from "./ui";
-import { Milestones, PhotoUpload } from "./milestones";
+import { Milestones, NewMilestone, PhotoUpload, RecapNow } from "./milestones";
+import { FairMatches } from "./fair-matches";
 import "./players.css";
 
 const kinds = [{ value: "singles", label: "Singles" }, { value: "doubles", label: "Doubles" }] as const;
@@ -99,6 +100,7 @@ function PlayerDetailView({ detail, children, own = false }: { detail: ApiPlayer
           </section>
         ))}
       </div>
+      {own && <NewMilestone milestones={detail.milestones ?? []} />}
       {own && <Milestones milestones={detail.milestones ?? []} name={profile.display_name} />}
       <StatGrid items={[{ label: "Record", value: `${detail.record.wins}-${detail.record.losses}` }, { label: "Matches rated", value: (ratings.singles?.verified_matches ?? 0) + (ratings.doubles?.verified_matches ?? 0) }, { label: "Formula", value: ratings.singles?.formula_version ?? "pprc-rating-1.0" }]} />
       <Panel title="Rating history" action={<Tabs label="Rating kind" value={kind} onChange={setKind} options={kinds} />}>
@@ -253,6 +255,7 @@ export function MyRating() {
               home_club: text(form, "homeClub") || null, image_url: detail.profile.image_url ?? null, preferred_sport: text(form, "sport") || "tennis",
               age_group: text(form, "ageGroup") || null, gender_category: text(form, "gender") || null,
               visibility: text(form, "visibility") as "public" | "club" | "private",
+              weekly_recap: form.get("weeklyRecap") === "on",
               ...(locked ? {} : { starting_singles: Number(text(form, "startSingles")), starting_doubles: Number(text(form, "startDoubles")) }),
             });
             setEditing(false);
@@ -267,6 +270,7 @@ export function MyRating() {
               <Field label="Age group"><select name="ageGroup" defaultValue={detail.profile.age_group ?? ""}><option value="">Prefer not to say</option>{["Junior 14-17", "Adult 18+", "Adult 35+", "Adult 50+"].map((a) => <option key={a}>{a}</option>)}</select></Field>
               <Field label="Category"><select name="gender" defaultValue={detail.profile.gender_category ?? ""}><option value="">Prefer not to say</option>{["Open", "Men", "Women"].map((a) => <option key={a}>{a}</option>)}</select></Field>
               <Field label="Who can see my profile"><select name="visibility" defaultValue={detail.profile.visibility ?? "club"} data-testid="profile-visibility-select"><option value="public">Everyone (public)</option><option value="club">Club members</option><option value="private">Only me and club staff</option></select></Field>
+              <label className="check"><input name="weeklyRecap" type="checkbox" defaultChecked={onboarding || !!detail.preferences?.weekly_recap} data-testid="weekly-recap-checkbox" /> Email me a weekly rating recap (Mondays){detail.preferences?.email ? ` to ${detail.preferences.email}` : ""}</label>
               {!locked && <Field label="Starting singles level" hint="1.00 beginner – 16.50 elite"><input name="startSingles" type="number" step="0.25" min="1" max="16.5" defaultValue={detail.profile.starting_singles ?? 5} required data-testid="start-singles-input" /></Field>}
               {!locked && <Field label="Starting doubles level"><input name="startDoubles" type="number" step="0.25" min="1" max="16.5" defaultValue={detail.profile.starting_doubles ?? 5} required /></Field>}
             </FieldGrid>
@@ -276,6 +280,7 @@ export function MyRating() {
         <PlayerDetailView detail={detail} own>
           <div className="pr-hero-actions">
             <PhotoUpload />
+            {detail.preferences?.email && <RecapNow />}
             <button className="button secondary small" onClick={() => setEditing(true)} data-testid="edit-profile-btn"><UserRound size={15} /> Edit profile</button>
           </div>
         </PlayerDetailView>
@@ -336,7 +341,7 @@ function ResultList({ title, results }: { title: string; results: ApiResult[] })
   );
 }
 
-function ReportForm() {
+function ReportForm({ opponent }: { opponent?: string }) {
   const qc = useQueryClient();
   const [kind, setKind] = useState<RatingKind>("singles");
   const [formKey, setFormKey] = useState(0);
@@ -344,7 +349,7 @@ function ReportForm() {
   const { user } = useSession();
   const options = (players.data?.items ?? []).filter((p) => p.user_id !== user?.uid);
   const select = (name: string, label: string) => (
-    <Field label={label}><select name={name} required data-testid={`report-${name}`}><option value="">Choose a player</option>{options.map((p) => <option key={p.user_id} value={p.user_id}>{p.display_name}</option>)}</select></Field>
+    <Field label={label}><select key={`${name}-${opponent ?? ""}`} name={name} required data-testid={`report-${name}`} defaultValue={name === "opponent" ? opponent ?? "" : ""}><option value="">Choose a player</option>{options.map((p) => <option key={p.user_id} value={p.user_id}>{p.display_name}</option>)}</select></Field>
   );
   return (
     <Panel title="Report a match" action={<Tabs label="Match kind" value={kind} onChange={setKind} options={kinds} />}>
@@ -378,6 +383,7 @@ function ReportForm() {
 
 export function MyMatches() {
   const { member } = useSession();
+  const [opponent, setOpponent] = useState<string>();
   const staff = isStaff(member?.role);
   const mine = useQuery({ queryKey: ["results", "mine"], queryFn: listMyResults, enabled: !!member });
   const queue = useQuery({ queryKey: ["results", "queue"], queryFn: () => listClubResults(), enabled: staff });
@@ -388,7 +394,8 @@ export function MyMatches() {
       <p className="eyebrow">RESULTS</p>
       <h1>My matches</h1>
       {pending.length > 0 && <Callout tone="warn">{pending.length} result{pending.length > 1 ? "s" : ""} waiting for confirmation.</Callout>}
-      <ReportForm />
+      <FairMatches onPick={(id) => { setOpponent(id); document.getElementById("report-match")?.scrollIntoView({ behavior: "smooth" }); }} />
+      <div id="report-match"><ReportForm opponent={opponent} /></div>
       {mine.isLoading ? <p role="status">Loading…</p> : <ResultList title="My results" results={mine.data ?? []} />}
       {staff && <ResultList title="Club results needing attention" results={(queue.data ?? []).filter((r) => r.status === "reported" || r.status === "disputed")} />}
     </div>

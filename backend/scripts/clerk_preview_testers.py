@@ -48,5 +48,6 @@ if me["ratings"]["singles"]["verified_matches"] < 5:
         result = api("POST", f"/v1/clubs/{CLUB}/match-results", ta, {"opponent_ids": [b["id"]], "score_text": score})
         api("POST", f"/v1/match-results/{result['id']}/confirm", tb)
 out["alex"] = {"id": a["id"], "ticket": clerk("/sign_in_tokens", {"user_id": a["id"], "expires_in_seconds": 900})["token"]}
+out["blair"] = {"id": b["id"], "ticket": clerk("/sign_in_tokens", {"user_id": b["id"], "expires_in_seconds": 900})["token"]}
 out["milestones"] = [m["title"] for m in api("GET", f"/v1/clubs/{CLUB}/players/me", ta)["milestones"]]
 print(json.dumps(out))

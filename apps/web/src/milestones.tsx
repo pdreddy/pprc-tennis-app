@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Camera, Download, Share2, Trophy } from "lucide-react";
-import { uploadMyPhoto, type ApiMilestone } from "./api";
+import { Camera, Download, Mail, PartyPopper, Share2, Trophy } from "lucide-react";
+import { sendMyRecap, uploadMyPhoto, type ApiMilestone } from "./api";
 
 /** Resize on the phone before upload: square-cropped 512px JPEG keeps uploads small and fast. */
 async function toSquareJpeg(file: File, size = 512): Promise<Blob> {
@@ -130,9 +130,38 @@ function MilestoneCard({ milestone, name }: { milestone: ApiMilestone; name: str
 export function Milestones({ milestones, name }: { milestones: ApiMilestone[]; name: string }) {
   if (!milestones.length) return null;
   return (
-    <section className="pr-milestones" data-testid="milestones">
+    <section className="pr-milestones" id="milestones" data-testid="milestones">
       <p className="pp-section-title">Milestones</p>
       {milestones.map((m) => <MilestoneCard key={m.id} milestone={m} name={name} />)}
     </section>
+  );
+}
+
+/** Celebrates a milestone reached in the last 7 days at the top of My rating. */
+export function NewMilestone({ milestones }: { milestones: ApiMilestone[] }) {
+  const latest = milestones[0];
+  if (!latest || Date.now() - new Date(latest.date).getTime() > 7 * 86400000) return null;
+  return (
+    <a href="#milestones" className="pr-new-milestone" data-testid="new-milestone-banner">
+      <PartyPopper size={22} /> <span><strong>New milestone!</strong> {latest.title}. Share your card below.</span>
+    </a>
+  );
+}
+
+export function RecapNow() {
+  const [state, setState] = useState({ busy: false, message: "" });
+  return (
+    <span className="pr-recap-now">
+      <button type="button" className="button secondary small" disabled={state.busy} data-testid="email-my-recap-btn" onClick={async () => {
+        setState({ busy: true, message: "" });
+        try {
+          const r = await sendMyRecap();
+          setState({ busy: false, message: `Sent to ${r.sent_to}` });
+        } catch (error) {
+          setState({ busy: false, message: (error as Error).message });
+        }
+      }}><Mail size={15} /> {state.busy ? "Sending…" : "Email me my recap"}</button>
+      {state.message && <small role="status">{state.message}</small>}
+    </span>
   );
 }
