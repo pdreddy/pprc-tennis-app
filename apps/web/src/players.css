@@ -161,3 +161,6 @@
   .pr-rivalries li { grid-template-columns: 24px 1fr auto; }
   .pr-rivalries small { grid-column: 2 / -1; }
 }
+@media (max-width: 600px) {
+  .pr-challenge-head { flex-direction: column-reverse; }
+}

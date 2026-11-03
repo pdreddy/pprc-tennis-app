@@ -1,0 +1,41 @@
+{
+  "summary": "Iteration 6 tested the challenge court field, the Google Calendar link and the Rivalries board, on the API and in the UI on the hosted preview. A new preview pytest suite passed 8/8. Every requested UI flow worked. (1) Alex sent a challenge from the Fair match finder with a time and a court; the row showed challenge-court-<id>. (2) Blair saw the court. The suggest-court field was prefilled with the current court; Blair changed it and sent a new time. Alex saw the new court and accepted. (3) Both players saw challenge-calendar-<id> after acceptance. The href is https://calendar.google.com/calendar/render?action=TEMPLATE with dates=20261108T150000Z/20261108T163000Z (90 min), text 'PPRC singles: <me> vs <opponent>', location=<court> and target=_blank rel=noopener noreferrer. It opened a new tab (Google sign-in that continues to the calendar template). No calendar link appears on pending challenges. (4) /rankings, signed in, Club scope: the Rivalries panel shows Most played / Closest / One-sided tabs that switch the list. Alex vs Blair 19–1 is row 1. Singles/Doubles changes the board. Row links go to /players/<a>/vs/<b>. The panel is hidden when signed out and on All clubs. (5) API: GET /rivalries returned 200 with correct shape and sorting, 401 without auth and 422 for a bad kind or limit>20. When Blair was private, Alex no longer saw the Alex–Blair pair; Blair (admin) still did. (6) Mobile 390px: no horizontal overflow on My matches (court + calendar button) or on the Rivalries panel. (7) Backend: startup is clean and there are no 'ladder expiry failed' or 'ladder deadline email failed' entries in backend.err.log. tests/test_ladder_alerts.py passed locally.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/v1/clubs/{club}/rivalries", "issue": "The 'closest' list includes any pair where the trailing player has at least one win. With current data the only 'closest' rivalry is 19–1, which is not close. Consider a margin or ratio threshold."},
+      {"endpoint": "GET /api/v1/clubs/{club}/rivalries", "issue": "The win tally uses (winner_side == 1) == (a in side_one). A rated match with winner_side None would be counted as a win for b. Skip matches where winner_side is not 1 or 2, as h2h() does."},
+      {"endpoint": "scheduler (recaps.weekly_scheduler)", "issue": "backend.err.log gets one 'weekly recap <club>' INFO line for each of hundreds of test-created clubs on every run. This is log noise; consider logging only clubs that have opted-in members."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Rivalries board error state", "issue": "When the API call fails, the board shows 'No rivalries yet' instead of an error. q.isError is not handled.", "affected_selectors": ["[data-testid=rivalries-empty]"]}
+    ],
+    "design_issues": [
+      {"screen": "My matches challenge row, mobile 390px", "issues": ["The court text wraps to 3 lines in a narrow column next to the status pill. There is no overflow, but it is cramped. Consider moving the status pill above the details, or letting the details span the full width on small screens."]},
+      {"screen": "Challenge time entry/display", "issues": ["The datetime-local input uses the browser's timezone, but the time is always shown in America/Chicago. In a UTC browser, entering 10:30 showed '4:30 AM CST'. This is fine for Texas users but confusing for anyone else. Consider labelling the input timezone."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iteration6_courts_rivalries_preview.py", "/app/test_reports/pytest/iteration6.xml"],
+  "action_items": [
+    "Optional: require a small win margin (e.g. ≤2 or ratio) for the 'Closest' rivalries tab",
+    "Optional: skip matches without winner_side 1/2 in the rivalries tally",
+    "Optional: add an error state to RivalryBoard (q.isError)",
+    "Optional: improve the mobile layout of the challenge-row head when a court is set"
+  ],
+  "critical_code_review_comments": [
+    "rivalries.tsx: the Row 'me' prop is unused.",
+    "The rivalries endpoint does not call ratings_settled(), but public_head_to_head does. If reads are meant to wait for the background rating worker, the rivalries endpoint may briefly show stale tallies after a confirm.",
+    "tests/test_rivalries_courts.py needs a dev-header server (PPRC_ENVIRONMENT=development), so it was not run against the preview here: 3 failed with ConnectError. test_ladder_alerts.py passed."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration6_courts_rivalries_preview.py"],
+  "success_rate": {"backend": "100% (8/8 preview tests + private-hiding check)", "frontend": "100% of requested flows"},
+  "test_credentials": "From /app/memory/test_credentials.md: Alex (player) and Blair (club admin). Tickets were minted with tests/_mint_tickets.py.",
+  "seed_data_creation": "Challenges created during testing: Alex->Demo Player 7 (UI) and Alex->Blair (API, then driven in the UI), plus TEST_ challenges from pytest. All are cancelled; neither user has an open challenge. Blair was briefly set to private and is public again (Alex is public too).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Blair has a 1.53 rating gap from Alex, outside the UI's max ±1.0 range, so create Alex->Blair challenges via the API and use Demo Player 7 to test the Fair-match send UI. The Clerk dev instance rate-limits browser sign-ins (429/503 on /v1/dev_browser) after several ticket sign-ins in a few minutes; wait about 4-5 minutes and retry with a fresh ticket. The suggest form submit button is 'Send new time'; the challenge form submit is 'Send challenge to <name>'.",
+  "rca of the issue": "No functional bug was found. The transient sign-in failures came from the Clerk development instance returning 429/503 on /v1/dev_browser, which is third-party rate limiting, not an app defect."
+}

@@ -233,9 +233,11 @@ async def weekly_scheduler(stop: asyncio.Event) -> None:
                 async with SessionLocal() as session:
                     for club_id in (await session.scalars(select(Club.id))).all():
                         if now.weekday() == 0:
-                            logger.info("weekly recap %s: %s", club_id, await send_club_recaps(session, club_id))
+                            if (done := await send_club_recaps(session, club_id))["sent"] or done["failed"]:
+                                logger.info("weekly recap %s: %s", club_id, done)
                         if now.day == 1:
-                            logger.info("monthly digest %s: %s", club_id, await send_club_digests(session, club_id))
+                            if (done := await send_club_digests(session, club_id))["sent"] or done["failed"]:
+                                logger.info("monthly digest %s: %s", club_id, done)
             except Exception:
                 logger.exception("scheduled email run failed")
         try:

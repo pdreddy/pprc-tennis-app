@@ -58,6 +58,7 @@ class SettingsInput(BaseModel):
 
 
 REMIND_AFTER = timedelta(days=2)
+CLOSE_MARGIN = 2  # "closest" rivalries are within this many wins
 
 
 class ChallengeResult(BaseModel):
@@ -318,6 +319,8 @@ async def rivalries(club_id: UUID, kind: Literal["singles", "doubles"] = "single
     last: dict[tuple[str, str], datetime] = {}
     rows = (await session.scalars(select(RatedMatch).where(RatedMatch.club_id == club_id, RatedMatch.status == "finalized", RatedMatch.rated.is_(True), RatedMatch.kind == kind))).all()
     for m in rows:
+        if m.winner_side not in (1, 2):
+            continue
         for one in m.side_one:
             for two in m.side_two:
                 if one in hidden or two in hidden or one not in names or two not in names:
@@ -336,7 +339,7 @@ async def rivalries(club_id: UUID, kind: Literal["singles", "doubles"] = "single
     return {
         "kind": kind,
         "most_played": sorted(pairs, key=lambda p: (-p["meetings"], recent(p)))[:limit],
-        "closest": sorted([p for p in pairs if p["b_wins"] > 0], key=lambda p: (p["a_wins"] - p["b_wins"], -p["meetings"], recent(p)))[:limit],
+        "closest": sorted([p for p in pairs if p["b_wins"] > 0 and p["a_wins"] - p["b_wins"] <= CLOSE_MARGIN], key=lambda p: (p["a_wins"] - p["b_wins"], -p["meetings"], recent(p)))[:limit],
         "one_sided": sorted([p for p in pairs if p["b_wins"] == 0], key=lambda p: (-p["meetings"], recent(p)))[:limit],
     }
 

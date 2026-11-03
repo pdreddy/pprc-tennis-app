@@ -25,5 +25,7 @@
 
 - 2026-06 round 7: PPRC Rating replay moved to a per-club background worker after commit (results return immediately; every club read waits for a pending replay so it never shows half-updated ratings); ladder challenge deadlines applied by the 15-minute scheduler; groups+knockout draw swaps lower seeds so no first-round match pairs players from the same group; challenge expiry mode per club (default counts from sending; admins can switch to restart on each new suggested time, migration 013); Playwright real sign-in suite tests/auth.spec.ts + `./pprc.sh test-auth-ui` (5/5 on hosted preview). 126 dev tests + 58 hosted-preview tests pass.
 
+- 2026-06 round 8: ladder deadline warning a day ahead (in-app + email to both sides, once, scheduled matches only; ladder_alerts.py); Google Calendar link on accepted challenges with a time (90 min, court as location); free-text court on challenges and suggested times; Rivalries board on Rankings (club scope: most played / closest within 2 wins / one-sided, 2+ rated meetings, private players hidden). Challenge times now shown in the viewer's timezone; scheduler logs only clubs with sends. Migration 014. 130 dev tests + iteration 6 preview suite pass.
+
 ## Backlog
 - P2: split admin.tsx/player.tsx; Stripe live payments (on hold by user choice).

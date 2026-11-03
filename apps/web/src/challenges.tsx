@@ -82,6 +82,8 @@ function SuggestTime({ id, court }: { id: string; court?: string | null }) {
   );
 }
 
+const localZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
 const statusText: Record<ApiChallenge["status"], string> = { expired: "Expired", pending: "Waiting for reply", accepted: "Accepted · play and report", declined: "Declined", cancelled: "Cancelled", completed: "Score reported" };
 const resultText: Record<string, string> = { finalized: "Rated", disputed: "Score disputed", cancelled: "Result voided" };
 const label = (c: ApiChallenge) => (c.status === "completed" && c.result_status && resultText[c.result_status]) || (c.awaiting_you ? "Your turn" : statusText[c.status]);
@@ -95,9 +97,9 @@ function ChallengeRow({ c, highlight, me, myName }: { c: ApiChallenge; highlight
         <span>
           <small>{c.direction === "sent" ? "You challenged" : "Challenged by"}</small>
           <Link to={`/players/${c.opponent.user_id}`}><strong>{c.opponent.display_name}</strong></Link>
-          {c.proposed_at && <small data-testid={`challenge-time-${c.id}`}>Suggested {date(c.proposed_at, "America/Chicago", true)}</small>}
+          {c.proposed_at && <small data-testid={`challenge-time-${c.id}`}>Suggested {date(c.proposed_at, localZone, true)}</small>}
           {c.court && <small className="pr-challenge-court" data-testid={`challenge-court-${c.id}`}><MapPin size={12} /> {c.court}</small>}
-          {c.expires_at && <small>Expires {date(c.expires_at, "America/Chicago", true)} if unanswered</small>}
+          {c.expires_at && <small>Expires {date(c.expires_at, localZone, true)} if unanswered</small>}
         </span>
         <span className={`pr-challenge-status ${c.status}`} data-testid={`challenge-status-${c.id}`}>{label(c)}</span>
       </div>
