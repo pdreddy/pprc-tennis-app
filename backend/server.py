@@ -10,6 +10,11 @@ from fastapi import FastAPI  # noqa: E402
 
 from app.main import app as pprc_api, lifespan as pprc_lifespan  # noqa: E402
 
+try:  # launched as `backend.server`
+    from backend.clerk_auth import clerk_router  # noqa: E402
+except ModuleNotFoundError:  # launched from inside backend/ as `server`
+    from clerk_auth import clerk_router  # noqa: E402
+
 
 @asynccontextmanager
 async def lifespan(root: FastAPI):
@@ -23,4 +28,5 @@ async def lifespan(root: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None)
+app.include_router(clerk_router)  # /api/clerk/config and /api/__clerk/* (must precede the /api mount)
 app.mount("/api", pprc_api)

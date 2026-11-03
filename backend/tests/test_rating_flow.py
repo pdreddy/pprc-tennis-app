@@ -1,7 +1,7 @@
 """Black-box API checks for PPRC Rating: reporting, confirmation, correction, privacy, rankings, tenancy."""
 import uuid
 
-from test_triace_flow import request, request_error
+from test_triace_flow import BASE_URL, CLIENT, request, request_error
 
 
 def club_with_players(count=4, start=6.0, visibility="club"):
@@ -154,3 +154,35 @@ def test_private_players_are_anonymised_in_match_lists():
     assert seen_by_other["side_two"][0]["display_name"] == "Private player"
     seen_by_staff = request("GET", f"/v1/clubs/{club_id}/players/{a}", owner)["recent_matches"][0]
     assert seen_by_staff["side_two"][0]["user_id"] == b
+
+
+def test_self_join_creates_player_membership():
+    owner, club_id, _players = club_with_players(count=1)
+    newcomer = f"new-{uuid.uuid4().hex[:6]}"
+    request_error("GET", f"/v1/clubs/{club_id}/rankings", newcomer)
+    joined = request("POST", f"/v1/clubs/{club_id}/join", newcomer)
+    assert joined["role"] == "player"
+    assert request("POST", f"/v1/clubs/{club_id}/join", newcomer)["id"] == joined["id"]  # idempotent
+    request("GET", f"/v1/clubs/{club_id}/rankings", newcomer)
+
+
+def test_established_and_rank_milestones():
+    _, club_id, players = club_with_players(count=7)
+    star, others = players[0], players[1:]
+    for opponent in others[:5]:
+        result = report(club_id, star, [opponent], score="6-0 6-0")
+        request("POST", f"/v1/match-results/{result['id']}/confirm", opponent)
+    milestones = request("GET", f"/v1/clubs/{club_id}/players/me", star)["milestones"]
+    types = {m["id"] for m in milestones}
+    assert "singles-established" in types and "singles-top1" in types
+    public = request("GET", f"/v1/clubs/{club_id}/players/{star}", others[0])
+    assert "milestones" in public  # visible to members; sharing is the player's choice in the UI
+
+
+def test_photo_upload_validates_type_and_profile():
+    _, club_id, (a, *_rest) = club_with_players(count=1)
+    bad = CLIENT.post(f"{BASE_URL}/v1/clubs/{club_id}/players/me/photo", headers={"X-PPRC-User": a}, files={"file": ("x.txt", b"hello", "text/plain")})
+    assert bad.status_code == 415
+    stranger = CLIENT.post(f"{BASE_URL}/v1/clubs/{club_id}/players/me/photo", headers={"X-PPRC-User": "nobody"}, files={"file": ("x.jpg", b"\xff\xd8", "image/jpeg")})
+    assert stranger.status_code == 403
+    assert CLIENT.get(f"{BASE_URL}/v1/player-photos/pprc/player-photos/unknown.jpg").status_code == 404

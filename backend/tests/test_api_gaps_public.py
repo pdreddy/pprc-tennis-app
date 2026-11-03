@@ -4,6 +4,9 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
+
+if os.environ.get("PPRC_PREVIEW_DEV_HEADER") != "1":
+    pytest.skip("hosted-preview regression; the preview now uses real sign-in (set PPRC_PREVIEW_DEV_HEADER=1 only against a dev-header preview)", allow_module_level=True)
 import requests
 
 

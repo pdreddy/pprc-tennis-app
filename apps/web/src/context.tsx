@@ -27,6 +27,7 @@ import {
   markApiNotificationRead,
   registerForApiEvent,
   getMyApiMembership,
+  joinApiClub,
   updateApiEvent,
   withdrawApiRegistration,
   type ApiDivision,
@@ -36,6 +37,7 @@ import {
 } from "./api";
 import { canManage, type Entity, type Event } from "@pprc/shared";
 import { demoAuth, onDemoAuth } from "./demo-auth";
+import { emergentAuth, onExternalAuth } from "./external-auth";
 const Session = createContext<{
   user: User | null;
   profile: Entity | undefined;
@@ -52,7 +54,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       setLoading(false);
       qc.clear();
     };
-    return demoAuth ? onDemoAuth(handle) : onAuthStateChanged(auth, handle);
+    return demoAuth ? onDemoAuth(handle) : emergentAuth ? onExternalAuth(handle) : onAuthStateChanged(auth, handle);
   }, [qc]);
   const profile = useQuery<Entity | undefined>({
       queryKey: ["profile", user?.uid],
@@ -66,10 +68,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       queryFn: async (): Promise<Entity | undefined> => {
         if (!apiEnabled) return getOne("memberships", user!.uid);
         // A signed-in user who has not joined the club yet is a plain visitor, not an error.
-        const membership = await getMyApiMembership().catch((error) => {
+        let membership = await getMyApiMembership().catch((error) => {
           if (error instanceof ApiError && error.status === 404) return undefined;
           throw error;
         });
+        // Emergent sign-in: a new account joins PPRC as a player on first visit (ADMIN_EMAIL joins as admin).
+        if (!membership && emergentAuth) membership = await joinApiClub();
         if (!membership) return undefined;
         const role = membership.role === "organizer" ? "eventAdmin" : ["owner", "admin"].includes(membership.role) ? "clubAdmin" : membership.role;
         return { id: membership.id, clubId: membership.club_id, role, displayName: membership.display_name };

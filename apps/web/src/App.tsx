@@ -25,6 +25,8 @@ import {
 import { auth, login, signup, googleLogin, emulator } from "./firebase";
 import { SessionProvider, useSession, useList } from "./context";
 import { demoAccounts, demoAuth, demoSignIn, demoSignOut } from "./demo-auth";
+import { emergentAuth, externalSignOut } from "./external-auth";
+const EmergentSignIn = lazy(() => import("./auth/EmergentSignIn"));
 import { Landing } from "./landing";
 import { EventCard, Field, Form, Empty, Panel, text } from "./ui";
 const EventDetail = lazy(() =>
@@ -155,6 +157,8 @@ function Layout() {
             <Route path="/ladder" element={<LadderPage />} />
             <Route path="/me/rating" element={<RequireUser><MyRating /></RequireUser>} />
             <Route path="/me/matches" element={<RequireUser><MyMatches /></RequireUser>} />
+            {emergentAuth && <Route path="/sign-in/*" element={<EmergentSignIn mode="in" />} />}
+            {emergentAuth && <Route path="/sign-up/*" element={<EmergentSignIn mode="up" />} />}
             <Route path="/events/:eventId" element={<EventDetail />} />
             <Route
               path="/register/:eventId/:divisionId"
@@ -236,7 +240,7 @@ function Layout() {
         <p>Good competition. Great community.</p>
         <span>Prosper Premier Racquet Club · Texas</span>
         {user && (
-          <button className="text-button" data-testid="sign-out-btn" onClick={() => (demoAuth ? demoSignOut() : signOut(auth))}>
+          <button className="text-button" data-testid="sign-out-btn" onClick={() => (demoAuth ? demoSignOut() : emergentAuth ? externalSignOut() : signOut(auth))}>
             Sign out
           </button>
         )}
@@ -297,6 +301,7 @@ function DemoSignIn() {
 }
 function SignIn() {
   if (demoAuth) return <DemoSignIn />;
+  if (emergentAuth) return <Navigate to="/sign-in" replace />;
   return <FirebaseSignIn />;
 }
 function FirebaseSignIn() {

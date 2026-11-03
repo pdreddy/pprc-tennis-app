@@ -5,8 +5,8 @@ import uuid
 
 import pytest
 
-if not os.environ.get("REACT_APP_BACKEND_URL"):
-    pytest.skip("preview-only regression; set REACT_APP_BACKEND_URL", allow_module_level=True)
+if not os.environ.get("REACT_APP_BACKEND_URL") or os.environ.get("PPRC_PREVIEW_DEV_HEADER") != "1":
+    pytest.skip("hosted-preview regression; set REACT_APP_BACKEND_URL and PPRC_PREVIEW_DEV_HEADER=1", allow_module_level=True)
 requests = pytest.importorskip("requests")
 
 BASE = os.environ["REACT_APP_BACKEND_URL"].rstrip("/") + "/api"

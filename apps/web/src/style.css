@@ -2223,3 +2223,11 @@ footer .footer-brand span { color: var(--court); }
 .demo-accounts { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; }
 .demo-accounts .button { flex-direction: column; align-items: flex-start; gap: 0; }
 .demo-accounts small { color: var(--muted); font-size: 12px; font-weight: 500; }
+.auth-page { display: grid; grid-template-columns: 1fr 1fr; min-height: calc(100vh - 140px); }
+.auth-aside { display: flex; flex-direction: column; justify-content: flex-end; gap: 10px; padding: clamp(32px, 6vw, 80px); background: linear-gradient(0deg, #0b1f30f0 10%, #0b1f3040 70%), url("https://images.unsplash.com/photo-1542446608-e9525230faed?crop=entropy&cs=srgb&fm=jpg&q=70&w=1200") center / cover; color: #fff; }
+.auth-aside h1 { color: #fff; font-size: clamp(32px, 4vw, 52px); letter-spacing: -0.04em; }
+.auth-aside .eyebrow { color: #d7f25c; }
+.auth-aside p { color: #d4e0ea; max-width: 420px; }
+.auth-card { display: flex; align-items: center; justify-content: center; padding: 32px 16px; }
+@media (max-width: 1023px) { .auth-page { grid-template-columns: 1fr; } .auth-aside { display: none; } }
+

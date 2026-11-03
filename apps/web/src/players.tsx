@@ -4,13 +4,14 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, Minus, Search, UserRound, Users } from "lucide-react";
 import {
   confirmResult, disputeResult, finalizeResult, getMyPlayer, getPlayer, getPublicApiEvent, getPublicPlayer, listClubRankings, listClubResults,
-  listMyResults, listPlatformRankings, listPlayers, listPublicApiDivisions, listPublicApiEvents, reportResult, saveMyPlayer, voidResult,
+  listMyResults, listPlatformRankings, listPlayers, photoUrl, listPublicApiDivisions, listPublicApiEvents, reportResult, saveMyPlayer, voidResult,
   type ApiPlayerDetail, type ApiRating, type ApiResult, type RatingKind,
 } from "./api";
 import { useSession, toUiEvent } from "./context";
 import { CompetitionBoard } from "./competition";
 import { Callout, DataTable, FieldGrid, PromptAction, StatGrid, StatusBadge, Tabs } from "./components";
 import { Action, Empty, Field, Form, Panel, text } from "./ui";
+import { Milestones, PhotoUpload } from "./milestones";
 import "./players.css";
 
 const kinds = [{ value: "singles", label: "Singles" }, { value: "doubles", label: "Doubles" }] as const;
@@ -42,7 +43,7 @@ function Movement({ value = 0 }: { value?: number }) {
 
 function Avatar({ name, src }: { name: string; src?: string | null }) {
   const initials = name.split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
-  return src ? <img className="pr-avatar" src={src} alt="" /> : <span className="pr-avatar">{initials}</span>;
+  return src ? <img className="pr-avatar" src={photoUrl(src) ?? undefined} alt="" /> : <span className="pr-avatar">{initials}</span>;
 }
 
 function RatingChart({ points }: { points: { played_at: string; rating: number }[] }) {
@@ -70,7 +71,7 @@ function JoinClub() {
   return <Empty icon={<Users size={32} />} title="Join the club first">Club players, rankings and results are visible to PPRC members. Ask a club organizer to add you.</Empty>;
 }
 
-function PlayerDetailView({ detail, children }: { detail: ApiPlayerDetail; children?: ReactNode }) {
+function PlayerDetailView({ detail, children, own = false }: { detail: ApiPlayerDetail; children?: ReactNode; own?: boolean }) {
   const [kind, setKind] = useState<RatingKind>("singles");
   const { profile, ratings } = detail;
   return (
@@ -98,6 +99,7 @@ function PlayerDetailView({ detail, children }: { detail: ApiPlayerDetail; child
           </section>
         ))}
       </div>
+      {own && <Milestones milestones={detail.milestones ?? []} name={profile.display_name} />}
       <StatGrid items={[{ label: "Record", value: `${detail.record.wins}-${detail.record.losses}` }, { label: "Matches rated", value: (ratings.singles?.verified_matches ?? 0) + (ratings.doubles?.verified_matches ?? 0) }, { label: "Formula", value: ratings.singles?.formula_version ?? "pprc-rating-1.0" }]} />
       <Panel title="Rating history" action={<Tabs label="Rating kind" value={kind} onChange={setKind} options={kinds} />}>
         <RatingChart points={detail.history.filter((h) => h.kind === kind)} />
@@ -248,7 +250,7 @@ export function MyRating() {
           <Form label={onboarding ? "Create my profile" : "Save profile"} onSubmit={async (form) => {
             await saveMyPlayer({
               display_name: text(form, "displayName"), city: text(form, "city") || null, state: text(form, "state") || null,
-              home_club: text(form, "homeClub") || null, image_url: text(form, "imageUrl") || null, preferred_sport: text(form, "sport") || "tennis",
+              home_club: text(form, "homeClub") || null, image_url: detail.profile.image_url ?? null, preferred_sport: text(form, "sport") || "tennis",
               age_group: text(form, "ageGroup") || null, gender_category: text(form, "gender") || null,
               visibility: text(form, "visibility") as "public" | "club" | "private",
               ...(locked ? {} : { starting_singles: Number(text(form, "startSingles")), starting_doubles: Number(text(form, "startDoubles")) }),
@@ -261,7 +263,6 @@ export function MyRating() {
               <Field label="City"><input name="city" defaultValue={detail.profile.city ?? ""} /></Field>
               <Field label="State"><input name="state" defaultValue={detail.profile.state ?? ""} maxLength={60} /></Field>
               <Field label="Home club"><input name="homeClub" defaultValue={detail.profile.home_club ?? "Prosper Premier Racquet Club"} /></Field>
-              <Field label="Profile image URL"><input name="imageUrl" type="url" defaultValue={detail.profile.image_url ?? ""} placeholder="https://…" /></Field>
               <Field label="Preferred sport"><select name="sport" defaultValue={detail.profile.preferred_sport ?? "tennis"}><option value="tennis">Tennis</option><option value="pickleball">Pickleball</option></select></Field>
               <Field label="Age group"><select name="ageGroup" defaultValue={detail.profile.age_group ?? ""}><option value="">Prefer not to say</option>{["Junior 14-17", "Adult 18+", "Adult 35+", "Adult 50+"].map((a) => <option key={a}>{a}</option>)}</select></Field>
               <Field label="Category"><select name="gender" defaultValue={detail.profile.gender_category ?? ""}><option value="">Prefer not to say</option>{["Open", "Men", "Women"].map((a) => <option key={a}>{a}</option>)}</select></Field>
@@ -272,8 +273,11 @@ export function MyRating() {
           </Form>
         </Panel>
       ) : (
-        <PlayerDetailView detail={detail}>
-          <button className="button secondary small" onClick={() => setEditing(true)} data-testid="edit-profile-btn"><UserRound size={15} /> Edit profile</button>
+        <PlayerDetailView detail={detail} own>
+          <div className="pr-hero-actions">
+            <PhotoUpload />
+            <button className="button secondary small" onClick={() => setEditing(true)} data-testid="edit-profile-btn"><UserRound size={15} /> Edit profile</button>
+          </div>
         </PlayerDetailView>
       )}
     </div>

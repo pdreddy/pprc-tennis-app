@@ -58,6 +58,44 @@ async def recalculate_club(session: AsyncSession, club_id: UUID) -> int:
         return len(inputs)
 
 
+async def sync_triace_fixture(session: AsyncSession, fixture) -> None:
+    """Mirror each TRIACE rubber as a singles/doubles result. Rated only once the fixture is finalized."""
+    if fixture.status.value == "finalized":
+        status = "finalized"
+    else:
+        status = "disputed" if (fixture.result_detail or {}).get("dispute") else "reported"
+    prefix = f"triace:{fixture.id}:"
+    existing = {m.source_id: m for m in (await session.scalars(select(RatedMatch).where(RatedMatch.source_id.like(f"{prefix}%")))).all()}
+    now = datetime.now(timezone.utc)
+    played_at = fixture.starts_at if fixture.starts_at <= now else now
+    seen = set()
+    for index, rubber in enumerate((fixture.result_detail or {}).get("rubbers") or []):
+        home, away = list(rubber["home_player_ids"]), list(rubber["away_player_ids"])
+        home_score, away_score = int(rubber["home_score"]), int(rubber["away_score"])
+        if len(home) != len(away) or home_score == away_score:
+            continue
+        tiebreak = rubber["kind"] == "super_tiebreak"
+        source_id = f"{prefix}{index}"
+        seen.add(source_id)
+        record = existing.get(source_id)
+        if record is None:
+            record = RatedMatch(club_id=fixture.club_id, source="triace", source_id=source_id, division_id=fixture.division_id)
+            session.add(record)
+        record.kind = "doubles" if len(home) == 2 else "singles"
+        record.side_one, record.side_two = home, away
+        record.score_text = f"{home_score}-{away_score}"
+        winner_one = home_score > away_score
+        record.games_one, record.games_two = ((1, 0) if winner_one else (0, 1)) if tiebreak else (home_score, away_score)
+        record.winner_side, record.outcome = 1 if winner_one else 2, "completed"
+        record.match_format = "tiebreak" if tiebreak else "pro_set"
+        record.played_at, record.status = played_at, status
+    for source_id, record in existing.items():
+        if source_id not in seen:
+            record.status = "cancelled"
+    await session.flush()
+    await recalculate_club(session, fixture.club_id)
+
+
 async def sync_competition_result(session: AsyncSession, club_id: UUID, division_id: UUID, match_id: UUID, side_one: list[str], side_two: list[str], *, winner_side: int, score_text: str | None, score_one: int | None, score_two: int | None, played_at: datetime | None, doubles: bool) -> None:
     """Mirror a finalized tournament/ladder match into PPRC Rating, then replay the club."""
     text = (score_text or "").strip()

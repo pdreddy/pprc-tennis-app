@@ -1,19 +1,22 @@
 """Player profiles, PPRC Rating, rankings and player-reported results (club-scoped)."""
+import os
 from datetime import datetime, timedelta, timezone
 from typing import Literal
-from uuid import UUID
+from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.concurrency import run_in_threadpool
 
 from .auth import Actor, current_actor
 from .common import STAFF_ROLES, audit, notify
 from .database import get_session
 from .models import Club, DivisionEntry, Membership, MembershipRole, PlayerProfile, PlayerRating, RatedMatch, RatingHistory
-from .pprc_rating import FORMULA_VERSION, MAX_RATING, MIN_RATING, OUTCOMES, FORMAT_WEIGHTS
+from .pprc_rating import FORMULA_VERSION, MAX_RATING, MIN_RATING, OUTCOMES, FORMAT_WEIGHTS, PROVISIONAL_MATCHES
 from .rating_service import recalculate_club, score_fields
+from .storage import get_object, put_object
 
 router = APIRouter()
 Kind = Literal["singles", "doubles"]
@@ -25,7 +28,7 @@ class ProfileInput(BaseModel):
     city: str | None = Field(default=None, max_length=120)
     state: str | None = Field(default=None, max_length=60)
     home_club: str | None = Field(default=None, max_length=160)
-    image_url: str | None = Field(default=None, max_length=500, pattern=r"^https?://")
+    image_url: str | None = Field(default=None, max_length=500, pattern=r"^(https?://|/api/v1/player-photos/)")
     preferred_sport: str = Field(default="tennis", max_length=40)
     age_group: str | None = Field(default=None, max_length=40)
     gender_category: str | None = Field(default=None, max_length=40)
@@ -149,6 +152,7 @@ async def player_detail(session: AsyncSession, club_id: UUID, user_id: str, *, f
         "record": {"wins": sum(1 for m in finalized if (m.winner_side == 1) == (user_id in m.side_one)), "losses": sum(1 for m in finalized if (m.winner_side == 1) != (user_id in m.side_one))},
         "history": [{"kind": h.kind, "played_at": h.played_at, "rating": round(float(h.rating_after), 2)} for h in history],
         "recent_matches": [match_view(m, names, hidden) for m in matches[:10]],
+        "milestones": await milestones_for(session, club_id, user_id),
         "doubles_partners": [{"user_id": u, "display_name": names.get(u, u)} for u in partners],
     }
 
@@ -250,7 +254,101 @@ async def get_public_player(slug: str, user_id: str, session: AsyncSession = Dep
     detail = await player_detail(session, club.id, user_id, full=False)
     detail.pop("recent_matches")
     detail.pop("doubles_partners")
+    detail.pop("milestones")
     return detail
+
+
+RANK_THRESHOLDS = (10, 5, 3, 1)
+
+
+async def milestones_for(session: AsyncSession, club_id: UUID, user_id: str) -> list[dict]:
+    """Shareable moments, replayed from rating history: leaving Provisional and reaching the club top 10/5/3/1."""
+    history = list((await session.scalars(select(RatingHistory).where(RatingHistory.club_id == club_id).order_by(RatingHistory.played_at, RatingHistory.rated_match_id))).all())
+    found: list[dict] = []
+    for kind in ("singles", "doubles"):
+        ratings: dict[str, float] = {}
+        played = 0
+        best_rank: int | None = None
+        rows = [row for row in history if row.kind == kind]
+        for h in rows:
+            ratings[h.user_id] = float(h.rating_after)
+            # Evaluate once every player of this match has been updated.
+            last_of_match = h is rows[-1] or rows[rows.index(h) + 1].rated_match_id != h.rated_match_id
+            mine = next((r for r in rows if r.rated_match_id == h.rated_match_id and r.user_id == user_id), None)
+            if not last_of_match or mine is None:
+                continue
+            h = mine
+            played += 1
+            rating = round(float(h.rating_after), 2)
+            rank = 1 + sum(1 for other, value in ratings.items() if other != user_id and value > ratings[user_id])
+            base = {"kind": kind, "date": h.played_at, "rating": rating, "rank": rank, "field": len(ratings)}
+            if played == PROVISIONAL_MATCHES:
+                found.append({**base, "id": f"{kind}-established", "type": "established", "title": f"PPRC {kind} rating established", "detail": f"{rating:.2f} after {played} verified matches"})
+            for threshold in RANK_THRESHOLDS:
+                if rank <= threshold and (best_rank is None or best_rank > threshold) and len(ratings) > threshold:
+                    label = "No. 1 in the club" if threshold == 1 else f"Club top {threshold}"
+                    found.append({**base, "id": f"{kind}-top{threshold}", "type": "rank", "title": f"{label} · {kind}", "detail": f"Ranked #{rank} of {len(ratings)} at {rating:.2f}"})
+                    break
+            best_rank = rank if best_rank is None else min(best_rank, rank)
+    return sorted(found, key=lambda m: m["date"], reverse=True)
+
+
+@router.post("/v1/clubs/{club_id}/join")
+async def join_club(club_id: UUID, session: AsyncSession = Depends(get_session), actor: Actor = Depends(current_actor)) -> dict:
+    """Self-service club membership. Emails listed in ADMIN_EMAIL (verified only) join as club admin."""
+    club = await session.get(Club, club_id)
+    if club is None:
+        raise HTTPException(status_code=404, detail="Club not found")
+    member = await membership(session, club_id, actor.user_id)
+    if member is None:
+        admins = {e.strip().lower() for e in os.environ.get("ADMIN_EMAIL", "").split(",") if e.strip()}
+        admin = actor.email_verified and (actor.email or "").lower() in admins
+        member = Membership(club_id=club_id, user_id=actor.user_id, display_name=actor.name or actor.email or actor.user_id, role=MembershipRole.admin if admin else MembershipRole.player)
+        session.add(member)
+        await session.flush()
+        await audit(session, club_id, actor.user_id, "membership.self_joined", "membership", str(member.id), member.role.value)
+        await session.commit()
+    return {"id": str(member.id), "club_id": str(club_id), "user_id": member.user_id, "role": member.role.value, "display_name": member.display_name}
+
+
+PHOTO_TYPES = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}
+MAX_PHOTO_BYTES = 3_000_000
+PHOTO_PREFIX = "/api/v1/player-photos/"
+
+
+@router.post("/v1/clubs/{club_id}/players/me/photo")
+async def upload_photo(club_id: UUID, file: UploadFile = File(...), session: AsyncSession = Depends(get_session), actor: Actor = Depends(current_actor)) -> dict:
+    await require_member(session, club_id, actor.user_id)
+    profile = await session.scalar(select(PlayerProfile).where(PlayerProfile.club_id == club_id, PlayerProfile.user_id == actor.user_id))
+    if profile is None:
+        raise HTTPException(status_code=409, detail="Create your player profile first")
+    if file.content_type not in PHOTO_TYPES:
+        raise HTTPException(status_code=415, detail="Upload a JPEG, PNG or WebP image")
+    data = await file.read(MAX_PHOTO_BYTES + 1)
+    if len(data) > MAX_PHOTO_BYTES:
+        raise HTTPException(status_code=413, detail="Photos must be 3 MB or smaller")
+    app_name = os.environ.get("PPRC_APP_NAME", "pprc")
+    path = f"{app_name}/player-photos/{club_id}/{uuid4()}.{PHOTO_TYPES[file.content_type]}"
+    try:
+        stored = await run_in_threadpool(put_object, path, data, file.content_type)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="Photo storage is unavailable right now. Please try again.") from exc
+    profile.image_url = PHOTO_PREFIX + stored  # older photos stop being served once unreferenced
+    await audit(session, club_id, actor.user_id, "profile.photo_uploaded", "player", actor.user_id)
+    await session.commit()
+    return {"image_url": profile.image_url}
+
+
+@router.get("/v1/player-photos/{path:path}")
+async def player_photo(path: str, session: AsyncSession = Depends(get_session)) -> Response:
+    """Serves only photos a profile currently uses; the random file name is the access token for <img> tags."""
+    if await session.scalar(select(PlayerProfile.id).where(PlayerProfile.image_url == PHOTO_PREFIX + path)) is None:
+        raise HTTPException(status_code=404, detail="Photo not found")
+    try:
+        data, content_type = await run_in_threadpool(get_object, path)
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail="Photo not found") from exc
+    return Response(content=data, media_type=content_type, headers={"Cache-Control": "private, max-age=86400"})
 
 
 async def history_rank_movement(session: AsyncSession, club_id: UUID, kind: str, rows: list[PlayerRating], days: int = 30) -> dict[str, int]:

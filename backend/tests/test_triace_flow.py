@@ -121,6 +121,13 @@ def test_triace_team_to_champion_flow():
     champion = request("GET", f"/v1/divisions/{division['id']}/champion", owner)
     assert champion["champion_team_id"] == final_home["id"]
 
+    # Finalized TRIACE rubbers feed PPRC Rating: singles and super tiebreaks as singles, pairs as doubles.
+    anchor = request("GET", f"/v1/clubs/{club_id}/players/{final_home_all[2]}", owner)["ratings"]
+    assert anchor["doubles"]["verified_matches"] == 2 and anchor["singles"]["verified_matches"] == 1
+    lead = request("GET", f"/v1/clubs/{club_id}/players/{final_home_all[0]}", owner)["ratings"]
+    assert lead["singles"]["verified_matches"] == 1 and lead["singles"]["rating"] > 5
+    assert lead["doubles"]["wins"] == 1
+
 
 def test_triace_rules_are_fully_configurable():
     owner = f"owner-{uuid.uuid4().hex[:8]}"

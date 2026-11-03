@@ -1,5 +1,6 @@
 import { auth } from "./firebase";
 import { currentDemoUser, demoAuth } from "./demo-auth";
+import { emergentAuth, getExternalToken } from "./external-auth";
 
 /** FastAPI boundary for the fresh PPRC PostgreSQL backend. */
 export const apiEnabled = import.meta.env.VITE_DATA_PROVIDER === "api";
@@ -125,6 +126,14 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
     if (init.body !== undefined) headers.set("Content-Type", "application/json");
     return send<T>(path, { ...init, headers });
   }
+  if (emergentAuth) {
+    const token = await getExternalToken();
+    if (!token) throw new ApiError("Sign in before using the PPRC API", 401);
+    const headers = new Headers(init.headers);
+    headers.set("Authorization", `Bearer ${token}`);
+    if (init.body !== undefined && !(init.body instanceof FormData)) headers.set("Content-Type", "application/json");
+    return send<T>(path, { ...init, headers });
+  }
   // On a fresh page load currentUser is null until Firebase restores the session.
   await auth.authStateReady();
   const token = await auth.currentUser?.getIdToken();
@@ -145,6 +154,7 @@ export const listPublicApiDivisions = (eventId: string) => publicApiRequest<ApiD
 export const listApiEventDivisions = async (eventId: string, clubId = apiClubId) => (await apiRequest<ApiDivision[]>(`/v1/clubs/${clubId}/divisions`)).filter((division) => division.event_id === eventId);
 export const getApiEvent = (eventId: string) => apiRequest<ApiEvent>(`/v1/events/${eventId}`);
 export const getMyApiMembership = () => apiRequest<ApiMembership>(`/v1/clubs/${apiClubId}/memberships/me`);
+export const joinApiClub = () => apiRequest<ApiMembership>(`/v1/clubs/${apiClubId}/join`, { method: "POST" });
 export const createApiEvent = (event: ApiEventInput) => apiRequest<ApiEvent>(`/v1/clubs/${apiClubId}/events`, { method: "POST", body: JSON.stringify(event) });
 export const createApiTriaceEvent = (event: ApiEventInput, division: ApiDivisionInput) => apiRequest<ApiEvent>(`/v1/clubs/${apiClubId}/triace-events`, { method: "POST", body: JSON.stringify({ event, division }) });
 export const updateApiEvent = (eventId: string, event: Partial<ApiEventInput> & { status?: ApiEvent["status"]; audit_reason: string }) => apiRequest<ApiEvent>(`/v1/events/${eventId}`, { method: "PATCH", body: JSON.stringify(event) });
@@ -208,7 +218,8 @@ export type ApiRating = { rating: number; reliability: number; provisional: bool
 export type ApiProfile = { user_id: string; display_name: string; city?: string | null; state?: string | null; home_club?: string | null; image_url?: string | null; preferred_sport?: string; has_profile: boolean; age_group?: string | null; gender_category?: string | null; visibility?: "public" | "club" | "private"; starting_singles?: number; starting_doubles?: number };
 export type ApiSidePlayer = { user_id: string; display_name: string };
 export type ApiResult = { id: string; source: "reported" | "competition"; kind: RatingKind; status: "reported" | "finalized" | "disputed" | "cancelled"; outcome: string; rated: boolean; score_text: string | null; winner_side: 1 | 2 | null; match_format: string; played_at: string; reported_by: string | null; dispute_reason: string | null; correction_reason: string | null; side_one: ApiSidePlayer[]; side_two: ApiSidePlayer[] };
-export type ApiPlayerDetail = { profile: ApiProfile; ratings: Record<RatingKind, ApiRating | null>; recent_form: ("W" | "L")[]; record: { wins: number; losses: number }; history: { kind: RatingKind; played_at: string; rating: number }[]; recent_matches?: ApiResult[]; doubles_partners?: ApiSidePlayer[] };
+export type ApiMilestone = { id: string; kind: RatingKind; type: "established" | "rank"; title: string; detail: string; date: string; rating: number; rank: number; field: number };
+export type ApiPlayerDetail = { profile: ApiProfile; ratings: Record<RatingKind, ApiRating | null>; recent_form: ("W" | "L")[]; record: { wins: number; losses: number }; history: { kind: RatingKind; played_at: string; rating: number }[]; recent_matches?: ApiResult[]; doubles_partners?: ApiSidePlayer[]; milestones?: ApiMilestone[] };
 export type ApiPage<T> = { items: T[]; total: number; page: number; page_size: number };
 export type ApiDirectoryRow = ApiProfile & { rating: ApiRating | null };
 export type ApiRankingRow = ApiProfile & ApiRating & { rank: number; movement?: number; club_name?: string };
@@ -223,6 +234,13 @@ const query = (params: Record<string, unknown>) => {
 };
 export const getMyPlayer = () => apiRequest<ApiPlayerDetail>(`/v1/clubs/${apiClubId}/players/me`);
 export const saveMyPlayer = (profile: ProfileInput) => apiRequest<ApiPlayerDetail>(`/v1/clubs/${apiClubId}/players/me`, { method: "PUT", body: JSON.stringify(profile) });
+export const uploadMyPhoto = (photo: Blob) => {
+  const body = new FormData();
+  body.append("file", photo, "photo.jpg");
+  return apiRequest<{ image_url: string }>(`/v1/clubs/${apiClubId}/players/me/photo`, { method: "POST", body });
+};
+/** Stored photo paths are API-relative; resolve them against the API host. */
+export const photoUrl = (url?: string | null) => (url && url.startsWith("/api/") ? `${apiBaseUrl.replace(/\/api$/, "")}${url}` : url ?? null);
 export const getPlayer = (userId: string) => apiRequest<ApiPlayerDetail>(`/v1/clubs/${apiClubId}/players/${encodeURIComponent(userId)}`);
 export const getPublicPlayer = (userId: string) => publicApiRequest<ApiPlayerDetail>(`/v1/public/clubs/${apiClubSlug}/players/${encodeURIComponent(userId)}`);
 export const listPlayers = (filters: Record<string, unknown>) => apiRequest<ApiPage<ApiDirectoryRow>>(`/v1/clubs/${apiClubId}/players${query(filters)}`);

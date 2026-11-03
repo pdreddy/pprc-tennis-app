@@ -1,3 +1,4 @@
+import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
@@ -17,6 +18,7 @@ from .common import audit, notify, require_role
 from .triace_rules import TRIACE_RULE_KEYS, RuleError, TriaceRules, validate_encounter
 from .competitions import router as competitions_router, sync_entries_for_registration
 from .ratings import router as ratings_router
+from .rating_service import sync_triace_fixture
 from .models import (
     AuditLog,
     Base,
@@ -141,6 +143,7 @@ async def apply_fixture_result(session: AsyncSession, fixture: Fixture, payload:
             session.add(PlayerAppearance(club_id=fixture.club_id, division_id=fixture.division_id, fixture_id=fixture.id, team_id=team_id, user_id=user_id))
     if finalized:
         await rebuild_team_standings(session, fixture.club_id, fixture.division_id)
+    await sync_triace_fixture(session, fixture)
 
 
 async def create_playoff_final_if_ready(session: AsyncSession, fixture: Fixture) -> None:
@@ -278,9 +281,9 @@ async def ranked_playoff_teams(session: AsyncSession, division: Division) -> lis
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     settings = get_settings()
-    if not settings.allow_development_header and not settings.firebase_project_id:
+    if not settings.allow_development_header and not settings.firebase_project_id and not os.environ.get("CLERK_SECRET_KEY"):
         # Fail fast: without this every request would 401 and the misconfiguration is easy to miss.
-        raise RuntimeError("FIREBASE_PROJECT_ID is required when PPRC_ENVIRONMENT is not 'development'")
+        raise RuntimeError("Configure FIREBASE_PROJECT_ID or Emergent-managed auth when PPRC_ENVIRONMENT is not 'development'")
     if settings.pprc_bootstrap_schema:
         async with engine.begin() as connection:
             await connection.run_sync(Base.metadata.create_all)
@@ -1090,6 +1093,7 @@ async def confirm_fixture_result(
     fixture.status = FixtureStatus.finalized
     fixture.result_detail = {**fixture.result_detail, "confirmedBy": actor.user_id, "confirmedAt": datetime.now(timezone.utc).isoformat(), "dispute": None}
     await rebuild_team_standings(session, fixture.club_id, fixture.division_id)
+    await sync_triace_fixture(session, fixture)
     await create_playoff_final_if_ready(session, fixture)
     await audit(session, fixture.club_id, actor.user_id, "fixture.confirmed", "fixture", str(fixture.id))
     await session.commit()
@@ -1118,6 +1122,7 @@ async def dispute_fixture_result(
     if actor.user_id != expected:
         raise HTTPException(status_code=403, detail="The opposing captain must raise a dispute")
     fixture.result_detail = {**fixture.result_detail, "dispute": {"by": actor.user_id, "reason": payload.reason, "at": datetime.now(timezone.utc).isoformat()}}
+    await sync_triace_fixture(session, fixture)
     await notify(session, fixture.club_id, home.captain_user_id, "fixture", "Score disputed", f"{home.name} vs {away.name} needs organizer review.", {"fixtureId": str(fixture.id)})
     await notify(session, fixture.club_id, away.captain_user_id, "fixture", "Score disputed", f"{home.name} vs {away.name} needs organizer review.", {"fixtureId": str(fixture.id)})
     await audit(session, fixture.club_id, actor.user_id, "fixture.disputed", "fixture", str(fixture.id), payload.reason)

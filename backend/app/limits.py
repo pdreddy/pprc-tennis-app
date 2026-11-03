@@ -38,7 +38,8 @@ class RequestLimitMiddleware:
             await self.app(scope, receive, send)
             return
         length = dict(scope.get("headers") or []).get(b"content-length")
-        if length and length.isdigit() and int(length) > self.max_body_bytes:
+        limit = max(self.max_body_bytes, 4_000_000) if scope["path"].endswith("/photo") else self.max_body_bytes
+        if length and length.isdigit() and int(length) > limit:
             await JSONResponse({"detail": "Request body is too large"}, status_code=413)(scope, receive, send)
             return
         if self.writes_per_minute and self.over_limit(self.client_key(scope)):
