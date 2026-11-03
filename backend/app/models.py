@@ -2,8 +2,30 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, Date, DateTime, Enum, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint, func
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from datetime import timezone
+
+from sqlalchemy import JSON, Boolean, Date, DateTime, Enum, ForeignKey, Integer, Numeric, String, Text, TypeDecorator, UniqueConstraint, Uuid, func
+from sqlalchemy.dialects import postgresql
+
+# Portable column types: native JSONB/UUID on PostgreSQL, JSON/CHAR on SQLite (preview).
+JSONB = JSON().with_variant(postgresql.JSONB(), "postgresql")
+UUID = Uuid
+
+
+class UTCDateTime(TypeDecorator):
+    """Timezone-aware UTC datetimes on every backend (SQLite drops tzinfo)."""
+    impl = DateTime(timezone=True)
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if value is not None and value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value
+
+    def process_result_value(self, value, dialect):
+        if value is not None and value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -46,9 +68,9 @@ class FixtureStatus(str, enum.Enum):
 
 
 class Timestamped:
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+        UTCDateTime(), server_default=func.now(), onupdate=func.now()
     )
 
 
@@ -75,7 +97,7 @@ class Event(Timestamped, Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     club_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("clubs.id", ondelete="CASCADE"), index=True)
     name: Mapped[str] = mapped_column(String(200))
-    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    starts_at: Mapped[datetime] = mapped_column(UTCDateTime(), index=True)
     capacity: Mapped[int] = mapped_column(Integer, default=32)
     entry_fee_cents: Mapped[int] = mapped_column(Integer, default=0)
     status: Mapped[EventStatus] = mapped_column(Enum(EventStatus), default=EventStatus.draft)
@@ -91,7 +113,7 @@ class Registration(Timestamped, Base):
     user_id: Mapped[str] = mapped_column(String(128), index=True)
     status: Mapped[RegistrationStatus] = mapped_column(Enum(RegistrationStatus))
     waitlist_position: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    checked_in_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    checked_in_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
 
 
 class Match(Timestamped, Base):
@@ -171,7 +193,7 @@ class Fixture(Timestamped, Base):
     division_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("divisions.id", ondelete="CASCADE"), index=True)
     home_team_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("teams.id", ondelete="CASCADE"))
     away_team_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("teams.id", ondelete="CASCADE"))
-    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    starts_at: Mapped[datetime] = mapped_column(UTCDateTime())
     score_home: Mapped[int | None] = mapped_column(Integer, nullable=True)
     score_away: Mapped[int | None] = mapped_column(Integer, nullable=True)
     winner_team_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("teams.id", ondelete="SET NULL"), nullable=True)
@@ -202,8 +224,8 @@ class Notification(Base):
     title: Mapped[str] = mapped_column(String(180))
     body: Mapped[str] = mapped_column(Text)
     data: Mapped[dict] = mapped_column(JSONB, default=dict)
-    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    read_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), server_default=func.now())
 
 
 class Standing(Base):
@@ -231,7 +253,7 @@ class AuditLog(Base):
     entity_type: Mapped[str] = mapped_column(String(80))
     entity_id: Mapped[str] = mapped_column(String(128))
     detail: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), server_default=func.now())
 
 
 class DivisionEntry(Base):
@@ -250,7 +272,7 @@ class DivisionEntry(Base):
     partner_name: Mapped[str | None] = mapped_column(String(160), nullable=True)
     group_label: Mapped[str | None] = mapped_column(String(8), nullable=True)  # groups + knockout
     status: Mapped[str] = mapped_column(String(16), default="active")  # active | withdrawn
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), server_default=func.now())
 
 
 class CompetitionMatch(Base):
@@ -270,9 +292,9 @@ class CompetitionMatch(Base):
     score_text: Mapped[str | None] = mapped_column(String(120), nullable=True)
     status: Mapped[str] = mapped_column(String(16), default="pending")  # pending | scheduled | reported | finalized | bye
     reported_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    starts_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    starts_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     next_match_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("competition_matches.id", ondelete="SET NULL"), nullable=True)
     next_slot: Mapped[int | None] = mapped_column(Integer, nullable=True)
     loser_match_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("competition_matches.id", ondelete="SET NULL"), nullable=True)
     loser_slot: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), server_default=func.now())

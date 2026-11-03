@@ -140,7 +140,7 @@ def test_triace_rules_are_fully_configurable():
     p = [f"cfg-{suffix}-{i}" for i in range(4)]
     request_error("POST", f"/v1/clubs/{club['id']}/teams", p[0], json={"division_id": division["id"], "name": "Too small", "members": [
         {"user_id": p[0], "rating": 3, "lineup_position": 1}]})
-    team_a = request("POST", f"/v1/clubs/{club['id']}/teams", p[0], json={"division_id": division["id"], "name": "A", "members": [
+    team_a = request("POST", f"/v1/clubs/{club['id']}/teams", p[0], json={"division_id": division["id"], "name": "Pair A", "members": [
         {"user_id": p[0], "rating": 4, "lineup_position": 1}, {"user_id": p[1], "rating": 4, "lineup_position": 2}]})
     assert team_a["status"] == "pending"
     request_error("PATCH", f"/v1/events/{event['id']}", owner, json={"rules": {**custom, "teamSize": 3}, "audit_reason": "Try changing roster size"})

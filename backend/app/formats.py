@@ -21,7 +21,7 @@ INDIVIDUAL_FORMATS: dict[str, FormatInfo] = {
     ),
     "single_elimination": FormatInfo(
         "single_elimination", "Single elimination", "Seeded knockout bracket with byes; lose once and you are out.",
-        True, {},
+        True, {"thirdPlaceMatch": False},
     ),
     "double_elimination": FormatInfo(
         "double_elimination", "Double elimination",
@@ -31,7 +31,7 @@ INDIVIDUAL_FORMATS: dict[str, FormatInfo] = {
     "groups_knockout": FormatInfo(
         "groups_knockout", "Groups + knockout",
         "Seeds are snake-drawn into groups, each group plays a round robin, and the top finishers enter a knockout bracket.",
-        True, {"pointsPerWin": 2, "groupSize": 4, "groupCount": 0, "advancePerGroup": 2},
+        True, {"pointsPerWin": 2, "groupSize": 4, "groupCount": 0, "advancePerGroup": 2, "thirdPlaceMatch": False},
     ),
     "swiss": FormatInfo(
         "swiss", "Swiss", "A fixed number of rounds; each round pairs players with similar records.",
@@ -204,13 +204,17 @@ def swiss_round_count(players: int) -> int:
 
 
 def swiss_pairings(order: list[str], wins: dict[str, int], played: set[frozenset], had_bye: set[str]) -> tuple[list[tuple[str, str]], str | None]:
-    """Pair players by record (ties broken by `order`), avoiding rematches; odd fields give one bye."""
+    """Pair within each score group top half against bottom half (Dutch system), avoiding rematches.
+
+    Ties inside a score group are broken by `order`; odd fields give one bye to the lowest player without one.
+    """
     ranked = sorted(order, key=lambda p: (-wins.get(p, 0), order.index(p)))
     bye = None
     if len(ranked) % 2:
         candidates = [p for p in reversed(ranked) if p not in had_bye] or [ranked[-1]]
         bye = candidates[0]
         ranked.remove(bye)
+    ranked = dutch_order(ranked, wins)
     budget = [20000]
 
     def solve(remaining: list[str], banned: set[frozenset]) -> list[tuple[str, str]] | None:
@@ -233,6 +237,33 @@ def swiss_pairings(order: list[str], wins: dict[str, int], played: set[frozenset
     if pairs is None:  # no rematch-free pairing exists; allow repeats rather than stall the event
         pairs = solve(ranked, set()) or [(ranked[i], ranked[i + 1]) for i in range(0, len(ranked), 2)]
     return pairs, bye
+
+
+def dutch_order(ranked: list[str], wins: dict[str, int]) -> list[str]:
+    """Interleave each score group as top1, bottom1, top2, bottom2... so the greedy pairer meets 1 v k+1.
+
+    An odd player at the end of a group floats down to the next group.
+    """
+    result: list[str] = []
+    carry: list[str] = []
+    for score in sorted({wins.get(p, 0) for p in ranked}, reverse=True):
+        group = carry + [p for p in ranked if wins.get(p, 0) == score]
+        carry = [group.pop()] if len(group) % 2 else []
+        half = len(group) // 2
+        for i in range(half):
+            result += [group[i], group[half + i]]
+    return result + carry
+
+
+def buchholz(results: list[tuple[str, str | None, str]], points: dict[str, int]) -> dict[str, float]:
+    """Swiss tie-break: the sum of every real opponent's points. Byes add nothing."""
+    score: dict[str, float] = {}
+    for one, two, _ in results:
+        if two is None:
+            continue
+        score[one] = score.get(one, 0) + points.get(two, 0)
+        score[two] = score.get(two, 0) + points.get(one, 0)
+    return score
 
 
 def snake_groups(ordered: list[str], group_count: int) -> list[list[str]]:

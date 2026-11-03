@@ -27,7 +27,7 @@ def setup():
 def test_unknown_format_rejected():
     owner, club_id = setup()
     response = request_error("POST", f"/v1/clubs/{club_id}/tournaments", owner, json={
-        "event": {"name": "x cup", "starts_at": NOW}, "division": {"name": "Open", "format": "swiss"},
+        "event": {"name": "x cup", "starts_at": NOW}, "division": {"name": "Open", "format": "not_a_format"},
     })
     assert response.status_code == 422
 
@@ -173,3 +173,54 @@ def test_groups_knockout_snake_draw_then_bracket():
     assert final["status"] == "finalized"
     table = request("GET", f"/v1/divisions/{division['id']}/player-standings", owner)
     assert {row["group"] for row in table} == {"A", "B"}
+
+
+def test_single_elimination_third_place_match():
+    owner, club_id = setup()
+    _, division = make_tournament(owner, club_id, "single_elimination", rules={"thirdPlaceMatch": True})
+    players = [f"tp-{uuid.uuid4().hex[:6]}-{i}" for i in range(4)]
+    for seed, player in enumerate(players, start=1):
+        request("POST", f"/v1/divisions/{division['id']}/entries", owner, json={"user_id": player, "seed": seed})
+    request("POST", f"/v1/divisions/{division['id']}/draw", owner, json={})
+    for _ in range(2):
+        for match in request("GET", f"/v1/divisions/{division['id']}/competition-matches", owner):
+            if match["status"] == "scheduled":
+                request("POST", f"/v1/competition-matches/{match['id']}/result", owner, json={"score_one": 6, "score_two": 2})
+    matches = request("GET", f"/v1/divisions/{division['id']}/competition-matches", owner)
+    third = next(m for m in matches if m["round_name"] == "third_place")
+    assert {third["player_one_id"], third["player_two_id"]} == {players[2], players[3]}
+    assert third["status"] == "finalized"
+
+
+def test_round_robin_late_entry_gets_matches():
+    owner, club_id = setup()
+    _, division = make_tournament(owner, club_id, "round_robin")
+    players = [f"lt-{uuid.uuid4().hex[:6]}-{i}" for i in range(3)]
+    for player in players:
+        request("POST", f"/v1/divisions/{division['id']}/entries", owner, json={"user_id": player})
+    request("POST", f"/v1/divisions/{division['id']}/draw", owner, json={})
+    request_error("POST", f"/v1/divisions/{division['id']}/entries", "late-self", json={})  # players cannot join late
+    late = f"late-{uuid.uuid4().hex[:6]}"
+    request("POST", f"/v1/divisions/{division['id']}/entries", owner, json={"user_id": late})
+    matches = request("GET", f"/v1/divisions/{division['id']}/competition-matches", owner)
+    late_matches = [m for m in matches if late in {m["player_one_id"], m["player_two_id"]}]
+    assert len(late_matches) == 3 and all(m["status"] == "scheduled" for m in late_matches)
+
+
+def test_swiss_standings_have_buchholz():
+    owner, club_id = setup()
+    _, division = make_tournament(owner, club_id, "swiss", rules={"swissRounds": 2})
+    players = [f"sw-{uuid.uuid4().hex[:6]}-{i}" for i in range(4)]
+    for seed, player in enumerate(players, start=1):
+        request("POST", f"/v1/divisions/{division['id']}/entries", owner, json={"user_id": player, "seed": seed})
+    for match in request("POST", f"/v1/divisions/{division['id']}/draw", owner, json={}):
+        request("POST", f"/v1/competition-matches/{match['id']}/result", owner, json={"score_one": 6, "score_two": 1})
+    table = request("GET", f"/v1/divisions/{division['id']}/player-standings", owner)
+    assert all(row["tiebreak"] is not None for row in table)
+
+
+def test_duplicate_club_slug_is_409():
+    owner = f"owner-{uuid.uuid4().hex[:8]}"
+    slug = f"dup-{uuid.uuid4().hex[:8]}"
+    request("POST", "/v1/clubs", owner, json={"slug": slug, "name": "Dup Club"})
+    assert request_error("POST", "/v1/clubs", owner, json={"slug": slug, "name": "Dup Club"}).status_code == 409

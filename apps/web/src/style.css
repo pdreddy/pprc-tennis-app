@@ -2216,3 +2216,7 @@ footer .footer-brand span { color: var(--court); }
   .admin-content { padding: 31px 20px; }
   .admin-sidebar { top: 70px; }
 }
+
+.demo-accounts { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; }
+.demo-accounts .button { flex-direction: column; align-items: flex-start; gap: 0; }
+.demo-accounts small { color: var(--muted); font-size: 12px; font-weight: 500; }

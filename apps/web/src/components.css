@@ -15,6 +15,10 @@
 .pp-segmented button { border: 0; background: transparent; padding: 8px 14px; border-radius: 9px; font-weight: 600; color: #46627a; }
 .pp-segmented button[aria-selected="true"] { background: #fff; color: var(--navy, #102c43); box-shadow: 0 1px 4px #0c1d3920; }
 .pp-segmented button:focus-visible { outline: 2px solid var(--teal, #087f80); outline-offset: 2px; }
+.pp-segmented a { padding: 8px 14px; border-radius: 9px; font-weight: 600; color: #46627a; }
+.pp-segmented a.active { background: #fff; color: var(--navy, #102c43); box-shadow: 0 1px 4px #0c1d3920; }
+nav.pp-segmented { margin: 8px 0 22px; }
+.pp-table td small { display: block; color: var(--muted, #637586); }
 
 .pp-option-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px; margin: 0 0 18px; padding: 0; border: 0; }
 .pp-option { display: flex; flex-direction: column; gap: 6px; text-align: left; padding: 16px; border-radius: 16px; border: 1.5px solid var(--line, #e1e7eb); background: #fff; color: inherit; transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s; }

@@ -183,3 +183,19 @@ def test_group_count():
 
 def test_knockout_seeds_order():
     assert knockout_seeds([["a1", "a2"], ["b1", "b2"]]) == ["a1", "b1", "a2", "b2"]
+
+
+from app.formats import buchholz, dutch_order
+
+
+def test_dutch_order_pairs_top_half_against_bottom_half():
+    players = ["p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8"]
+    wins = {p: 1 for p in players[:4]}
+    assert dutch_order(players, wins) == ["p1", "p3", "p2", "p4", "p5", "p7", "p6", "p8"]
+    pairs, bye = swiss_pairings(players, wins, set(), set())
+    assert pairs[0] == ("p1", "p3") and bye is None
+
+
+def test_buchholz_sums_opponent_points():
+    results = [("a", "b", "a"), ("c", "d", "c"), ("a", "c", "a"), ("b", None, "b")]
+    assert buchholz(results, {"a": 4, "b": 2, "c": 2, "d": 0}) == {"a": 4, "b": 4, "c": 4, "d": 2}

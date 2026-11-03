@@ -15,6 +15,7 @@ import { useSession, useEvent, useList, useAction, toUiEvent } from "./context";
 import { db, storage, enablePush, getOne } from "./firebase";
 import { apiEnabled, createApiTeam, getPublicApiEvent, isIndividualFormat } from "./api";
 import { CompetitionBoard } from "./competition";
+import { Tabs } from "./components";
 import { readTriaceConfig } from "./triace-config";
 import {
   Panel,
@@ -76,18 +77,12 @@ export function EventDetail() {
           </p>
         </div>
       </div>
-      <div className="tabs" role="navigation" aria-label="Event sections">
-        {(competition ? ["Overview", "Competition"] : ["Overview", "Divisions", "Draws", "Schedule", "Results"]).map((t) => (
-          <button
-            aria-pressed={tab === t}
-            className={tab === t ? "active" : ""}
-            key={t}
-            onClick={() => setTab(t)}
-          >
-            {t}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        label="Event sections"
+        value={tab}
+        onChange={setTab}
+        options={(competition ? ["Overview", "Competition"] : ["Overview", "Divisions", "Draws", "Schedule", "Results"]).map((t) => ({ value: t, label: t }))}
+      />
       <div className="detail-layout">
         <div>
           {tab === "Competition" && competition && (
@@ -216,8 +211,8 @@ export function EventDetail() {
                     ({ rows }: { rows: Entity[] }, i: number) => (
                       <div key={i}>
                         <h3>Group {i + 1} standings</h3>
-                        <div className="table-scroll">
-                          <table>
+                        <div className="pp-table-wrap">
+                          <table className="pp-table">
                             <thead>
                               <tr>
                                 <th>Player</th>

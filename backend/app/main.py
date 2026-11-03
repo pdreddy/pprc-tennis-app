@@ -6,9 +6,11 @@ from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .config import get_settings
+from .limits import RequestLimitMiddleware
 from .database import engine, get_session
 from .auth import Actor, current_actor
 from .common import audit, notify, require_role
@@ -201,57 +203,73 @@ async def rebuild_team_standings(session: AsyncSession, club_id: UUID, division_
 
 
 async def team_eligibility(session: AsyncSession, team: Team) -> TeamEligibilityRead:
-    """TRIACE rule: every active team member must play singles on the configured share of team match days."""
     if team.division_id is None:
         return TeamEligibilityRead(team_id=team.id, eligible=False, required_singles_days=0, player_singles_days={}, missing_player_ids=[])
     division = await session.get(Division, team.division_id)
+    return (await division_team_eligibility(session, division, [team]))[team.id]
+
+
+async def division_team_eligibility(session: AsyncSession, division: Division, teams: list[Team]) -> dict[UUID, TeamEligibilityRead]:
+    """TRIACE rule: every active team member must play singles on the configured share of team match days.
+
+    Runs a fixed number of queries for the whole division instead of several per team.
+    """
+    if not teams:
+        return {}
     rules = await division_triace_rules(session, division)
+    team_ids = [team.id for team in teams]
     fixtures = list(
         (
             await session.scalars(
                 select(Fixture).where(
-                    Fixture.division_id == team.division_id,
+                    Fixture.division_id == division.id,
                     Fixture.status == FixtureStatus.finalized,
                     Fixture.round_name == "regular",
-                    (Fixture.home_team_id == team.id) | (Fixture.away_team_id == team.id),
+                    Fixture.home_team_id.in_(team_ids) | Fixture.away_team_id.in_(team_ids),
                 )
             )
         ).all()
     )
-    required = rules.required_singles_days(len({fixture.starts_at.date() for fixture in fixtures}))
-    members = list((await session.scalars(select(TeamMember).where(TeamMember.team_id == team.id, TeamMember.active.is_(True)))).all())
+    members = list((await session.scalars(select(TeamMember).where(TeamMember.team_id.in_(team_ids), TeamMember.active.is_(True)))).all())
     appearances = list(
         (
             await session.scalars(
                 select(PlayerAppearance).where(
-                    PlayerAppearance.team_id == team.id,
+                    PlayerAppearance.team_id.in_(team_ids),
                     PlayerAppearance.singles_played.is_(True),
                 )
             )
         ).all()
     )
-    fixture_ids = {fixture.id: fixture.starts_at.date() for fixture in fixtures}
-    days: dict[str, set] = {member.user_id: set() for member in members}
-    for appearance in appearances:
-        match_day = fixture_ids.get(appearance.fixture_id)
-        if match_day:
-            days.setdefault(appearance.user_id, set()).add(match_day)
-    totals = {user_id: len(value) for user_id, value in days.items()}
-    missing = [member.user_id for member in members if totals.get(member.user_id, 0) < required]
-    return TeamEligibilityRead(
-        team_id=team.id,
-        eligible=bool(members) and bool(fixtures) and not missing,
-        required_singles_days=required,
-        player_singles_days=totals,
-        missing_player_ids=missing,
-    )
+    fixture_days = {fixture.id: fixture.starts_at.date() for fixture in fixtures}
+    result: dict[UUID, TeamEligibilityRead] = {}
+    for team in teams:
+        team_fixtures = [f for f in fixtures if team.id in (f.home_team_id, f.away_team_id)]
+        required = rules.required_singles_days(len({f.starts_at.date() for f in team_fixtures}))
+        team_members = [m for m in members if m.team_id == team.id]
+        days: dict[str, set] = {member.user_id: set() for member in team_members}
+        for appearance in appearances:
+            match_day = fixture_days.get(appearance.fixture_id)
+            if appearance.team_id == team.id and match_day:
+                days.setdefault(appearance.user_id, set()).add(match_day)
+        totals = {user_id: len(value) for user_id, value in days.items()}
+        missing = [member.user_id for member in team_members if totals.get(member.user_id, 0) < required]
+        result[team.id] = TeamEligibilityRead(
+            team_id=team.id,
+            eligible=bool(team_members) and bool(team_fixtures) and not missing,
+            required_singles_days=required,
+            player_singles_days=totals,
+            missing_player_ids=missing,
+        )
+    return result
 
 
 async def ranked_playoff_teams(session: AsyncSession, division: Division) -> list[tuple[Team, Standing | None, TeamEligibilityRead]]:
     teams = list((await session.scalars(select(Team).where(Team.division_id == division.id, Team.status == TeamStatus.approved))).all())
     standing_rows = list((await session.scalars(select(Standing).where(Standing.division_id == division.id, Standing.subject_type == "team"))).all())
     standings = {row.subject_id: row for row in standing_rows}
-    ranked = [(team, standings.get(str(team.id)), await team_eligibility(session, team)) for team in teams]
+    eligibility = await division_team_eligibility(session, division, teams)
+    ranked = [(team, standings.get(str(team.id)), eligibility[team.id]) for team in teams]
     ranked.sort(key=lambda item: (not item[2].eligible, -(item[1].points if item[1] else 0), -(item[1].wins if item[1] else 0), item[0].name.lower()))
     return ranked
 
@@ -271,6 +289,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="PPRC Multi-club API", version="0.1.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=get_settings().cors_origins, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(RequestLimitMiddleware, writes_per_minute=get_settings().pprc_rate_limit_writes_per_minute, max_body_bytes=get_settings().pprc_max_body_bytes)
 
 
 app.include_router(competitions_router)
@@ -290,7 +309,12 @@ async def create_club(payload: ClubCreate, session: AsyncSession = Depends(get_s
     await session.flush()
     session.add(Membership(club_id=club.id, user_id=actor.user_id, display_name=actor.name or actor.email or actor.user_id, role=MembershipRole.owner))
     await audit(session, club.id, actor.user_id, "club.created", "club", str(club.id))
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError as exc:
+        # A concurrent request created the same slug between the check and the insert.
+        await session.rollback()
+        raise HTTPException(status_code=409, detail="Club slug already exists") from exc
     return club
 
 
@@ -442,9 +466,11 @@ async def update_event(
     await require_role(session, event.club_id, actor.user_id, {MembershipRole.owner, MembershipRole.admin, MembershipRole.organizer})
     if event.status == EventStatus.completed and payload.status not in {None, EventStatus.completed}:
         raise HTTPException(status_code=409, detail="Completed events cannot be reopened")
-    division = await session.scalar(select(Division).where(Division.event_id == event.id))
+    divisions = list((await session.scalars(select(Division).where(Division.event_id == event.id))).all())
+    triace_divisions = [division for division in divisions if is_triace_division(division)]
     proposed_rules = payload.rules if payload.rules is not None else event.rules
-    if is_triace_division(division):
+    # Event-level TRIACE rules apply to every TRIACE division of the event, not just the first.
+    for division in triace_divisions:
         proposed_division_rules = dict(division.rules)
         if payload.rules is not None:
             for key in TRIACE_RULE_KEYS:
@@ -453,11 +479,11 @@ async def update_event(
         current = triace_rules_for(event.rules, division.rules)
         proposed = triace_rules_for(proposed_rules, proposed_division_rules)
         await guard_triace_rule_changes(session, division, current, proposed)
-        if payload.rules is not None:
-            payload.rules = {**payload.rules, **proposed.as_dict()}
-        proposed_capacity = payload.capacity if payload.capacity is not None else event.capacity
         division.rules = {**proposed_division_rules, **proposed.as_dict()}
-        division.capacity = proposed_capacity
+        if len(divisions) == 1:
+            division.capacity = payload.capacity if payload.capacity is not None else event.capacity
+    if triace_divisions and payload.rules is not None:
+        payload.rules = {**payload.rules, **triace_rules_for(proposed_rules, {}).as_dict()}
     for field, value in payload.model_dump(exclude_none=True, exclude={"audit_reason"}).items():
         setattr(event, field, value)
     await audit(session, event.club_id, actor.user_id, "event.updated", "event", str(event.id), payload.audit_reason)

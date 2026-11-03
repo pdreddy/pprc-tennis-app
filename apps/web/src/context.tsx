@@ -34,6 +34,7 @@ import {
   type ApiRegistration,
 } from "./api";
 import { canManage, type Entity, type Event } from "@pprc/shared";
+import { demoAuth, onDemoAuth } from "./demo-auth";
 const Session = createContext<{
   user: User | null;
   profile: Entity | undefined;
@@ -44,15 +45,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null),
     [loading, setLoading] = useState(true);
   const qc = useQueryClient();
-  useEffect(
-    () =>
-      onAuthStateChanged(auth, (user) => {
-        setUser(user);
-        setLoading(false);
-        qc.clear();
-      }),
-    [qc],
-  );
+  useEffect(() => {
+    const handle = (user: User | null) => {
+      setUser(user);
+      setLoading(false);
+      qc.clear();
+    };
+    return demoAuth ? onDemoAuth(handle) : onAuthStateChanged(auth, handle);
+  }, [qc]);
   const profile = useQuery<Entity | undefined>({
       queryKey: ["profile", user?.uid],
       queryFn: async (): Promise<Entity | undefined> => apiEnabled
@@ -205,12 +205,14 @@ export function useList(
   filters: [string, any, any][] = [],
   enabled = true,
 ) {
-  const { user } = useSession();
+  const { user, member } = useSession();
+  const staff = ["clubAdmin", "eventAdmin", "support"].includes(String(member?.role));
   return useQuery({
-    queryKey: ["list", apiEnabled ? "api" : "firebase", collection, filters, user?.uid],
+    queryKey: ["list", apiEnabled ? "api" : "firebase", collection, filters, user?.uid, staff],
     queryFn: async () => {
       if (apiEnabled && collection === "events") {
-        const events = apiClubId ? await listApiEvents() : await listPublicApiEvents();
+        // Visitors and players see published events; staff also see drafts.
+        const events = apiClubId && staff ? await listApiEvents() : await listPublicApiEvents();
         return events.map(toUiEvent);
       }
       if (apiEnabled && collection === "registrations") {
@@ -219,6 +221,8 @@ export function useList(
       if (apiEnabled && collection === "notifications") {
         return (await listApiNotifications()).map(toUiNotification);
       }
+      // Collections not served by FastAPI yet stay empty instead of querying Firestore.
+      if (apiEnabled) return [];
       return getList(collection, filters);
     },
     enabled,

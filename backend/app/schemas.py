@@ -325,6 +325,7 @@ class PlayerStandingRead(BaseModel):
     losses: int
     points: int
     group: str | None = None
+    tiebreak: float | None = None  # Swiss: Buchholz (sum of opponents' points)
 
 
 class WalkoverRequest(BaseModel):

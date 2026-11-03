@@ -1,4 +1,5 @@
 import { auth } from "./firebase";
+import { currentDemoUser, demoAuth } from "./demo-auth";
 
 /** FastAPI boundary for the fresh PPRC PostgreSQL backend. */
 export const apiEnabled = import.meta.env.VITE_DATA_PROVIDER === "api";
@@ -116,6 +117,14 @@ async function send<T>(path: string, init: RequestInit): Promise<T> {
 }
 
 export async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
+  if (demoAuth) {
+    const demoUser = currentDemoUser();
+    if (!demoUser) throw new ApiError("Sign in before using the PPRC API", 401);
+    const headers = new Headers(init.headers);
+    headers.set("X-PPRC-User", demoUser.uid);
+    if (init.body !== undefined) headers.set("Content-Type", "application/json");
+    return send<T>(path, { ...init, headers });
+  }
   // On a fresh page load currentUser is null until Firebase restores the session.
   await auth.authStateReady();
   const token = await auth.currentUser?.getIdToken();
@@ -173,7 +182,7 @@ export const isIndividualFormat = (format: unknown) => tournamentFormats.some((i
 
 export type ApiEntry = { group_label: string | null; id: string; division_id: string; user_id: string; display_name: string; seed: number | null; rating: number | null; rank: number | null; status: string; partner_user_id: string | null; partner_name: string | null };
 export type ApiCompetitionMatch = { id: string; division_id: string; round_number: number; round_name: string; position: number; player_one_id: string | null; player_two_id: string | null; winner_id: string | null; score_one: number | null; score_two: number | null; score_text: string | null; status: string; reported_by: string | null; starts_at: string | null };
-export type ApiPlayerStanding = { group: string | null; subject_id: string; display_name: string; played: number; wins: number; losses: number; points: number };
+export type ApiPlayerStanding = { group: string | null; subject_id: string; display_name: string; played: number; wins: number; losses: number; points: number; tiebreak?: number | null };
 
 export const createApiTournament = (event: ApiEventInput, division: ApiDivisionInput) => apiRequest<ApiEvent>(`/v1/clubs/${apiClubId}/tournaments`, { method: "POST", body: JSON.stringify({ event, division }) });
 export const listApiEntries = (divisionId: string) => apiRequest<ApiEntry[]>(`/v1/divisions/${divisionId}/entries`);

@@ -31,6 +31,8 @@ const roundLabel = (name: string) => {
   if (group) return `Group ${group[1]}`;
   if (name === "grand_final") return "Grand final";
   if (name === "grand_final_reset") return "Grand final reset";
+  if (name === "third_place") return "Third-place match";
+  if (name === "late_entry") return "Late-entry matches";
   return name.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
 };
 // Winners bracket, then losers bracket, then the grand final.
@@ -38,11 +40,12 @@ const bracketRank = (name: string) => (name.startsWith("group_") ? -1 : name.sta
 const entryLabel = (entry: ApiEntry) => (entry.partner_user_id ? `${entry.display_name} / ${entry.partner_name ?? entry.partner_user_id}` : entry.display_name);
 const rule = (division: Entity, key: string) => (division.rules as Record<string, unknown> | undefined)?.[key];
 
-const standingColumns = (label: string, name: (id: string | null) => string): Column<ApiPlayerStanding>[] => [
+const standingColumns = (label: string, name: (id: string | null) => string, buchholz = false): Column<ApiPlayerStanding>[] => [
   { key: "player", header: label, cell: (row) => name(row.subject_id) },
   { key: "p", header: "P", numeric: true, cell: (row) => row.played },
   { key: "w", header: "W", numeric: true, cell: (row) => row.wins },
   { key: "l", header: "L", numeric: true, cell: (row) => row.losses },
+  ...(buchholz ? [{ key: "bh", header: "Buchholz", numeric: true, cell: (row: ApiPlayerStanding) => row.tiebreak ?? 0 }] : []),
   { key: "pts", header: "Pts", numeric: true, cell: (row) => <strong>{row.points}</strong> },
 ];
 
@@ -101,7 +104,7 @@ export function CompetitionBoard({ division, staff, open = false }: { division: 
                   <DataTable
                     key={group}
                     caption={grouped ? `Group ${group}` : undefined}
-                    columns={standingColumns(doubles ? "Pair" : "Player", name)}
+                    columns={standingColumns(doubles ? "Pair" : "Player", name, format === "swiss")}
                     rows={(standings.data ?? []).filter((row) => (row.group ?? "") === group)}
                     rowKey={(row) => row.subject_id}
                   />
@@ -137,8 +140,8 @@ export function CompetitionBoard({ division, staff, open = false }: { division: 
       </Panel>
       {staff && (
         <Panel title="Organizer tools">
-          {(!drawn || format === "ladder") && (
-            <Form label={doubles ? "Add pair" : "Add player"} onSubmit={async (form) => {
+          {(!drawn || format === "ladder" || format === "round_robin") && (
+            <Form label={drawn && format === "round_robin" ? (doubles ? "Add late pair" : "Add late player") : doubles ? "Add pair" : "Add player"} onSubmit={async (form) => {
               await addApiEntry(id, {
                 user_id: text(form, "userId"),
                 display_name: text(form, "displayName") || undefined,
@@ -172,7 +175,8 @@ export function CompetitionBoard({ division, staff, open = false }: { division: 
               {allMatches.every((match) => match.status === "finalized") ? `Advance top ${String(rule(division, "advancePerGroup") ?? 2)} per group to knockout` : "Finish all group matches to continue"}
             </Action>
           )}
-          {drawn && format !== "ladder" && format !== "swiss" && <Callout>The draw is locked. Withdrawals and no-shows are handled as walkovers.</Callout>}
+          {drawn && format === "round_robin" && <Callout>A late entrant gets one match against every current player. Withdrawals and no-shows are handled as walkovers.</Callout>}
+          {drawn && format !== "ladder" && format !== "swiss" && format !== "round_robin" && <Callout>The draw is locked. Withdrawals and no-shows are handled as walkovers.</Callout>}
         </Panel>
       )}
     </>
@@ -272,7 +276,7 @@ function MatchList({ title, matches, name, staff, refresh, cancellable = false }
                       title={`Award walkover to ${name(winner)}`}
                       promptLabel="Reason (no-show, injury, withdrawal)"
                       submitLabel="Award walkover"
-                      onSubmit={async (reason) => { await awardApiWalkover(match.id, winner, reason); await refresh(); }}
+                      onSubmit={async (reason) => { await awardApiWalkover(match.id, winner as string, reason); await refresh(); }}
                     />
                   ))}
                   {cancellable && match.status !== "finalized" && (staff || me === match.player_one_id) && (

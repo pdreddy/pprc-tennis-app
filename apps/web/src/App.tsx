@@ -22,6 +22,8 @@ import {
 } from "lucide-react";
 import { auth, login, signup, googleLogin, emulator } from "./firebase";
 import { SessionProvider, useSession, useList } from "./context";
+import { demoAccounts, demoAuth, demoSignIn, demoSignOut } from "./demo-auth";
+import { Landing } from "./landing";
 import { EventCard, Field, Form, Empty, Panel, text } from "./ui";
 const EventDetail = lazy(() =>
   import("./player").then((m) => ({ default: m.EventDetail })),
@@ -124,7 +126,7 @@ function Layout() {
           }
         >
           <Routes>
-            <Route path="/" element={<Discover home />} />
+            <Route path="/" element={<Landing />} />
             <Route path="/events" element={<Discover />} />
             <Route path="/events/:eventId" element={<EventDetail />} />
             <Route
@@ -207,7 +209,7 @@ function Layout() {
         <p>Good competition. Great community.</p>
         <span>Prosper Premier Racquet Club · Texas</span>
         {user && (
-          <button className="text-button" onClick={() => signOut(auth)}>
+          <button className="text-button" data-testid="sign-out-btn" onClick={() => (demoAuth ? demoSignOut() : signOut(auth))}>
             Sign out
           </button>
         )}
@@ -236,7 +238,41 @@ export function RequireUser({ children }: { children: ReactNode }) {
     </div>
   );
 }
+function DemoSignIn() {
+  const navigate = useNavigate();
+  return (
+    <div className="page narrow" data-testid="demo-signin">
+      <p className="eyebrow">PREVIEW SIGN-IN</p>
+      <h1>Pick a demo account</h1>
+      <p className="lead">
+        This preview uses seeded club accounts instead of real Google or email sign-in.
+      </p>
+      <Panel>
+        <div className="demo-accounts">
+          {demoAccounts.map((a) => (
+            <button
+              key={a.uid}
+              className="button secondary full"
+              data-testid={`demo-signin-${a.uid}`}
+              onClick={() => {
+                demoSignIn(a.uid);
+                navigate(a.uid === "admin" ? "/admin" : "/my-events");
+              }}
+            >
+              <span>{a.name}</span>
+              <small>{a.role}</small>
+            </button>
+          ))}
+        </div>
+      </Panel>
+    </div>
+  );
+}
 function SignIn() {
+  if (demoAuth) return <DemoSignIn />;
+  return <FirebaseSignIn />;
+}
+function FirebaseSignIn() {
   const navigate = useNavigate();
   const [create, setCreate] = useState(false),
     [err, setErr] = useState("");

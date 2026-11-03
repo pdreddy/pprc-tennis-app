@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { getDownloadURL, ref } from "firebase/storage";
 import { storage } from "./firebase";
+import { StatusBadge } from "./components";
 import type { Entity } from "@pprc/shared";
 export const money = (n: number) =>
   new Intl.NumberFormat("en-US", {
@@ -38,13 +39,7 @@ export function date(value: string, zone = "America/Chicago", time = false) {
   }).format(new Date(value));
 }
 export function Badge({ children }: { children: ReactNode }) {
-  return (
-    <span
-      className={`badge ${String(children).replaceAll(" ", "-").toLowerCase()}`}
-    >
-      {children}
-    </span>
-  );
+  return <StatusBadge status={String(children)} />;
 }
 export function Field({
   label,

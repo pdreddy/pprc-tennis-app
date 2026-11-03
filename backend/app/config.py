@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     stripe_secret_key: str | None = None
     stripe_webhook_secret: str | None = None
     pprc_app_origin: str = "http://localhost:5173"
+    # Per-client limits; 0 disables the write rate limit.
+    pprc_rate_limit_writes_per_minute: int = 120
+    pprc_max_body_bytes: int = 1_000_000
 
     @property
     def cors_origins(self) -> list[str]:

@@ -277,8 +277,8 @@ function Dashboard({ events }: { events: Entity[] }) {
 function EventTable({ events }: { events: Entity[] }) {
   return (
     <Panel title="Your event calendar">
-      <div className="table-scroll">
-        <table>
+      <div className="pp-table-wrap">
+        <table className="pp-table">
           <thead>
             <tr>
               <th>Event</th>
@@ -357,7 +357,7 @@ function EventAdmin({ eventId, tab }: { eventId: string; tab: string }) {
         </div>
         <Badge>{event.status}</Badge>
       </div>
-      <nav className="tabs" aria-label="Event administration">
+      <nav className="pp-segmented" aria-label="Event administration">
         {tabs.map((t) => (
           <NavLink
             key={t}
@@ -675,8 +675,8 @@ function EventAdmin({ eventId, tab }: { eventId: string; tab: string }) {
                 >
                   {draw.published ? "Unpublish draw" : "Publish draw"}
                 </Action>
-                <div className="table-scroll">
-                  <table>
+                <div className="pp-table-wrap">
+                  <table className="pp-table">
                     <thead>
                       <tr>
                         <th>Round</th>
@@ -1013,7 +1013,7 @@ function TriaceEventOperations({ event, divisions }: { event: Entity; divisions:
           {(fixtures.data ?? []).map((fixture) => <details key={fixture.id}><summary>{fixture.round_name} · {fixture.starts_at} · {fixture.status}</summary><Form label={fixture.status === "finalized" ? "Correct final score" : "Finalize result"} onSubmit={async (form) => { const rawRubbers = text(form, "rubbers"); const result = { score_home: number(form, "homeScore"), score_away: number(form, "awayScore"), home_singles_player_ids: text(form, "homePlayers").split(",").map((value) => value.trim()).filter(Boolean), away_singles_player_ids: text(form, "awayPlayers").split(",").map((value) => value.trim()).filter(Boolean), rubbers: rawRubbers ? JSON.parse(rawRubbers) : [] }; if (fixture.status === "finalized") await correctApiFixtureResult(fixture.id, { ...result, audit_reason: text(form, "reason") }); else await submitApiFixtureResult(fixture.id, result); await refresh(); }}><Field label="Home score"><input name="homeScore" type="number" min="0" defaultValue={fixture.score_home ?? undefined} required /></Field><Field label="Away score"><input name="awayScore" type="number" min="0" defaultValue={fixture.score_away ?? undefined} required /></Field><Field label="Home singles player UIDs (comma-separated)"><input name="homePlayers" required /></Field><Field label="Away singles player UIDs (comma-separated)"><input name="awayPlayers" required /></Field><Field label="Detailed rubbers (JSON; required for playoff matches)"><textarea name="rubbers" defaultValue={fixture.result_detail?.rubbers ? JSON.stringify(fixture.result_detail.rubbers) : ""} placeholder='[{"kind":"singles","home_player_ids":["uid"],"away_player_ids":["uid"],"home_score":8,"away_score":6}]' /></Field>{fixture.status === "finalized" && <Field label="Required correction reason"><input name="reason" minLength={5} required /></Field>}</Form></details>)}
         </Panel>
         <Panel title="Standings and playoffs">
-          <div className="table-scroll"><table><thead><tr><th>Team</th><th>P</th><th>W</th><th>L</th><th>Points</th></tr></thead><tbody>{(standings.data ?? []).map((row) => <tr key={row.id}><td>{(teams.data ?? []).find((team) => team.id === row.subject_id)?.name ?? row.subject_id}</td><td>{row.played}</td><td>{row.wins}</td><td>{row.losses}</td><td>{row.points}</td></tr>)}</tbody></table></div>
+          <div className="pp-table-wrap"><table className="pp-table"><thead><tr><th>Team</th><th>P</th><th>W</th><th>L</th><th>Points</th></tr></thead><tbody>{(standings.data ?? []).map((row) => <tr key={row.id}><td>{(teams.data ?? []).find((team) => team.id === row.subject_id)?.name ?? row.subject_id}</td><td>{row.played}</td><td>{row.wins}</td><td>{row.losses}</td><td>{row.points}</td></tr>)}</tbody></table></div>
           <Form label="Generate playoff bracket" onSubmit={async (form) => { await generateApiPlayoffs(division.id, { size: number(form, "size"), starts_at: new Date(text(form, "startsAt")).toISOString() }); await refresh(); }}><Field label="Playoff teams"><select name="size" defaultValue={String(rules.playoffSize ?? 4)}><option value="2">2</option><option value="4">4</option></select></Field><Field label="First playoff start"><input name="startsAt" type="datetime-local" required /></Field></Form>
           {champion.data?.champion_team_name && <p className="notice">Champion: {champion.data.champion_team_name}</p>}
         </Panel>
@@ -1233,8 +1233,8 @@ function Members() {
         <Empty title="Club administrator access required" />
       ) : (
         <Panel title="Club directory">
-          <div className="table-scroll">
-            <table>
+          <div className="pp-table-wrap">
+            <table className="pp-table">
               <thead>
                 <tr>
                   <th>Player</th>
@@ -2092,7 +2092,8 @@ function IndividualTournamentSetup({ format }: { format: string }) {
             divisionRules.challengeExpiryDays = number(form, "challengeExpiryDays");
             divisionRules.challengeExpiryAction = text(form, "challengeExpiryAction");
           }
-          if (format === "round_robin" || format === "swiss") divisionRules.pointsPerWin = number(form, "pointsPerWin");
+          if (format === "round_robin" || format === "swiss" || format === "groups_knockout") divisionRules.pointsPerWin = number(form, "pointsPerWin");
+          if (format === "single_elimination" || format === "groups_knockout") divisionRules.thirdPlaceMatch = form.get("thirdPlaceMatch") === "on";
           if (format === "groups_knockout") {
             divisionRules.groupSize = number(form, "groupSize");
             divisionRules.groupCount = number(form, "groupCount");
@@ -2141,6 +2142,11 @@ function IndividualTournamentSetup({ format }: { format: string }) {
             </>
           )}
           {format === "swiss" && <Field label="Rounds" hint="0 = automatic (log2 of players, rounded up)"><input name="swissRounds" type="number" min="0" max="12" defaultValue="0" required /></Field>}
+          {(format === "single_elimination" || format === "groups_knockout") && (
+            <label className="check">
+              <input name="thirdPlaceMatch" type="checkbox" data-testid="third-place-checkbox" /> Play a third-place match between the semifinal losers
+            </label>
+          )}
           {format === "ladder" && <Field label="Challenge expiry (days, 0 = never)"><input name="challengeExpiryDays" type="number" min="0" max="90" defaultValue="14" required /></Field>}
           {format === "ladder" && (
             <Field label="When a challenge expires">

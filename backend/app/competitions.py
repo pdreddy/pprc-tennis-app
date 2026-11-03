@@ -21,6 +21,7 @@ from .formats import (
     snake_groups,
     elimination_round_name,
     elimination_rounds,
+    buchholz,
     ladder_after_win,
     round_robin_rounds,
     round_robin_table,
@@ -71,6 +72,7 @@ def validate_individual_rules(format_key: str, rules: dict) -> dict:
             format_key != "groups_knockout" or (3 <= int(merged["groupSize"]) <= 8 and 0 <= int(merged["groupCount"]) <= 16 and 1 <= int(merged["advancePerGroup"]) <= 4),
             format_key != "ladder" or 0 <= int(merged["challengeExpiryDays"]) <= 90,
             format_key != "ladder" or merged["challengeExpiryAction"] in {"cancel", "defender_forfeits"},
+            format_key not in {"single_elimination", "groups_knockout"} or isinstance(merged["thirdPlaceMatch"], bool),
         ]
         if not all(checks):
             raise ValueError
@@ -299,7 +301,9 @@ async def add_entry(division_id: UUID, payload: EntryCreate, session: AsyncSessi
                     raise HTTPException(status_code=409, detail="Registration has closed")
         if payload.rating is not None or payload.seed is not None:
             raise HTTPException(status_code=403, detail="Only organizers can set ratings and seeds")
-    if division.format != "ladder" and await session.scalar(select(CompetitionMatch.id).where(CompetitionMatch.division_id == division.id).limit(1)):
+    started = division.format != "ladder" and bool(await session.scalar(select(CompetitionMatch.id).where(CompetitionMatch.division_id == division.id).limit(1)))
+    late_round_robin = started and division.format == "round_robin" and staff is not None
+    if started and not late_round_robin:
         raise HTTPException(status_code=409, detail="The draw has already been generated")
     names: dict[str, str] = {}
     for person in [target, *([payload.partner_user_id] if payload.partner_user_id else [])]:
@@ -313,9 +317,24 @@ async def add_entry(division_id: UUID, payload: EntryCreate, session: AsyncSessi
         session, division, target, payload.display_name or names[target], payload.rating, payload.seed,
         payload.partner_user_id, payload.partner_name or (names.get(payload.partner_user_id) if payload.partner_user_id else None),
     )
-    await audit(session, division.club_id, actor.user_id, "entry.created", "entry", str(entry.id))
+    if late_round_robin:
+        await add_late_round_robin_matches(session, division, entry)
+    await audit(session, division.club_id, actor.user_id, "entry.created_late" if late_round_robin else "entry.created", "entry", str(entry.id))
     await session.commit()
     return entry
+
+
+async def add_late_round_robin_matches(session: AsyncSession, division: Division, entry: DivisionEntry) -> None:
+    """A late round-robin entrant gets one new match against every other active player."""
+    matches = await division_matches(session, division.id)
+    round_number = max((m.round_number for m in matches), default=0) + 1
+    opponents = [e for e in await active_entries(session, division.id) if e.user_id != entry.user_id]
+    session.add_all([
+        new_match(division, round_number=round_number, round_name="late_entry", position=position, player_one_id=opponent.user_id, player_two_id=entry.user_id, status="scheduled")
+        for position, opponent in enumerate(opponents)
+    ])
+    for person in {entry.user_id, entry.partner_user_id} - {None}:
+        await notify(session, division.club_id, person, "match", "You have been added to the draw", f"{len(opponents)} matches were scheduled for you.", {"divisionId": str(division.id)})
 
 
 @router.post("/v1/entries/{entry_id}/withdraw", response_model=EntryRead)
@@ -434,6 +453,13 @@ async def build_elimination(session: AsyncSession, division: Division, players: 
         for position, match in enumerate(row):
             match.next_match_id = grid[round_index + 1][position // 2].id
             match.next_slot = position % 2
+    third_place = None
+    if division.rules.get("thirdPlaceMatch") and len(grid) >= 2:
+        final = grid[-1][0]
+        third_place = new_match(division, round_number=final.round_number, round_name="third_place", position=1, status="pending", starts_at=final.starts_at)
+        for position, semifinal in enumerate(grid[-2]):
+            semifinal.loser_match_id, semifinal.loser_slot = third_place.id, position
+        grid.append([third_place])
     # Later rounds are inserted first so next_match_id always points at an existing row.
     session.add_all([match for row in reversed(grid) for match in row])
     await session.flush()
@@ -448,6 +474,8 @@ async def build_elimination(session: AsyncSession, division: Division, players: 
             place(nxt, match.next_slot or 0, winner)
             if nxt.player_one_id and nxt.player_two_id:
                 nxt.status = "scheduled"
+            if third_place is not None and match.loser_match_id == third_place.id:
+                third_place.status = "dead"  # a semifinal bye leaves no loser to play for third
     return [match for row in grid for match in row]
 
 
@@ -560,6 +588,11 @@ async def player_standings(division_id: UUID, session: AsyncSession = Depends(ge
             rows += [PlayerStandingRead(display_name=names.get(r["subject_id"], r["subject_id"]), group=label, **r) for r in round_robin_table(members, in_group, ppw)]
         return rows
     table = round_robin_table([entry.user_id for entry in entries], results, ppw)
+    if division.format == "swiss":
+        tiebreak = buchholz(results, {row["subject_id"]: row["points"] for row in table})
+        for row in table:
+            row["tiebreak"] = tiebreak.get(row["subject_id"], 0.0)
+        table.sort(key=lambda r: (-r["points"], -r["wins"], -r["tiebreak"], r["subject_id"]))
     return [PlayerStandingRead(display_name=names.get(row["subject_id"], row["subject_id"]), **row) for row in table]
 
 
