@@ -1,6 +1,5 @@
 """Monthly club leaderboard email: biggest climbers, new milestones and the top of the rankings."""
 import logging
-import os
 from datetime import datetime, timedelta, timezone
 from html import escape
 from uuid import UUID
@@ -10,6 +9,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from .config import app_origin
 from .emailer import send_email
 from .models import Club, Membership, PlayerPreference, PlayerProfile, RatedMatch, RatingHistory
 from .rating_service import milestones_for
@@ -90,7 +90,7 @@ async def send_club_digests(session: AsyncSession, club_id: UUID, now: datetime 
     profiles = {p.user_id: p.display_name for p in (await session.scalars(select(PlayerProfile).where(PlayerProfile.club_id == club_id))).all()}
     recipients = (await session.scalars(select(PlayerPreference).where(PlayerPreference.club_id == club_id, PlayerPreference.monthly_digest.is_(True), PlayerPreference.email.is_not(None)))).all()
     sent = failed = 0
-    app_url = os.environ["PPRC_APP_ORIGIN"].rstrip("/")
+    app_url = app_origin()
     for prefs in recipients:
         if prefs.digest_sent_month == key:
             continue

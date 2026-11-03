@@ -1,6 +1,5 @@
 """Match challenges (from the fair match finder) and head-to-head rivalry pages."""
 import logging
-import os
 import re
 from datetime import datetime, timedelta, timezone
 from html import escape
@@ -13,6 +12,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from .config import app_origin
 from .auth import Actor, current_actor
 from .common import audit, notify
 from .database import get_session
@@ -109,7 +109,7 @@ async def email_opponent(session: AsyncSession, c: Challenge, challenger_name: s
     if prefs is None or not prefs.email:
         return False
     mine = next((r for r in await club_ratings(session, c.club_id, "singles") if r.user_id == from_id), None)
-    link = f"{os.environ['PPRC_APP_ORIGIN'].rstrip('/')}/me/matches?challenge={c.id}"
+    link = f"{app_origin()}/me/matches?challenge={c.id}"
     subject = f"Reminder: {challenger_name} is waiting on your PPRC challenge" if reminder else f"{challenger_name} challenged you on PPRC"
     try:
         await send_email(to=prefs.email, subject=subject, html=challenge_email(challenger_name, float(mine.rating) if mine else None, c.proposed_at, link, reminder))

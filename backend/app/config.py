@@ -11,7 +11,8 @@ class Settings(BaseSettings):
     pprc_cors_origins: str = "http://localhost:5173"
     # None = create tables automatically in development only; deployed schemas are managed with sql/*.sql.
     pprc_bootstrap_schema: bool | None = None
-    pprc_environment: str = "development"
+    # Deployed by default: the X-PPRC-User impersonation header must be opted into with PPRC_ENVIRONMENT=development.
+    pprc_environment: str = "production"
     firebase_project_id: str | None = None
     clerk_secret_key: str | None = None
     # "auto" keeps the legacy behaviour (Clerk when its secret is set, otherwise Firebase). Pin "clerk" or
@@ -61,3 +62,8 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+def app_origin() -> str:
+    """Public web origin used in email links, without a trailing slash."""
+    return get_settings().pprc_app_origin.rstrip("/")

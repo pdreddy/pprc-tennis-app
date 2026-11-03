@@ -21,6 +21,7 @@ services:
       DATABASE_URL: postgresql+asyncpg://pprc:pprc@postgres:5432/pprc
       PPRC_CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5174
       PPRC_BOOTSTRAP_SCHEMA: "true"
+      PPRC_ENVIRONMENT: development
       # Lets FastAPI verify the same Firebase Auth emulator tokens issued to the PWA.
       # Production replaces these with the real Firebase project configuration.
       FIREBASE_PROJECT_ID: demo-pprc-events

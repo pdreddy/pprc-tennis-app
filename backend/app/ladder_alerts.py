@@ -1,12 +1,12 @@
 """Day-before warnings for ladder challenges that are about to pass their deadline."""
 import logging
-import os
 from datetime import datetime, timedelta, timezone
 from html import escape
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from .config import app_origin
 from .common import notify
 from .competitions import OPEN_STATUSES, division_matches, sides
 from .emailer import send_email
@@ -37,7 +37,7 @@ async def warn_division(session: AsyncSession, division: Division, event_name: s
         return 0
     forfeit = division.rules.get("challengeExpiryAction") == "defender_forfeits"
     names = await names_for(session, division.club_id)
-    link = f"{os.environ['PPRC_APP_ORIGIN'].rstrip('/')}/ladder"
+    link = f"{app_origin()}/ladder"
     warned = 0
     for match in await division_matches(session, division.id):
         if match.round_name != "challenge" or match.status != "scheduled" or match.deadline_warned_at is not None:

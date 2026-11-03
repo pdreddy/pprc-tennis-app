@@ -1,4 +1,5 @@
 """Authentication boundary: Emergent-managed (Clerk) sessions, Firebase ID tokens, or the local demo header."""
+import time
 from dataclasses import dataclass
 
 from fastapi import Header, HTTPException, status
@@ -15,7 +16,8 @@ class Actor:
     email_verified: bool = False
 
 
-_clerk_users: dict[str, Actor] = {}
+CLERK_PROFILE_TTL = 300
+_clerk_users: dict[str, tuple[float, Actor]] = {}  # user id -> (fetched at, profile); refreshed so Clerk edits and deletions show up
 
 
 def _clerk_actor(token: str) -> Actor:
@@ -28,7 +30,8 @@ def _clerk_actor(token: str) -> Actor:
         from backend.clerk_auth import verify_session_token
 
     user_id = verify_session_token(token)["sub"]
-    if user_id not in _clerk_users:
+    cached = _clerk_users.get(user_id)
+    if cached is None or time.monotonic() - cached[0] > CLERK_PROFILE_TTL:
         try:
             response = requests.get(
                 f"https://api.clerk.com/v1/users/{user_id}", timeout=10,
@@ -41,16 +44,16 @@ def _clerk_actor(token: str) -> Actor:
         data = response.json()
         primary = next((e for e in data.get("email_addresses", []) if e["id"] == data.get("primary_email_address_id")), None)
         name = " ".join(part for part in (data.get("first_name"), data.get("last_name")) if part) or None
-        _clerk_users[user_id] = Actor(
+        actor = Actor(
             user_id=user_id,
             email=primary["email_address"] if primary else None,
             name=name or (primary["email_address"].split("@")[0] if primary else None),
             email_verified=bool(primary and (primary.get("verification") or {}).get("status") == "verified"),
         )
-    actor = _clerk_users[user_id]
-    if not actor.email_verified:
-        _clerk_users.pop(user_id)  # look again next time until the email is verified
-    return actor
+        if actor.email_verified:  # an unverified email is looked up again on the next request
+            _clerk_users[user_id] = (time.monotonic(), actor)
+        return actor
+    return cached[1]
 
 
 def _verify_firebase_token(token: str) -> Actor:

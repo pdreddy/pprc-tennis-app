@@ -33,3 +33,21 @@ def test_pinned_provider_without_credentials_is_an_error(values, message):
 def test_valid_configs_have_no_error():
     assert make().auth_config_error() is None
     assert make(pprc_auth_provider="clerk", clerk_secret_key="sk").auth_config_error() is None
+
+
+def test_environment_defaults_to_production_without_dev_header():
+    assert make().allow_development_header is False
+    assert make(pprc_environment="development").allow_development_header is True
+
+
+def test_bootstrap_schema_defaults_to_development_only():
+    assert make().bootstrap_schema is False
+    assert make(pprc_environment="development").bootstrap_schema is True
+    assert make(pprc_bootstrap_schema=True).bootstrap_schema is True
+
+
+def test_app_origin_has_no_trailing_slash(monkeypatch):
+    from app import config
+
+    monkeypatch.setattr(config, "get_settings", lambda: make(pprc_app_origin="https://x.example/"))
+    assert config.app_origin() == "https://x.example"

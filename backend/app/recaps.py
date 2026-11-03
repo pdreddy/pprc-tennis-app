@@ -1,7 +1,6 @@
 """Weekly PPRC Rating recap email: automatic on Monday 8:00 America/Chicago, or sent by a club admin."""
 import asyncio
 import logging
-import os
 from datetime import datetime, timedelta, timezone
 from html import escape
 from uuid import UUID
@@ -14,6 +13,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from .config import app_origin
 from .auth import Actor, current_actor
 from .common import audit
 from .database import SessionLocal, get_session
@@ -91,7 +91,7 @@ RECAP_SUBJECT = "Your PPRC weekly rating recap"
 async def recap_for(session: AsyncSession, club_id: UUID, user_id: str) -> str:
     profile = await session.scalar(select(PlayerProfile).where(PlayerProfile.club_id == club_id, PlayerProfile.user_id == user_id))
     name = profile.display_name if profile else "there"
-    return recap_html(name, await recap_data(session, club_id, user_id), os.environ["PPRC_APP_ORIGIN"].rstrip("/"))
+    return recap_html(name, await recap_data(session, club_id, user_id), app_origin())
 
 
 async def send_recap(session: AsyncSession, club_id: UUID, prefs: PlayerPreference) -> None:
@@ -167,7 +167,7 @@ async def render_preview(session: AsyncSession, club_id: UUID, actor: Actor, kin
         data = await digest_data(session, club_id, start, end)
         me = await session.scalar(select(PlayerProfile.display_name).where(PlayerProfile.club_id == club_id, PlayerProfile.user_id == actor.user_id))
         opted = PlayerPreference.monthly_digest
-        subject, html = await digest_subject(session, club_id, data["label"]), digest_html(me or "there", data, os.environ["PPRC_APP_ORIGIN"].rstrip("/"), so_far=True)
+        subject, html = await digest_subject(session, club_id, data["label"]), digest_html(me or "there", data, app_origin(), so_far=True)
     recipients = (await session.scalars(select(PlayerPreference.id).where(PlayerPreference.club_id == club_id, opted.is_(True), PlayerPreference.email.is_not(None)))).all()
     return {"type": kind, "subject": subject, "html": html, "recipients": len(recipients)}
 
