@@ -1,0 +1,53 @@
+{
+  "summary": "Round-2 PPRC Rating test via public preview URL. Backend: the existing rating suites (test_rating_flow + test_pprc_rating, 21 tests) pass against the preview. A new regression file has 15 tests: 14 pass and 1 fails because a doubles report accepts the reporter as their own partner. Frontend: all 14 requested flows were checked with Playwright and work: landing/install help, demo sign-in + nav, rankings (sort, P markers, reliability, Singles/Doubles, Club/All clubs, city/state/age/category/min/max filters), players directory (search, private player16 hidden for players and visible to admin), profile page (cards, chart, recent matches), /me/rating edit with visibility select and starting level locked, visitor 'Join the club first', report -> confirm -> Finalized + Rated with ratings moving for both players, dispute (Send button disabled under 5 chars) -> admin 'Club results needing attention' -> Verify -> Void reverts rating exactly, walkover/incomplete/no score show 'Not rated' and ratings do not change, doubles report changes only doubles + partner chip, ladder Challenge (3 above) / Cancel challenge, admin sidebar hides Courts/Members, third-place checkbox, /schedule /results /profile redirects, mobile 390 menu toggle with no page-level overflow. Pagination (>25) could not be tested in the UI because the demo has only 15 rated players; the API paging works.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/v1/clubs/{club_id}/match-results", "issue": "A doubles report with partner_id == the reporter's own uid is accepted (201). side_one becomes [a, a]; the length check passes and only side_one vs side_two overlap is checked. If confirmed, the same player is rated twice in one match. Fix: reject when len(set(side_one)) != size (ratings.py report_result)."},
+      {"endpoint": "GET /api/v1/clubs/{club_id}/rankings (with filters)", "issue": "The 30-day 'movement' value is wrong when filters are applied. history_rank_movement adds every club player found in RatingHistory to the 'then' map, not just the filtered rows. So with city=Frisco, player5 shows +2, player9 +4 and player13 +5, while the unfiltered list shows 0 for all three. It also counts private/hidden players in the previous order. Fix: only seed 'then' from history entries for users in rows."},
+      {"endpoint": "GET /api/v1/clubs/{club_id}/players/{uid} and /match-results", "issue": "Privacy: a PRIVATE player's name and match scores still show up in other players' recent_matches lists. Example: player1 viewing player9 sees 'Demo Player 16' in two results. Decide whether private players should be anonymised (e.g. 'Private player') for non-staff viewers."},
+      {"endpoint": "player_detail record / recent_form", "issue": "The 'Record' and W/L form chips count finalized but UNRATED results that have a winner_side (walkover, no_score). Player13 shows Record 4-1 while the rating cards show singles 1-1 and doubles 1-0. Either count only rated matches, or label the record clearly."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "MyMatches for non-member (visitor)", "issue": "/me/matches shows the full Report form and an empty 'No matches yet' list with no message. The players query fails with 403 silently, so the opponent dropdown is empty. Show the 'Join the club first' empty state as /me/rating does.", "selector": "[data-testid='my-matches-page']", "priority": "LOW"},
+      {"component": "Rankings/Players for visitor", "issue": "The raw error text 'Club membership required' appears under the filters. Default a visitor to the All clubs scope or show a friendly join message.", "selector": "[data-testid='rankings-page']", "priority": "LOW"},
+      {"component": "ReportForm", "issue": "After a successful 'Send for confirmation' the form keeps the opponent and score values, so it is easy to submit a duplicate by accident. Reset the form after success.", "selector": "[data-testid='report-score']", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "TRIACE 2.0 create form (/admin/events/new)", "issues": ["Still says 'Minimum combined UTR' / 'Maximum combined UTR' / 'Maximum UTR per player'. The product requirement is the PPRC Rating, never UTR. The Single elimination form already says 'PPRC rating'."]},
+      {"screen": "Global footer", "issues": ["The footer is a boxed block (not full width). On short pages (/me/rating as visitor, All clubs rankings) it floats mid-screen with a large empty area below it."]},
+      {"screen": "Rating history chart", "issues": ["No axis labels, values or dates, and the line only spans the middle ~40% of the card, so the chart is hard to read."]},
+      {"screen": "Forms (Report a match 'Played on', create tournament dates)", "issues": ["Use the browser's native datetime-local picker instead of a styled date picker component."]},
+      {"screen": "Join the club first empty state", "issues": ["Uses a calendar icon, which does not fit the membership message."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iteration1_rating_api.py", "/app/backend/tests/test_rating_flow.py", "/app/backend/tests/test_pprc_rating.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "Reject a doubles partner equal to the reporter (and any duplicate across all four slots) in report_result",
+    "Fix history_rank_movement so movement is computed only within the filtered/visible row set",
+    "Decide on and apply anonymisation of private players in other players' match lists for non-staff viewers",
+    "Make Record/recent form consistent with rated matches (or label unrated wins)",
+    "Replace UTR wording in the TRIACE create form with PPRC Rating",
+    "Show a friendly non-member state on /me/matches (and on club-scope rankings/players for visitors)",
+    "Reset the Report a match form after a successful submit"
+  ],
+  "critical_code_review_comments": [
+    "ratings.py report_result: the size check uses len(side_one) without dedupe, so a self-partner passes",
+    "ratings.py history_rank_movement: the 'then' map is polluted by users outside 'rows' (filters, private profiles, zero-match users)",
+    "recalculate_club deletes and rebuilds every PlayerRating/RatingHistory row on every confirm/verify/void/profile save. This is fine for a club of this size but is O(all matches) per write; consider debouncing or incremental replay from the changed date for big clubs",
+    "save_my_player calls recalculate_club on every profile save, even when only city or visibility changed",
+    "ReportForm loads players with page_size 100, so clubs with more than 100 members will have missing opponents (needs a searchable picker)",
+    "list_results caps at 500 rows before the mine filter, so older results of a player can disappear in busy clubs"
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration1_rating_api.py"],
+  "success_rate": {"backend": "96% (35/36 incl. existing rating suites; 14/15 new)", "frontend": "100% of requested flows functional (pagination UI not exercisable: only 15 rated players)"},
+  "test_credentials": "Demo sign-in buttons per /app/memory/test_credentials.md (admin, player1..16, visitor); header X-PPRC-User for API",
+  "seed_data_creation": "In the demo club: player9 vs player10 singles 6-4 6-4 (confirmed, rated); player11 vs player12 (disputed -> verified -> voided); player13 vs player14 walkover/incomplete/no_score (confirmed, unrated); doubles player13+14 vs player15+12 6-3 6-2 (confirmed, rated). Player1 profile was edited and then reverted. The player5 ladder challenge was cancelled and re-created vs player2. Throwaway TEST_ clubs were created by pytest.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run backend tests with: REACT_APP_BACKEND_URL=<url> python -m pytest backend/tests/test_iteration1_rating_api.py; and API_BASE_URL=<url>/api PYTHONPATH=/app/backend pytest backend/tests/test_rating_flow.py backend/tests/test_pprc_rating.py. Re-check test_doubles_partner_cannot_be_self and the filtered movement (GET rankings?city=Frisco should show movement consistent with unfiltered). Ladder cancel uses a confirm dialog that is not role=dialog; click the last 'Cancel challenge' button. Tabs are button[role=tab].",
+  "rca of the issue": "Self-partner: side_one=[actor, partner_id] and the check `len(side_one) != size or set(side_one) & set(side_two)` never dedupes side_one. Movement: history_rank_movement iterates all club RatingHistory rows and adds any user_id to `then`, so filtered lists are ranked against the whole club's previous order. Repro: GET /api/v1/clubs/82a25bc1-.../rankings?kind=singles&city=Frisco as player1 -> movement 2/4/5 vs 0 unfiltered."
+}

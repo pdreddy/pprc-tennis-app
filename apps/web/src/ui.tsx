@@ -71,13 +71,15 @@ export function Field({
 export function Empty({
   title,
   children,
+  icon,
 }: {
   title: string;
   children?: ReactNode;
+  icon?: ReactNode;
 }) {
   return (
     <div className="empty">
-      <CalendarDays size={32} />
+      {icon ?? <CalendarDays size={32} />}
       <h3>{title}</h3>
       <p>{children ?? "Check back soon for the next opportunity to play."}</p>
     </div>

@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, Minus, Search, UserRound } from "lucide-react";
+import { ArrowDown, ArrowUp, Minus, Search, UserRound, Users } from "lucide-react";
 import {
   confirmResult, disputeResult, finalizeResult, getMyPlayer, getPlayer, getPublicApiEvent, getPublicPlayer, listClubRankings, listClubResults,
   listMyResults, listPlatformRankings, listPlayers, listPublicApiDivisions, listPublicApiEvents, reportResult, saveMyPlayer, voidResult,
@@ -48,14 +48,26 @@ function Avatar({ name, src }: { name: string; src?: string | null }) {
 function RatingChart({ points }: { points: { played_at: string; rating: number }[] }) {
   if (points.length < 2) return <p className="hint">The chart appears after two verified matches.</p>;
   const values = points.map((p) => p.rating);
-  const min = Math.min(...values) - 0.2, max = Math.max(...values) + 0.2;
-  const xy = points.map((p, i) => `${(i / (points.length - 1)) * 300},${100 - ((p.rating - min) / (max - min)) * 100}`);
+  const low = Math.min(...values), high = Math.max(...values);
+  const min = low - 0.2, max = high + 0.2;
+  const xy = points.map((p, i) => [(i / (points.length - 1)) * 300, 100 - ((p.rating - min) / (max - min)) * 100]);
+  const day = (value: string) => new Date(value).toLocaleDateString(undefined, { month: "short", day: "numeric" });
   return (
-    <svg className="pr-chart" viewBox="-4 -6 308 112" role="img" aria-label="Rating history chart" data-testid="rating-history-chart">
-      <polyline points={xy.join(" ")} />
-      {xy.map((pt, i) => <circle key={i} cx={pt.split(",")[0]} cy={pt.split(",")[1]} r="3" />)}
-    </svg>
+    <figure className="pr-chart-wrap" data-testid="rating-history-chart">
+      <div className="pr-chart-axis"><span>{high.toFixed(2)}</span><span>{low.toFixed(2)}</span></div>
+      <div className="pr-chart-plot">
+        <svg className="pr-chart" viewBox="0 -4 300 108" preserveAspectRatio="none" role="img" aria-label={`Rating history from ${values[0].toFixed(2)} to ${values[values.length - 1].toFixed(2)}`}>
+          <polyline points={xy.map(([x, y]) => `${x},${y}`).join(" ")} vectorEffect="non-scaling-stroke" />
+        </svg>
+        {xy.map(([x, y], i) => <span key={i} className="pr-dot" style={{ left: `${(x / 300) * 100}%`, top: `${((y + 4) / 108) * 100}%` }} title={`${day(points[i].played_at)}: ${points[i].rating.toFixed(2)}`} />)}
+      </div>
+      <figcaption><span>{day(points[0].played_at)}</span><strong>Now {values[values.length - 1].toFixed(2)}</strong><span>{day(points[points.length - 1].played_at)}</span></figcaption>
+    </figure>
   );
+}
+
+function JoinClub() {
+  return <Empty icon={<Users size={32} />} title="Join the club first">Club players, rankings and results are visible to PPRC members. Ask a club organizer to add you.</Empty>;
 }
 
 function PlayerDetailView({ detail, children }: { detail: ApiPlayerDetail; children?: ReactNode }) {
@@ -110,10 +122,12 @@ export function PlayerPage() {
 }
 
 export function PlayersDirectory() {
+  const { member } = useSession();
   const [filters, setFilters] = useState<Record<string, string>>({});
   const [page, setPage] = useState(1);
-  const q = useQuery({ queryKey: ["players", filters, page], queryFn: () => listPlayers({ ...filters, page, page_size: 24 }) });
+  const q = useQuery({ queryKey: ["players", filters, page], queryFn: () => listPlayers({ ...filters, page, page_size: 24 }), enabled: !!member });
   const set = (key: string, value: string) => { setPage(1); setFilters((f) => ({ ...f, [key]: value })); };
+  if (!member) return <div className="page" data-testid="players-page"><h1>Players</h1><JoinClub /></div>;
   return (
     <div className="page" data-testid="players-page">
       <p className="eyebrow">THE CLUB</p>
@@ -161,9 +175,10 @@ function Pager({ page, total, size, onPage }: { page: number; total: number; siz
 }
 
 export function RankingsPage() {
-  const { user } = useSession();
+  const { member } = useSession();
   const [kind, setKind] = useState<RatingKind>("singles");
-  const [scope, setScope] = useState<"club" | "platform">(user ? "club" : "platform");
+  const [chosenScope, setScope] = useState<"club" | "platform">("club");
+  const scope = member ? chosenScope : "platform";
   const [filters, setFilters] = useState<Record<string, string>>({});
   const [page, setPage] = useState(1);
   const q = useQuery({
@@ -177,7 +192,7 @@ export function RankingsPage() {
       <h1>Rankings</h1>
       <div className="pr-toolbar">
         <Tabs label="Rating kind" value={kind} onChange={(k) => { setKind(k); setPage(1); }} options={kinds} />
-        <Tabs label="Ranking scope" value={scope} onChange={(s) => { setScope(s); setPage(1); }} options={[...(user ? [{ value: "club" as const, label: "Club" }] : []), { value: "platform" as const, label: "All clubs" }]} />
+        <Tabs label="Ranking scope" value={scope} onChange={(s) => { setScope(s); setPage(1); }} options={[...(member ? [{ value: "club" as const, label: "Club" }] : []), { value: "platform" as const, label: "All clubs" }]} />
       </div>
       {scope === "club" && (
         <div className="pr-filters">
@@ -221,7 +236,7 @@ export function MyRating() {
   const q = useQuery({ queryKey: ["my-player"], queryFn: getMyPlayer });
   const [editing, setEditing] = useState(false);
   if (q.isLoading) return <div className="page" role="status">Loading your rating…</div>;
-  if (q.error) return <div className="page"><Empty title="Join the club first">{(q.error as Error).message}</Empty></div>;
+  if (q.error) return <div className="page"><JoinClub /></div>;
   const detail = q.data!;
   const onboarding = !detail.profile.has_profile;
   const locked = (detail.ratings.singles?.verified_matches ?? 0) + (detail.ratings.doubles?.verified_matches ?? 0) > 0;
@@ -320,6 +335,7 @@ function ResultList({ title, results }: { title: string; results: ApiResult[] })
 function ReportForm() {
   const qc = useQueryClient();
   const [kind, setKind] = useState<RatingKind>("singles");
+  const [formKey, setFormKey] = useState(0);
   const players = useQuery({ queryKey: ["players", "all"], queryFn: () => listPlayers({ page_size: 100 }) });
   const { user } = useSession();
   const options = (players.data?.items ?? []).filter((p) => p.user_id !== user?.uid);
@@ -328,7 +344,7 @@ function ReportForm() {
   );
   return (
     <Panel title="Report a match" action={<Tabs label="Match kind" value={kind} onChange={setKind} options={kinds} />}>
-      <Form label="Send for confirmation" onSubmit={async (form) => {
+      <Form key={formKey} label="Send for confirmation" onSubmit={async (form) => {
         const outcome = text(form, "outcome");
         await reportResult({
           kind, outcome, match_format: text(form, "format"), score_text: text(form, "score") || undefined,
@@ -337,6 +353,7 @@ function ReportForm() {
           winner_side: text(form, "winner") ? (Number(text(form, "winner")) as 1 | 2) : undefined,
           played_at: text(form, "playedAt") ? new Date(text(form, "playedAt")).toISOString() : undefined,
         });
+        setFormKey((k) => k + 1);
         await qc.invalidateQueries();
       }}>
         <FieldGrid>
@@ -358,9 +375,10 @@ function ReportForm() {
 export function MyMatches() {
   const { member } = useSession();
   const staff = isStaff(member?.role);
-  const mine = useQuery({ queryKey: ["results", "mine"], queryFn: listMyResults });
+  const mine = useQuery({ queryKey: ["results", "mine"], queryFn: listMyResults, enabled: !!member });
   const queue = useQuery({ queryKey: ["results", "queue"], queryFn: () => listClubResults(), enabled: staff });
   const pending = (mine.data ?? []).filter((r) => r.status === "reported");
+  if (!member) return <div className="page" data-testid="my-matches-page"><h1>My matches</h1><JoinClub /></div>;
   return (
     <div className="page" data-testid="my-matches-page">
       <p className="eyebrow">RESULTS</p>

@@ -102,14 +102,25 @@ def profile_view(profile: PlayerProfile | None, user_id: str, name: str, *, full
     return base
 
 
-def match_view(match: RatedMatch, names: dict[str, str]) -> dict:
+def match_view(match: RatedMatch, names: dict[str, str], hidden: set[str] = frozenset()) -> dict:
+    def person(u: str) -> dict:
+        return {"user_id": "private", "display_name": "Private player"} if u in hidden else {"user_id": u, "display_name": names.get(u, u)}
+
     return {
         "id": str(match.id), "source": match.source, "kind": match.kind, "status": match.status, "outcome": match.outcome,
         "rated": match.rated, "score_text": match.score_text, "winner_side": match.winner_side, "match_format": match.match_format,
         "played_at": match.played_at, "reported_by": match.reported_by, "dispute_reason": match.dispute_reason, "correction_reason": match.correction_reason,
-        "side_one": [{"user_id": u, "display_name": names.get(u, u)} for u in match.side_one],
-        "side_two": [{"user_id": u, "display_name": names.get(u, u)} for u in match.side_two],
+        "side_one": [person(u) for u in match.side_one],
+        "side_two": [person(u) for u in match.side_two],
     }
+
+
+async def hidden_for(session: AsyncSession, club_id: UUID, viewer: str, staff: bool) -> set[str]:
+    """Private players are anonymised in match lists for everyone except themselves and staff."""
+    if staff:
+        return set()
+    rows = (await session.scalars(select(PlayerProfile.user_id).where(PlayerProfile.club_id == club_id, PlayerProfile.visibility == "private"))).all()
+    return set(rows) - {viewer}
 
 
 async def club_ratings(session: AsyncSession, club_id: UUID, kind: str) -> list[PlayerRating]:
@@ -117,7 +128,7 @@ async def club_ratings(session: AsyncSession, club_id: UUID, kind: str) -> list[
     return sorted(rows, key=lambda r: (-float(r.rating), -float(r.reliability), r.user_id))
 
 
-async def player_detail(session: AsyncSession, club_id: UUID, user_id: str, *, full: bool) -> dict:
+async def player_detail(session: AsyncSession, club_id: UUID, user_id: str, *, full: bool, hidden: set[str] = frozenset()) -> dict:
     profile = await session.scalar(select(PlayerProfile).where(PlayerProfile.club_id == club_id, PlayerProfile.user_id == user_id))
     names = await names_for(session, club_id)
     if profile is None and user_id not in names:
@@ -129,15 +140,15 @@ async def player_detail(session: AsyncSession, club_id: UUID, user_id: str, *, f
         ratings[kind] = rating_view(row, ordered.index(row) + 1 if row and row.verified_matches else None)
     history = list((await session.scalars(select(RatingHistory).where(RatingHistory.club_id == club_id, RatingHistory.user_id == user_id).order_by(RatingHistory.played_at))).all())
     matches = [m for m in (await session.scalars(select(RatedMatch).where(RatedMatch.club_id == club_id).order_by(RatedMatch.played_at.desc()))).all() if user_id in m.side_one or user_id in m.side_two]
-    finalized = [m for m in matches if m.status == "finalized" and m.winner_side]
+    finalized = [m for m in matches if m.status == "finalized" and m.rated]
     form = ["W" if (m.winner_side == 1) == (user_id in m.side_one) else "L" for m in finalized[:5]]
-    partners = sorted({u for m in finalized if m.kind == "doubles" for side in (m.side_one, m.side_two) if user_id in side for u in side if u != user_id})
+    partners = sorted({u for m in finalized if m.kind == "doubles" for side in (m.side_one, m.side_two) if user_id in side for u in side if u != user_id and u not in hidden})
     return {
         "profile": profile_view(profile, user_id, names.get(user_id, user_id), full=full),
         "ratings": ratings, "recent_form": form,
         "record": {"wins": sum(1 for m in finalized if (m.winner_side == 1) == (user_id in m.side_one)), "losses": sum(1 for m in finalized if (m.winner_side == 1) != (user_id in m.side_one))},
         "history": [{"kind": h.kind, "played_at": h.played_at, "rating": round(float(h.rating_after), 2)} for h in history],
-        "recent_matches": [match_view(m, names) for m in matches[:10]],
+        "recent_matches": [match_view(m, names, hidden) for m in matches[:10]],
         "doubles_partners": [{"user_id": u, "display_name": names.get(u, u)} for u in partners],
     }
 
@@ -150,7 +161,7 @@ async def rating_formula() -> dict:
 @router.get("/v1/clubs/{club_id}/players/me")
 async def my_player(club_id: UUID, session: AsyncSession = Depends(get_session), actor: Actor = Depends(current_actor)) -> dict:
     await require_member(session, club_id, actor.user_id)
-    return await player_detail(session, club_id, actor.user_id, full=True)
+    return await player_detail(session, club_id, actor.user_id, full=True, hidden=await hidden_for(session, club_id, actor.user_id, False))
 
 
 @router.put("/v1/clubs/{club_id}/players/me")
@@ -225,7 +236,8 @@ async def get_player(club_id: UUID, user_id: str, session: AsyncSession = Depend
     profile = await session.scalar(select(PlayerProfile).where(PlayerProfile.club_id == club_id, PlayerProfile.user_id == user_id))
     if not visible(profile, actor.user_id, is_staff(viewer)):
         raise HTTPException(status_code=404, detail="Player not found")
-    return await player_detail(session, club_id, user_id, full=is_staff(viewer) or user_id == actor.user_id)
+    staff = is_staff(viewer)
+    return await player_detail(session, club_id, user_id, full=staff or user_id == actor.user_id, hidden=await hidden_for(session, club_id, actor.user_id, staff))
 
 
 @router.get("/v1/public/clubs/{slug}/players/{user_id}")
@@ -248,7 +260,7 @@ async def history_rank_movement(session: AsyncSession, club_id: UUID, kind: str,
     then = {r.user_id: float(r.rating) for r in rows}
     seen: set[str] = set()
     for h in history:
-        if h.user_id not in seen:
+        if h.user_id in then and h.user_id not in seen:
             then[h.user_id] = float(h.rating_before)
             seen.add(h.user_id)
     previous = {user: index + 1 for index, user in enumerate(sorted(then, key=lambda u: -then[u]))}
@@ -334,7 +346,7 @@ async def report_result(club_id: UUID, payload: ResultInput, session: AsyncSessi
     side_one = [actor.user_id, *([payload.partner_id] if payload.partner_id else [])]
     side_two = list(dict.fromkeys(payload.opponent_ids))
     size = 2 if payload.kind == "doubles" else 1
-    if len(side_one) != size or len(side_two) != size or set(side_one) & set(side_two):
+    if len(set(side_one)) != size or len(set(side_two)) != size or set(side_one) & set(side_two):
         raise HTTPException(status_code=422, detail=f"{payload.kind.title()} needs {size} different player(s) per side")
     for person in side_one[1:] + side_two:
         if await membership(session, club_id, person) is None:
@@ -366,7 +378,8 @@ async def list_results(club_id: UUID, mine: bool = True, status_filter: str | No
     if status_filter:
         rows = [m for m in rows if m.status == status_filter]
     names = await names_for(session, club_id)
-    return [match_view(m, names) for m in rows]
+    hidden = await hidden_for(session, club_id, actor.user_id, is_staff(viewer))
+    return [match_view(m, names, hidden) for m in rows]
 
 
 async def load_reported(session: AsyncSession, result_id: UUID) -> RatedMatch:

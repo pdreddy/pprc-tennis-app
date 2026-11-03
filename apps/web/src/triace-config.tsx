@@ -92,9 +92,9 @@ export function TriaceRulesFields({ config = triaceDefaults, lockTeamSize = fals
       <FieldGrid>
         <Field label="Players per team" hint={lockTeamSize ? "Locked: teams have registered" : "2 to 6"}><input name="teamSize" type="number" min="2" max="6" defaultValue={config.teamSize} disabled={lockTeamSize} required /></Field>
         {lockTeamSize && <input type="hidden" name="teamSize" value={config.teamSize} />}
-        <Field label="Minimum combined UTR"><input name="teamMinRating" type="number" min="0" max="120" step="0.1" defaultValue={config.teamMinRating} required /></Field>
-        <Field label="Maximum combined UTR"><input name="teamMaxRating" type="number" min="0" max="120" step="0.1" defaultValue={config.teamMaxRating} required /></Field>
-        <Field label="Maximum UTR per player"><input name="playerMaxRating" type="number" min="1" max="20" step="0.1" defaultValue={config.playerMaxRating} required /></Field>
+        <Field label="Minimum combined PPRC rating"><input name="teamMinRating" type="number" min="0" max="120" step="0.1" defaultValue={config.teamMinRating} required /></Field>
+        <Field label="Maximum combined PPRC rating"><input name="teamMaxRating" type="number" min="0" max="120" step="0.1" defaultValue={config.teamMaxRating} required /></Field>
+        <Field label="Maximum PPRC rating per player"><input name="playerMaxRating" type="number" min="1" max="20" step="0.1" defaultValue={config.playerMaxRating} required /></Field>
       </FieldGrid>
       <SectionTitle>Encounter format</SectionTitle>
       <FieldGrid>
@@ -124,7 +124,7 @@ export function TriaceConfigSummary({ config }: { config: TriaceConfig }) {
     <Panel title="Competition settings">
       <StatGrid items={[
         { label: "Players per team", value: config.teamSize },
-        { label: "Combined UTR", value: `${config.teamMinRating}–${config.teamMaxRating}` },
+        { label: "Combined rating", value: `${config.teamMinRating}–${config.teamMaxRating}` },
         { label: "Singles eligibility", value: `${Math.round(config.minSinglesParticipationPct * 100)}%` },
         { label: "Points (W/L)", value: `${config.pointsPerWin}/${config.pointsPerLoss}` },
         { label: "Playoff teams", value: config.playoffSize },

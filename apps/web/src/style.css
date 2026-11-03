@@ -2182,7 +2182,10 @@ th { background: #f1f5f8; color: #64748b; font-family: "DM Mono", monospace; }
 .stat-card:nth-child(3) svg { color: #d0674d; }
 .stat-card strong { color: var(--ink); }
 .score-record { border-color: #e3eaf1; }
-footer { background: var(--ink); color: #9bacbf; border: 0; padding: 42px clamp(20px, 5vw, 72px); }
+footer { background: var(--ink); color: #9bacbf; border: 0; padding: 42px clamp(20px, 5vw, 72px); max-width: none; margin: 0; }
+body { min-height: 100vh; }
+#root { min-height: 100vh; display: flex; flex-direction: column; }
+#root > main { flex: 1 0 auto; }
 footer .brand, footer .brand span { color: #fff; }
 footer .footer-brand span { color: var(--court); }
 

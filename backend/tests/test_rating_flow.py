@@ -137,3 +137,20 @@ def test_tournament_results_feed_ratings_and_walkovers_do_not():
     winner = matches[0]["player_one_id"]
     assert singles(club_id, winner)["verified_matches"] == 1
     assert singles(club_id, matches[1]["player_one_id"])["verified_matches"] == (1 if matches[1]["player_one_id"] in {matches[0]["player_one_id"], matches[0]["player_two_id"]} else 0)
+
+
+def test_reporter_cannot_partner_themselves():
+    _, club_id, (a, _b, c, d) = club_with_players()
+    response = request_error("POST", f"/v1/clubs/{club_id}/match-results", a, json={"kind": "doubles", "partner_id": a, "opponent_ids": [c, d], "score_text": "6-1 6-1"})
+    assert response.status_code == 422
+
+
+def test_private_players_are_anonymised_in_match_lists():
+    owner, club_id, (a, b, c, _d) = club_with_players()
+    request("PUT", f"/v1/clubs/{club_id}/players/me", b, json={"display_name": "Hidden B", "visibility": "private"})
+    result = report(club_id, a, [b])
+    request("POST", f"/v1/match-results/{result['id']}/confirm", b)
+    seen_by_other = request("GET", f"/v1/clubs/{club_id}/players/{a}", c)["recent_matches"][0]
+    assert seen_by_other["side_two"][0]["display_name"] == "Private player"
+    seen_by_staff = request("GET", f"/v1/clubs/{club_id}/players/{a}", owner)["recent_matches"][0]
+    assert seen_by_staff["side_two"][0]["user_id"] == b
