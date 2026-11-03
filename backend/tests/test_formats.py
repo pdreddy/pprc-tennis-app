@@ -199,3 +199,19 @@ def test_dutch_order_pairs_top_half_against_bottom_half():
 def test_buchholz_sums_opponent_points():
     results = [("a", "b", "a"), ("c", "d", "c"), ("a", "c", "a"), ("b", None, "b")]
     assert buchholz(results, {"a": 4, "b": 2, "c": 2, "d": 0}) == {"a": 4, "b": 4, "c": 4, "d": 2}
+
+
+def test_knockout_never_pairs_same_group_in_round_one():
+    from app.formats import elimination_rounds, knockout_seeds, separate_groups
+    qualifiers = [["A1", "A2"], ["B1", "B2"], ["C1", "C2"]]
+    group = {p: i for i, g in enumerate(qualifiers) for p in g}
+    plain = elimination_rounds(knockout_seeds(qualifiers))[0]
+    assert any(a and b and group[a] == group[b] for a, b in plain)  # the old draw had C1 v C2
+    fixed = separate_groups(knockout_seeds(qualifiers), group)
+    first = elimination_rounds(fixed)[0]
+    assert not any(a and b and group[a] == group[b] for a, b in first)
+    assert fixed[:3] == ["A1", "B1", "C1"]  # group winners keep the top seeds
+    four = [["A1", "A2", "A3"], ["B1", "B2", "B3"], ["C1", "C2", "C3"], ["D1", "D2", "D3"]]
+    g4 = {p: i for i, g in enumerate(four) for p in g}
+    assert not any(a and b and g4[a] == g4[b] for a, b in elimination_rounds(separate_groups(knockout_seeds(four), g4))[0])
+    assert separate_groups(["X1", "X2"], {"X1": 0, "X2": 0}) == ["X1", "X2"]  # unavoidable: unchanged

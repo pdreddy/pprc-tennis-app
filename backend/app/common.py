@@ -27,6 +27,9 @@ async def notify(session: AsyncSession, club_id: UUID, user_id: str, kind: str, 
 
 
 async def require_role(session: AsyncSession, club_id: UUID, actor: str, roles: set[MembershipRole]) -> Membership:
+    from .rating_service import ratings_settled  # late import: rating_service imports this module
+
+    await ratings_settled(club_id)
     membership = await session.scalar(select(Membership).where(Membership.club_id == club_id, Membership.user_id == actor))
     if membership is None or membership.role not in roles:
         raise HTTPException(status_code=403, detail="Club role is not permitted")

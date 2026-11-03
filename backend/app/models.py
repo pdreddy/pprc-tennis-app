@@ -81,6 +81,7 @@ class Club(Timestamped, Base):
     name: Mapped[str] = mapped_column(String(160))
     sport: Mapped[str] = mapped_column(String(40), default="tennis")
     challenge_expiry_days: Mapped[int] = mapped_column(Integer, default=7, server_default="7")
+    challenge_expiry_restarts: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")  # False: count from when it was sent
 
 
 class Membership(Timestamped, Base):

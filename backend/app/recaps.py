@@ -216,6 +216,15 @@ async def weekly_scheduler(stop: asyncio.Event) -> None:
                         logger.info("challenges %s: %s", club_id, done)
         except Exception:
             logger.exception("challenge reminders failed")
+        try:
+            from .competitions import expire_all_ladders
+
+            async with SessionLocal() as session:
+                expired = await expire_all_ladders(session)
+                if expired:
+                    logger.info("ladder deadlines applied in %s division(s)", expired)
+        except Exception:
+            logger.exception("ladder expiry failed")
         if (now.weekday() == 0 or now.day == 1) and now.hour >= 8:
             try:
                 async with SessionLocal() as session:

@@ -19,6 +19,7 @@ from .formats import (
     group_count_for,
     group_label,
     knockout_seeds,
+    separate_groups,
     snake_groups,
     elimination_round_name,
     elimination_rounds,
@@ -505,7 +506,7 @@ async def advance_groups(division_id: UUID, payload: DrawGenerate, session: Asyn
         members = [e.user_id for e in entries if e.group_label == label]
         results = [(m.player_one_id, m.player_two_id, m.winner_id) for m in group_matches if m.round_name == f"group_{label}" and m.winner_id]
         qualifiers.append([row["subject_id"] for row in round_robin_table(members, results, ppw)][:advance])
-    seeds = knockout_seeds(qualifiers)
+    seeds = separate_groups(knockout_seeds(qualifiers), {p: i for i, group in enumerate(qualifiers) for p in group})
     if len(seeds) < 2:
         raise HTTPException(status_code=422, detail="At least two qualifiers are needed for the knockout")
     offset = max(m.round_number for m in group_matches)
@@ -800,6 +801,17 @@ async def expire_stale_challenges(session: AsyncSession, division: Division) -> 
         else:
             await audit(session, division.club_id, "system", "ladder.challenge_expired", "match", str(match.id))
             await session.delete(match)
+    return changed
+
+
+async def expire_all_ladders(session: AsyncSession) -> int:
+    """Background pass: apply every running ladder's challenge deadline without waiting for a page visit."""
+    ladders = (await session.scalars(select(Division).join(Event, Event.id == Division.event_id).where(Division.format == "ladder", Event.status.in_(OPEN_STATUSES)))).all()
+    changed = 0
+    for division in ladders:
+        if await expire_stale_challenges(session, division):
+            changed += 1
+            await session.commit()
     return changed
 
 

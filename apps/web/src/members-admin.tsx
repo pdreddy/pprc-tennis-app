@@ -75,16 +75,22 @@ function ChallengeSettings() {
         e.preventDefault();
         setMessage("");
         try {
-          const days = Number(new FormData(e.currentTarget).get("days"));
-          await saveChallengeSettings(days);
+          const form = new FormData(e.currentTarget);
+          const days = Number(form.get("days"));
+          const restarts = form.get("mode") === "restart";
+          await saveChallengeSettings(days, restarts);
           await qc.invalidateQueries({ queryKey: ["challenge-settings"] });
-          setMessage(`Saved · challenges expire after ${days} days`);
+          setMessage(`Saved · challenges expire ${days} days after ${restarts ? "the last suggested time" : "they were sent"}`);
         } catch (error) {
           setMessage((error as Error).message);
         }
       }}>
         <label htmlFor="expiry-days">Expire after</label>
-        <input id="expiry-days" name="days" type="number" min={3} max={30} defaultValue={q.data.challenge_expiry_days} key={q.data.challenge_expiry_days} className="pr-days-input" onChange={() => setMessage("")} data-testid="challenge-expiry-input" /> days
+        <input id="expiry-days" name="days" type="number" min={3} max={30} defaultValue={q.data.challenge_expiry_days} key={q.data.challenge_expiry_days} className="pr-days-input" onChange={() => setMessage("")} data-testid="challenge-expiry-input" /> days, counted from
+        <select name="mode" aria-label="Count expiry from" defaultValue={q.data.challenge_expiry_restarts ? "restart" : "sent"} key={String(q.data.challenge_expiry_restarts)} onChange={() => setMessage("")} data-testid="challenge-expiry-mode">
+          <option value="sent">when it was sent</option>
+          <option value="restart">each new suggested time</option>
+        </select>
         <button className="button secondary" data-testid="challenge-expiry-save">Save</button>
       </form>
       {message && <p role="status" data-testid="challenge-expiry-status">{message}</p>}

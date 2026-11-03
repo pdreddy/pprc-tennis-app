@@ -254,9 +254,9 @@ export const respondChallenge = (id: string, action: "accept" | "decline") => ap
 export const cancelChallenge = (id: string) => apiRequest<ApiChallenge>(`/v1/challenges/${id}/cancel`, { method: "POST" });
 export const reportChallenge = (id: string, input: { score_text?: string; outcome: string; match_format: string; i_won?: boolean; played_at?: string }) => apiRequest<ApiChallenge>(`/v1/challenges/${id}/result`, { method: "POST", body: JSON.stringify(input) });
 export const proposeChallengeTime = (id: string, proposed_at: string, message?: string) => apiRequest<ApiChallenge>(`/v1/challenges/${id}/propose`, { method: "POST", body: JSON.stringify({ proposed_at, message }) });
-export type ApiChallengeSettings = { challenge_expiry_days: number; reminder_after_days: number };
+export type ApiChallengeSettings = { challenge_expiry_days: number; challenge_expiry_restarts: boolean; reminder_after_days: number };
 export const getChallengeSettings = () => apiRequest<ApiChallengeSettings>(`/v1/clubs/${apiClubId}/challenge-settings`);
-export const saveChallengeSettings = (days: number) => apiRequest<ApiChallengeSettings>(`/v1/clubs/${apiClubId}/challenge-settings`, { method: "PUT", body: JSON.stringify({ challenge_expiry_days: days }) });
+export const saveChallengeSettings = (days: number, restarts: boolean) => apiRequest<ApiChallengeSettings>(`/v1/clubs/${apiClubId}/challenge-settings`, { method: "PUT", body: JSON.stringify({ challenge_expiry_days: days, challenge_expiry_restarts: restarts }) });
 export const getPublicHeadToHead = (a: string, b: string) => publicApiRequest<ApiHeadToHead>(`/v1/public/clubs/${apiClubSlug}/head-to-head/${encodeURIComponent(a)}/${encodeURIComponent(b)}`);
 export const getHeadToHead = (a: string, b: string) => apiRequest<ApiHeadToHead>(`/v1/clubs/${apiClubId}/head-to-head/${encodeURIComponent(a)}/${encodeURIComponent(b)}`);
 export const previewEmail = (type: EmailType, userId?: string) => apiRequest<ApiEmailPreview>(`/v1/clubs/${apiClubId}/emails/preview${query({ type, user_id: userId })}`);

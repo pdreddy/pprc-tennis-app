@@ -15,7 +15,7 @@ from .common import STAFF_ROLES, audit, notify
 from .database import get_session
 from .models import Club, DivisionEntry, Membership, MembershipRole, PlayerPreference, PlayerProfile, PlayerRating, RatedMatch, RatingHistory
 from .pprc_rating import FORMULA_VERSION, MAX_RATING, MIN_RATING, OUTCOMES, FORMAT_WEIGHTS, PROVISIONAL_MATCHES
-from .rating_service import milestones_for, recalculate_club, score_fields
+from .rating_service import milestones_for, ratings_settled, recalculate_club, request_recalculation, score_fields
 from .storage import get_object, put_object
 
 router = APIRouter()
@@ -62,6 +62,7 @@ class ReasonInput(BaseModel):
 
 
 async def membership(session: AsyncSession, club_id: UUID, user_id: str) -> Membership | None:
+    await ratings_settled(club_id)  # every club read starts here, so it sees finished ratings
     return await session.scalar(select(Membership).where(Membership.club_id == club_id, Membership.user_id == user_id))
 
 
@@ -273,6 +274,8 @@ async def get_player(club_id: UUID, user_id: str, session: AsyncSession = Depend
 async def get_public_player(slug: str, user_id: str, session: AsyncSession = Depends(get_session)) -> dict:
     """Privacy-safe public profile: only for players who chose public visibility."""
     club = await session.scalar(select(Club).where(Club.slug == slug))
+    if club:
+        await ratings_settled(club.id)
     profile = club and await session.scalar(select(PlayerProfile).where(PlayerProfile.club_id == club.id, PlayerProfile.user_id == user_id))
     if not profile or profile.visibility != "public":
         raise HTTPException(status_code=404, detail="Player not found")
@@ -411,6 +414,7 @@ async def club_rankings(
 @router.get("/v1/public/rankings")
 async def platform_rankings(kind: Kind = "singles", page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=100), session: AsyncSession = Depends(get_session)) -> dict:
     """Platform-wide ranking across clubs: public profiles and established ratings only."""
+    await ratings_settled()
     profiles = {(p.club_id, p.user_id): p for p in (await session.scalars(select(PlayerProfile).where(PlayerProfile.visibility == "public"))).all()}
     clubs = {c.id: c for c in (await session.scalars(select(Club))).all()}
     rows = [r for r in (await session.scalars(select(PlayerRating).where(PlayerRating.kind == kind, PlayerRating.verified_matches > 0))).all() if (r.club_id, r.user_id) in profiles]
@@ -507,7 +511,7 @@ async def confirm_result(result_id: UUID, session: AsyncSession = Depends(get_se
         raise HTTPException(status_code=403, detail="The opposing side must confirm this result")
     record.status, record.confirmed_by = "finalized", actor.user_id
     await session.flush()
-    await recalculate_club(session, record.club_id)
+    request_recalculation(session, record.club_id, record)
     await audit(session, record.club_id, actor.user_id, "result.confirmed", "rated_match", str(record.id))
     await session.commit()
     return match_view(record, await names_for(session, record.club_id))
@@ -543,7 +547,7 @@ async def finalize_result(result_id: UUID, payload: ResultCorrection, session: A
     for key, value in fields.items():
         setattr(record, key, value)
     await session.flush()
-    await recalculate_club(session, record.club_id)
+    request_recalculation(session, record.club_id, record)
     await audit(session, record.club_id, actor.user_id, action, "rated_match", str(record.id), payload.reason)
     await session.commit()
     return match_view(record, await names_for(session, record.club_id))
@@ -558,7 +562,7 @@ async def void_result(result_id: UUID, payload: ReasonInput, session: AsyncSessi
         raise HTTPException(status_code=403, detail="Only organizers can void a verified result")
     record.status, record.correction_reason = "cancelled", payload.reason
     await session.flush()
-    await recalculate_club(session, record.club_id)
+    request_recalculation(session, record.club_id, record)
     await audit(session, record.club_id, actor.user_id, "result.voided", "rated_match", str(record.id), payload.reason)
     await session.commit()
     return match_view(record, await names_for(session, record.club_id))

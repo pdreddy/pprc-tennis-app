@@ -255,3 +255,7 @@ Constants are at the top of `lib/rating.ts`.
 - Use Replicate webhooks instead of polling for long video reviews.
 - Doubles ratings, payments for event entry, and a mobile app (Expo) are natural next steps.
 - Keep your own branding: don't use UTR's name, logo or rating data.
+
+
+### Real sign-in browser tests
+`PPRC_PREVIEW_URL=<hosted preview origin> ./pprc.sh test-auth-ui` mints one-time sign-in tickets for the two `+clerk_test` users and runs `tests/auth.spec.ts` (player and club-admin flows).

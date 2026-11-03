@@ -1,18 +1,83 @@
 """PPRC Rating persistence: deterministic club-wide replay and competition result sync."""
 import asyncio
+import logging
 from collections import defaultdict
 from itertools import groupby
 from datetime import datetime, timezone
 from uuid import UUID
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, event, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
 
 from .common import notify
 from .models import PlayerPreference, PlayerProfile, PlayerRating, RatedMatch, RatingHistory
 from .pprc_rating import DEFAULT_START, FORMULA_VERSION, PROVISIONAL_MATCHES, RatedInput, clamp, is_rateable, parse_score, replay
 
 _locks: dict[UUID, asyncio.Lock] = defaultdict(asyncio.Lock)
+_dirty: set[UUID] = set()
+_workers: dict[UUID, asyncio.Task] = {}
+logger = logging.getLogger("uvicorn.error")
+
+
+def rateable(match: RatedMatch) -> bool:
+    return bool(match.side_one and match.side_two and match.winner_side in (1, 2) and is_rateable(match.outcome, match.games_one, match.games_two))
+
+
+def request_recalculation(session: AsyncSession, club_id: UUID, *matches: RatedMatch) -> None:
+    """Replay the club in the background once this session commits, so the request returns at once.
+
+    The `rated` flag of the given results is set now so the response is already accurate.
+    """
+    for match in matches:
+        if match.status == "finalized":
+            match.rated = rateable(match)
+    session.sync_session.info.setdefault("pprc_recalc", set()).add(club_id)
+
+
+@event.listens_for(Session, "after_commit")
+def _queue_after_commit(sync_session: Session) -> None:
+    clubs = sync_session.info.pop("pprc_recalc", None)
+    if clubs:
+        loop = asyncio.get_running_loop()
+        for club_id in clubs:
+            loop.call_soon(_start_worker, club_id)
+
+
+@event.listens_for(Session, "after_rollback")
+def _drop_after_rollback(sync_session: Session) -> None:
+    sync_session.info.pop("pprc_recalc", None)
+
+
+def _start_worker(club_id: UUID) -> None:
+    _dirty.add(club_id)
+    if club_id not in _workers:
+        _workers[club_id] = asyncio.get_running_loop().create_task(_worker(club_id))
+
+
+async def _worker(club_id: UUID) -> None:
+    """One worker per club; a burst of confirmations collapses into as few replays as possible."""
+    from .database import SessionLocal
+
+    try:
+        while club_id in _dirty:
+            _dirty.discard(club_id)
+            try:
+                async with SessionLocal() as session:
+                    await recalculate_club(session, club_id)
+                    await session.commit()
+            except Exception:
+                logger.exception("background rating recalculation failed for %s", club_id)
+    finally:
+        _workers.pop(club_id, None)
+
+
+async def ratings_settled(club_id: UUID | None = None) -> None:
+    """Wait for any pending replay (one club, or all) so reads never show half-updated ratings."""
+    current = asyncio.current_task()
+    tasks = [t for c, t in list(_workers.items()) if (club_id is None or c == club_id) and t is not current]
+    if tasks:
+        await asyncio.wait(tasks)
 
 
 def score_fields(score_text: str | None, outcome: str, winner_side: int | None) -> dict:
@@ -37,7 +102,7 @@ async def recalculate_club(session: AsyncSession, club_id: UUID) -> int:
         matches = list((await session.scalars(select(RatedMatch).where(RatedMatch.club_id == club_id, RatedMatch.status == "finalized"))).all())
         inputs = []
         for match in matches:
-            match.rated = bool(match.side_one and match.side_two and match.winner_side in (1, 2) and is_rateable(match.outcome, match.games_one, match.games_two))
+            match.rated = rateable(match)
             if match.rated:
                 inputs.append(RatedInput(str(match.id), match.kind, tuple(match.side_one), tuple(match.side_two), match.winner_side, match.games_one, match.games_two, match.match_format, match.played_at))
         result = replay(start, inputs, as_of=datetime.now(timezone.utc))
@@ -84,6 +149,7 @@ async def sync_triace_fixture(session: AsyncSession, fixture) -> None:
         if record is None:
             record = RatedMatch(club_id=fixture.club_id, source="triace", source_id=source_id, division_id=fixture.division_id)
             session.add(record)
+            existing[source_id] = record
         record.kind = "doubles" if len(home) == 2 else "singles"
         record.side_one, record.side_two = home, away
         record.score_text = f"{home_score}-{away_score}"
@@ -92,11 +158,11 @@ async def sync_triace_fixture(session: AsyncSession, fixture) -> None:
         record.winner_side, record.outcome = 1 if winner_one else 2, "completed"
         record.match_format = "tiebreak" if tiebreak else "pro_set"
         record.played_at, record.status = played_at, status
-    for source_id, record in existing.items():
+    for source_id, record in list(existing.items()):
         if source_id not in seen:
             record.status = "cancelled"
     await session.flush()
-    await recalculate_club(session, fixture.club_id)
+    request_recalculation(session, fixture.club_id, *existing.values())
 
 
 async def sync_competition_result(session: AsyncSession, club_id: UUID, division_id: UUID, match_id: UUID, side_one: list[str], side_two: list[str], *, winner_side: int, score_text: str | None, score_one: int | None, score_two: int | None, played_at: datetime | None, doubles: bool) -> None:
@@ -123,7 +189,7 @@ async def sync_competition_result(session: AsyncSession, club_id: UUID, division
     for key, value in fields.items():
         setattr(record, key, value)
     await session.flush()
-    await recalculate_club(session, club_id)
+    request_recalculation(session, club_id, record)
 
 
 RANK_THRESHOLDS = (10, 5, 3, 1)

@@ -23,6 +23,7 @@
 
 - 2026-06 round 6: challenge reminders (one nudge in-app + email after 2 quiet days) and auto-expiry after a club-configurable 3–30 days (Admin > Members & roles > Challenge settings; scheduler every 15 min + admin trigger); back-and-forth "Suggest another time"; rivalry share card (PNG/share sheet) + public head-to-head link (both players public, others anonymised); club admins auto opted in to weekly+monthly emails (ADMIN_EMAIL on join; existing admins updated); provider 429 mapped to friendly 429. Migration 012. One delivery-check email accepted by the provider for the owner address. 124 dev tests + iteration 5 preview suite (11/11) pass.
 
+- 2026-06 round 7: PPRC Rating replay moved to a per-club background worker after commit (results return immediately; every club read waits for a pending replay so it never shows half-updated ratings); ladder challenge deadlines applied by the 15-minute scheduler; groups+knockout draw swaps lower seeds so no first-round match pairs players from the same group; challenge expiry mode per club (default counts from sending; admins can switch to restart on each new suggested time, migration 013); Playwright real sign-in suite tests/auth.spec.ts + `./pprc.sh test-auth-ui` (5/5 on hosted preview). 126 dev tests + 58 hosted-preview tests pass.
+
 ## Backlog
-- P1: background worker for recalculation; admin UI to promote members; Playwright flows for Emergent sign-in (ticket based).
-- P2: ladder expiry background job; groups+knockout same-group R1 avoidance; split admin.tsx/player.tsx; Stripe live payments.
+- P2: split admin.tsx/player.tsx; Stripe live payments (on hold by user choice).

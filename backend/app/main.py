@@ -22,7 +22,7 @@ from .ratings import router as ratings_router
 from .members import router as members_router
 from .recaps import router as recaps_router
 from .challenges import router as challenges_router
-from .rating_service import sync_triace_fixture
+from .rating_service import ratings_settled, sync_triace_fixture
 from .models import (
     AuditLog,
     Base,
@@ -649,6 +649,7 @@ async def list_notifications(
     session: AsyncSession = Depends(get_session),
     actor: Actor = Depends(current_actor),
 ) -> list[Notification]:
+    await ratings_settled()  # milestone alerts are written by the background rating replay
     statement = select(Notification).where(Notification.user_id == actor.user_id)
     if unread_only:
         statement = statement.where(Notification.read_at.is_(None))

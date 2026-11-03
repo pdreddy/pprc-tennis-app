@@ -19,6 +19,7 @@ from .database import get_session
 from .emailer import send_email
 from .models import Challenge, Club, PlayerPreference, PlayerProfile, RatedMatch, RatingHistory
 from .members import require_club_admin
+from .rating_service import ratings_settled
 from .ratings import ResultInput, club_ratings, hidden_for, is_staff, membership, names_for, rating_view, report_result, require_member, visible
 
 logger = logging.getLogger("uvicorn.error")
@@ -51,6 +52,7 @@ class ProposeInput(BaseModel):
 
 class SettingsInput(BaseModel):
     challenge_expiry_days: int = Field(ge=3, le=30)
+    challenge_expiry_restarts: bool | None = None
 
 
 REMIND_AFTER = timedelta(days=2)
@@ -64,9 +66,14 @@ class ChallengeResult(BaseModel):
     played_at: datetime | None = None
 
 
-def challenge_view(c: Challenge, me: str, names: dict[str, str], result_status: str | None, expiry_days: int = 7) -> dict:
+def expiry_start(c: Challenge, restarts: bool) -> datetime | None:
+    return (c.last_action_at or c.created_at) if restarts else (c.created_at or c.last_action_at)
+
+
+def challenge_view(c: Challenge, me: str, names: dict[str, str], result_status: str | None, expiry: tuple[int, bool] = (7, False)) -> dict:
     other = c.opponent_id if c.challenger_id == me else c.challenger_id
-    started = c.last_action_at or c.created_at
+    expiry_days, restarts = expiry
+    started = expiry_start(c, restarts)
     return {
         "awaiting_you": c.status == "pending" and (c.awaiting_id or c.opponent_id) == me,
         "expires_at": started + timedelta(days=expiry_days) if c.status == "pending" and started else None,
@@ -116,8 +123,9 @@ async def load_challenge(session: AsyncSession, challenge_id: UUID, actor: Actor
     return c
 
 
-async def expiry_days(session: AsyncSession, club_id: UUID) -> int:
-    return (await session.scalar(select(Club.challenge_expiry_days).where(Club.id == club_id))) or 7
+async def expiry_days(session: AsyncSession, club_id: UUID) -> tuple[int, bool]:
+    row = (await session.execute(select(Club.challenge_expiry_days, Club.challenge_expiry_restarts).where(Club.id == club_id))).first()
+    return (row[0] or 7, bool(row[1])) if row else (7, False)
 
 
 async def respond_view(session: AsyncSession, c: Challenge, me: str) -> dict:
@@ -246,11 +254,12 @@ async def report_challenge_result(challenge_id: UUID, payload: ChallengeResult, 
 async def challenge_maintenance(session: AsyncSession, club_id: UUID, now: datetime | None = None) -> dict:
     """One gentle reminder after 2 quiet days; expire after the club's configured number of days."""
     now = now or datetime.now(timezone.utc)
-    days = await expiry_days(session, club_id)
+    days, restarts = await expiry_days(session, club_id)
     names = await names_for(session, club_id)
     reminded = expired = 0
     for c in (await session.scalars(select(Challenge).where(Challenge.club_id == club_id, Challenge.status == "pending"))).all():
-        started = c.last_action_at or c.created_at
+        started = expiry_start(c, restarts)
+        quiet_since = c.last_action_at or c.created_at
         waiting = c.awaiting_id or c.opponent_id
         other = c.challenger_id if waiting == c.opponent_id else c.opponent_id
         if now - started >= timedelta(days=days):
@@ -259,7 +268,7 @@ async def challenge_maintenance(session: AsyncSession, club_id: UUID, now: datet
                 await notify(session, club_id, u, "challenge", title, f"No answer within {days} days, so it was closed. Find another fair match in My matches.", {"challengeId": str(c.id), "link": "/me/matches"})
             expired += 1
             await session.commit()
-        elif c.reminded_at is None and now - started >= REMIND_AFTER:
+        elif c.reminded_at is None and now - quiet_since >= REMIND_AFTER:
             c.reminded_at = now
             name = names.get(other, "A club member")
             await notify(session, club_id, waiting, "challenge", f"Reminder: {name} is waiting", "Accept, decline or suggest another time before the challenge expires.", {"challengeId": str(c.id), "link": f"/me/matches?challenge={c.id}"})
@@ -272,7 +281,8 @@ async def challenge_maintenance(session: AsyncSession, club_id: UUID, now: datet
 @router.get("/v1/clubs/{club_id}/challenge-settings")
 async def get_challenge_settings(club_id: UUID, session: AsyncSession = Depends(get_session), actor: Actor = Depends(current_actor)) -> dict:
     await require_member(session, club_id, actor.user_id)
-    return {"challenge_expiry_days": await expiry_days(session, club_id), "reminder_after_days": REMIND_AFTER.days}
+    days, restarts = await expiry_days(session, club_id)
+    return {"challenge_expiry_days": days, "challenge_expiry_restarts": restarts, "reminder_after_days": REMIND_AFTER.days}
 
 
 @router.put("/v1/clubs/{club_id}/challenge-settings")
@@ -280,9 +290,11 @@ async def save_challenge_settings(club_id: UUID, payload: SettingsInput, session
     await require_club_admin(session, club_id, actor)
     club = await session.get(Club, club_id)
     club.challenge_expiry_days = payload.challenge_expiry_days
-    await audit(session, club_id, actor.user_id, "club.challenge_expiry", "club", str(club_id), str(payload.challenge_expiry_days))
+    if payload.challenge_expiry_restarts is not None:
+        club.challenge_expiry_restarts = payload.challenge_expiry_restarts
+    await audit(session, club_id, actor.user_id, "club.challenge_expiry", "club", str(club_id), f"{club.challenge_expiry_days} restarts={club.challenge_expiry_restarts}")
     await session.commit()
-    return {"challenge_expiry_days": club.challenge_expiry_days, "reminder_after_days": REMIND_AFTER.days}
+    return {"challenge_expiry_days": club.challenge_expiry_days, "challenge_expiry_restarts": bool(club.challenge_expiry_restarts), "reminder_after_days": REMIND_AFTER.days}
 
 
 @router.post("/v1/clubs/{club_id}/challenges/maintenance")
@@ -306,6 +318,7 @@ async def public_head_to_head(slug: str, player_a: str, player_b: str, session: 
     club = await session.scalar(select(Club).where(Club.slug == slug))
     if club is None:
         raise HTTPException(status_code=404, detail="Player not available")
+    await ratings_settled(club.id)
     public = set((await session.scalars(select(PlayerProfile.user_id).where(PlayerProfile.club_id == club.id, PlayerProfile.visibility == "public"))).all())
     members = set(await names_for(session, club.id))
     return await h2h(session, club.id, player_a, player_b, lambda p: p is not None and p.visibility == "public", members - public)

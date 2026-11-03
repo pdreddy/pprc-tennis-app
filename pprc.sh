@@ -134,6 +134,15 @@ case "${1:-help}" in
     PPRC_API_UI=1 PPRC_BASE_URL=http://127.0.0.1:5174 pnpm exec playwright test tests/rating.spec.ts || { stop_background rating-web; exit 1; }
     stop_background rating-web
     ;;
+  test-auth-ui)
+    # Real sign-in browser flows on the hosted preview, using one-time tickets for the +clerk_test users.
+    need pnpm
+    : "${PPRC_PREVIEW_URL:?Set PPRC_PREVIEW_URL to the hosted preview origin}"
+    tickets="$(mktemp)"
+    (cd backend/tests && python _mint_tickets.py) > "$tickets"
+    PPRC_TICKETS_JSON="$tickets" PPRC_BASE_URL="$PPRC_PREVIEW_URL" pnpm exec playwright test tests/auth.spec.ts || { rm -f "$tickets"; exit 1; }
+    rm -f "$tickets"
+    ;;
   *)
     cat <<'USAGE'
 Usage: ./pprc.sh <command>
@@ -144,6 +153,7 @@ Usage: ./pprc.sh <command>
   test-all          Run PWA/shared/backend build checks plus FastAPI syntax checks
   test-api          Apply local API migrations and run FastAPI black-box tests
   verify-local      Install dependencies and run all API, Firebase, browser, and static checks
+  test-auth-ui      Real sign-in browser flows on the hosted preview (needs PPRC_PREVIEW_URL)
   test-rating-ui    Run the PPRC Rating Playwright flows (players, rankings, results, ladder)
 USAGE
     ;;

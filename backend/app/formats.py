@@ -287,6 +287,36 @@ def group_label(index: int) -> str:
     return chr(ord("A") + index) if index < 26 else f"G{index + 1}"
 
 
+def separate_groups(seeds: list[str], group_of: dict[str, int]) -> list[str]:
+    """Swap lower seeds so no first-round knockout match pairs two players from the same group.
+
+    Top seeds keep their bracket lines; only the lower player of a clashing match moves. Left as-is when unavoidable.
+    """
+    size = 1
+    while size < len(seeds):
+        size *= 2
+    order = seed_positions(size)
+    pairs = [(order[i], order[i + 1]) for i in range(0, size, 2)]  # (higher seed, lower seed) numbers
+    out = list(seeds)
+    player = lambda n: out[n - 1] if n <= len(out) else None  # noqa: E731
+
+    def clash(top: int, low: int) -> bool:
+        a, b = player(top), player(low)
+        return a is not None and b is not None and group_of.get(a) == group_of.get(b)
+
+    for top, low in pairs:
+        if not clash(top, low):
+            continue
+        for other_top, other_low in sorted(pairs, key=lambda p: -p[1]):
+            if (other_top, other_low) == (top, low) or player(other_low) is None:
+                continue
+            out[low - 1], out[other_low - 1] = out[other_low - 1], out[low - 1]
+            if not clash(top, low) and not clash(other_top, other_low):
+                break
+            out[low - 1], out[other_low - 1] = out[other_low - 1], out[low - 1]
+    return out
+
+
 def knockout_seeds(qualifiers_by_group: list[list[str]]) -> list[str]:
     """Group winners first, then runners-up, and so on, so winners meet runners-up early."""
     seeds: list[str] = []
